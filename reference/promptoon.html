@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>PromToon — {{META_TITLE}}</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=Noto+Serif+KR:wght@400;600;700&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #0a0a0a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  font-family: 'Noto Serif KR', Georgia, serif;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+.phone-frame {
+  width: 390px;
+  height: 844px;
+  background: #000;
+  border-radius: 44px;
+  border: 3px solid #222;
+  overflow: hidden;
+  position: relative;
+  box-shadow: 0 0 80px rgba(0,0,0,0.8), 0 0 20px rgba(120,30,30,0.15);
+}
+.phone-frame::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 126px;
+  height: 34px;
+  background: #000;
+  border-radius: 0 0 20px 20px;
+  z-index: 200;
+}
+.phone-frame::after {
+  content: '';
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 134px;
+  height: 5px;
+  background: rgba(255,255,255,0.15);
+  border-radius: 3px;
+  z-index: 200;
+}
+
+.screen {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
+  opacity: 0;
+  transition: opacity 0.8s ease;
+  pointer-events: none;
+  overflow: hidden;
+}
+.screen.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ===== CUT 1: Hook ===== */
+#cut1 { cursor: pointer; background: #080808; }
+#cut1 .hook-bg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+#cut1 .hook-bg-fallback {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  color: rgba(255,255,255,0.1);
+  font-size: 13px;
+  text-align: center;
+  font-family: 'Noto Sans KR', sans-serif;
+}
+#cut1 .overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 60px 28px 90px;
+  background: linear-gradient(transparent, rgba(0,0,0,0.85));
+  opacity: 0;
+  transform: translateY(10px);
+  animation: fadeUp 1s ease 0.6s forwards;
+}
+#cut1 .hook-text {
+  color: #fff;
+  font-size: 17px;
+  line-height: 1.7;
+  font-family: 'Noto Sans KR', sans-serif;
+  font-weight: 400;
+  letter-spacing: -0.3px;
+  white-space: pre-line;
+}
+#cut1 .tap-hint {
+  margin-top: 16px;
+  color: rgba(255,255,255,0.35);
+  font-size: 12px;
+  font-family: 'Noto Sans KR', sans-serif;
+  letter-spacing: 0.5px;
+}
+#cut1 .pulse-ring {
+  position: absolute;
+  top: 45%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.1);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* ===== CUT 2: World ===== */
+#cut2 {
+  background: #050505;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+#cut2 .place-name {
+  font-family: 'Playfair Display', serif;
+  font-size: 28px;
+  color: rgba(255,255,255,0.85);
+  letter-spacing: 4px;
+  margin-bottom: 20px;
+  opacity: 0;
+  animation: fadeUp 1s ease 0.4s forwards;
+}
+#cut2 .tagline {
+  color: rgba(255,255,255,0.4);
+  font-size: 14px;
+  font-family: 'Noto Sans KR', sans-serif;
+  letter-spacing: 1px;
+  opacity: 0;
+  animation: fadeUp 1s ease 1.2s forwards;
+}
+#cut2 .scroll-hint {
+  margin-top: 48px;
+  color: rgba(255,255,255,0.2);
+  font-size: 11px;
+  font-family: 'Noto Sans KR', sans-serif;
+  opacity: 0;
+  animation: fadeUp 1s ease 2.4s forwards;
+  text-align: center;
+}
+#cut2 .scroll-line {
+  width: 1px;
+  height: 20px;
+  background: linear-gradient(rgba(255,255,255,0.3), transparent);
+  margin: 8px auto 0;
+  animation: scrollPulse 1.5s ease-in-out infinite;
+}
+
+/* ===== CUT 3: Narrative ===== */
+#cut3 {
+  background: #080808;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+#cut3::-webkit-scrollbar { display: none; }
+#cut3 .narrative-content {
+  padding-top: 0;
+  padding-bottom: 100px;
+}
+#cut3 .scene-header {
+  text-align: center;
+  padding: 40px 36px 8px;
+  color: rgba(255,255,255,0.4);
+  font-size: 13px;
+  letter-spacing: 2px;
+  font-family: 'Noto Sans KR', sans-serif;
+  opacity: 0;
+  animation: fadeUp 0.8s ease forwards;
+}
+#cut3 .narration {
+  padding: 0 36px;
+  margin-bottom: 16px;
+  color: rgba(255,255,255,0.75);
+  font-size: 15px;
+  line-height: 2;
+  white-space: pre-line;
+  opacity: 0;
+  animation: fadeUp 0.8s ease forwards;
+}
+#cut3 .scene-img {
+  width: 100%;
+  display: block;
+}
+#cut3 .scene-img-fallback {
+  width: 100%;
+  height: 200px;
+  background: linear-gradient(135deg, #1a1a2e 0%, #0f3460 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255,255,255,0.08);
+  font-size: 11px;
+  font-family: 'Noto Sans KR', sans-serif;
+}
+#cut3 .quote-box {
+  margin: 0 36px;
+  padding: 20px 24px;
+  background: rgba(245,240,232,0.04);
+  border-left: 2px solid rgba(122,48,64,0.5);
+  border-radius: 0 4px 4px 0;
+  color: rgba(255,240,220,0.7);
+  font-size: 13px;
+  line-height: 2;
+  white-space: pre-line;
+  opacity: 0;
+  animation: fadeUp 0.8s ease forwards;
+}
+#cut3 .quote-box .quote-title {
+  font-weight: 600;
+  color: rgba(255,240,220,0.85);
+  margin-bottom: 8px;
+  font-size: 13px;
+  letter-spacing: 1px;
+}
+#cut3 .emphasis-text {
+  font-size: 18px;
+  text-align: center;
+  color: rgba(255,255,255,0.9);
+  padding: 0 36px;
+  margin-bottom: 16px;
+  opacity: 0;
+  animation: fadeUp 0.8s ease forwards;
+}
+#cut3 .name-input-area {
+  padding: 0 36px;
+  margin-bottom: 24px;
+  opacity: 0;
+  animation: fadeUp 0.8s ease forwards;
+}
+#cut3 .name-input-area input {
+  width: 100%;
+  padding: 14px 20px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  color: rgba(255,255,255,0.85);
+  font-size: 15px;
+  font-family: 'Noto Serif KR', serif;
+  text-align: center;
+  outline: none;
+  transition: border-color 0.3s ease;
+}
+#cut3 .name-input-area input::placeholder {
+  color: rgba(255,255,255,0.2);
+  font-style: italic;
+}
+#cut3 .name-input-area input:focus {
+  border-color: rgba(122,48,64,0.5);
+}
+#cut3 .spacer { height: 48px; }
+#cut3 .next-btn {
+  text-align: center;
+  cursor: pointer;
+  padding: 40px 36px;
+  opacity: 0;
+  animation: fadeUp 0.8s ease 1s forwards;
+}
+#cut3 .next-btn .dots {
+  color: rgba(255,255,255,0.3);
+  font-size: 11px;
+  letter-spacing: 2px;
+  margin-bottom: 8px;
+}
+#cut3 .divider {
+  width: 100%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(122,48,64,0.4), transparent);
+  margin-bottom: 24px;
+}
+
+/* ===== CUT 4: Choice ===== */
+#cut4 {
+  background: #080808;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+#cut4 .voting-bg {
+  width: 100%;
+  height: 55%;
+  object-fit: cover;
+  object-position: center top;
+  display: block;
+  mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+}
+#cut4 .voting-bg-fallback {
+  width: 100%;
+  height: 55%;
+  background: linear-gradient(180deg, #1a1018 0%, #080808 100%);
+}
+#cut4 .choice-area {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 0 28px 60px;
+  background: linear-gradient(transparent, #080808 15%);
+}
+#cut4 .day-label {
+  color: rgba(255,255,255,0.35);
+  font-size: 11px;
+  letter-spacing: 3px;
+  text-align: center;
+  margin-bottom: 16px;
+  font-family: 'Noto Sans KR', sans-serif;
+  opacity: 0;
+  animation: fadeUp 0.6s ease 0.3s forwards;
+}
+#cut4 .scene-text {
+  color: rgba(255,255,255,0.65);
+  font-size: 14px;
+  line-height: 2;
+  text-align: center;
+  margin-bottom: 20px;
+  white-space: pre-line;
+  opacity: 0;
+  animation: fadeUp 0.8s ease 0.8s forwards;
+}
+#cut4 .question {
+  color: rgba(255,255,255,0.85);
+  font-size: 16px;
+  text-align: center;
+  margin-bottom: 24px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  opacity: 0;
+  animation: fadeUp 0.8s ease 1.6s forwards;
+  transition: color 0.8s ease;
+}
+#cut4 .question.faded { color: rgba(255,255,255,0.2); }
+#cut4 .choices {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  opacity: 0;
+  animation: fadeUp 0.8s ease 2.2s forwards;
+}
+#cut4 .choice-btn {
+  padding: 16px 20px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.5s ease;
+}
+#cut4 .choice-btn:hover {
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.15);
+}
+#cut4 .choice-btn.selected {
+  background: rgba(122,48,64,0.25);
+  border-color: rgba(122,48,64,0.6);
+  transform: scale(1.02);
+}
+#cut4 .choice-btn.dimmed {
+  opacity: 0.15;
+  pointer-events: none;
+}
+#cut4 .choice-label {
+  color: rgba(255,255,255,0.7);
+  font-size: 14px;
+  margin-bottom: 3px;
+  transition: color 0.5s ease;
+}
+#cut4 .choice-btn.selected .choice-label { color: rgba(255,220,220,0.9); }
+#cut4 .choice-sub {
+  color: rgba(255,255,255,0.3);
+  font-size: 11px;
+  font-family: 'Noto Sans KR', sans-serif;
+  transition: color 0.5s ease;
+}
+#cut4 .choice-btn.selected .choice-sub { color: rgba(255,200,200,0.5); }
+#cut4 .reaction {
+  text-align: center;
+  color: rgba(255,255,255,0.35);
+  font-size: 12px;
+  line-height: 2;
+  font-style: italic;
+  margin-top: 24px;
+  opacity: 0;
+  animation: fadeUp 1s ease 0.8s forwards;
+}
+
+/* ===== CUT 5: Interpretation + Movie Poster ===== */
+#cut5 {
+  background: #080808;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+#cut5::-webkit-scrollbar { display: none; }
+
+/* -- Interpretation Section -- */
+#cut5 .interp-section {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 60px 36px;
+  background: linear-gradient(180deg, #080808 0%, #0f0c08 100%);
+}
+#cut5 .interp-label {
+  text-align: center;
+  font-size: 11px;
+  letter-spacing: 4px;
+  color: rgba(255,255,255,0.3);
+  font-family: 'Noto Sans KR', sans-serif;
+  margin-bottom: 16px;
+  opacity: 0;
+  animation: fadeUp 1s ease 0.5s forwards;
+}
+#cut5 .interp-divider {
+  width: 40px;
+  height: 1px;
+  background: rgba(255,255,255,0.15);
+  margin: 0 auto 24px;
+  opacity: 0;
+  animation: fadeUp 1s ease 0.5s forwards;
+}
+#cut5 .interp-name {
+  text-align: center;
+  font-size: 13px;
+  color: rgba(255,255,255,0.25);
+  font-family: 'Noto Sans KR', sans-serif;
+  letter-spacing: 2px;
+  margin-bottom: 12px;
+  opacity: 0;
+  animation: fadeUp 1s ease 1s forwards;
+}
+#cut5 .interp-badge {
+  text-align: center;
+  margin-bottom: 36px;
+  opacity: 0;
+  animation: fadeUp 1s ease 1.8s forwards;
+}
+#cut5 .interp-badge span {
+  display: inline-block;
+  padding: 6px 18px;
+  border: 1px solid rgba(122,48,64,0.4);
+  border-radius: 20px;
+  font-size: 13px;
+  color: rgba(200,120,130,0.9);
+  letter-spacing: 2px;
+}
+#cut5 .interp-line {
+  color: rgba(255,255,255,0.7);
+  font-size: 14px;
+  line-height: 2;
+  text-align: center;
+  margin-bottom: 20px;
+  white-space: pre-line;
+  opacity: 0;
+}
+#cut5 .interp-line.v1 { animation: fadeUp 1s ease 2.8s forwards; }
+#cut5 .interp-line.v2 { animation: fadeUp 1s ease 3.3s forwards; }
+#cut5 .interp-line.v3 { animation: fadeUp 1s ease 3.8s forwards; }
+#cut5 .interp-line.v4 { animation: fadeUp 1s ease 4.3s forwards; }
+#cut5 .interp-footer {
+  margin-top: 28px;
+  opacity: 0;
+  animation: fadeUp 1.5s ease 5.5s forwards;
+}
+#cut5 .interp-footer-divider {
+  width: 100%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+  margin-bottom: 24px;
+}
+#cut5 .interp-footer-text {
+  text-align: center;
+  font-size: 11px;
+  color: rgba(255,255,255,0.25);
+  line-height: 2;
+  white-space: pre-line;
+  font-family: 'Noto Sans KR', sans-serif;
+}
+#cut5 .interp-scroll-hint {
+  text-align: center;
+  margin-top: 32px;
+  color: rgba(255,255,255,0.15);
+  font-size: 11px;
+  font-family: 'Noto Sans KR', sans-serif;
+  opacity: 0;
+  animation: fadeUp 1s ease 6.5s forwards;
+}
+
+/* -- Movie Poster Section -- */
+#cut5 .poster-section {
+  min-height: 100%;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+#cut5 .poster-bg {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+}
+#cut5 .poster-bg-fallback {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: linear-gradient(180deg, #1a1a2e 0%, #0a0a0a 100%);
+}
+#cut5 .poster-overlay {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: linear-gradient(
+    180deg,
+    rgba(0,0,0,0.2) 0%,
+    rgba(0,0,0,0.4) 40%,
+    rgba(0,0,0,0.85) 70%,
+    rgba(0,0,0,0.95) 100%
+  );
+}
+#cut5 .poster-content {
+  position: relative;
+  z-index: 1;
+  padding: 0 32px 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+#cut5 .poster-title-en {
+  font-family: 'Playfair Display', serif;
+  font-size: 12px;
+  color: rgba(255,255,255,0.4);
+  letter-spacing: 4px;
+  margin-bottom: 8px;
+}
+#cut5 .poster-title-ko {
+  font-family: 'Noto Sans KR', sans-serif;
+  font-size: 32px;
+  font-weight: 700;
+  color: #fff;
+  text-align: center;
+  line-height: 1.3;
+  letter-spacing: 2px;
+  white-space: pre-line;
+  margin-bottom: 4px;
+}
+#cut5 .poster-title-sub {
+  font-family: 'Playfair Display', serif;
+  font-size: 11px;
+  color: rgba(255,255,255,0.35);
+  letter-spacing: 6px;
+  margin-bottom: 24px;
+}
+#cut5 .poster-tagline {
+  font-family: 'Noto Serif KR', serif;
+  font-size: 15px;
+  color: rgba(255,255,255,0.9);
+  text-align: center;
+  line-height: 1.8;
+  letter-spacing: 0.5px;
+  margin-bottom: 16px;
+}
+#cut5 .poster-synopsis {
+  font-family: 'Noto Sans KR', sans-serif;
+  font-size: 11px;
+  color: rgba(255,255,255,0.35);
+  text-align: center;
+  letter-spacing: 0.5px;
+  line-height: 1.8;
+  margin-bottom: 24px;
+}
+#cut5 .poster-credit {
+  font-family: 'Noto Sans KR', sans-serif;
+  font-size: 10px;
+  color: rgba(255,255,255,0.3);
+  letter-spacing: 1px;
+  margin-bottom: 20px;
+}
+#cut5 .poster-buttons {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+#cut5 .btn-save {
+  padding: 10px 24px;
+  background: rgba(255,255,255,0.9);
+  color: #0a0a0a;
+  border: none;
+  border-radius: 24px;
+  font-size: 12px;
+  font-family: 'Noto Sans KR', sans-serif;
+  cursor: pointer;
+  letter-spacing: 1px;
+}
+#cut5 .btn-share {
+  padding: 10px 24px;
+  background: transparent;
+  color: rgba(255,255,255,0.7);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 24px;
+  font-size: 12px;
+  font-family: 'Noto Sans KR', sans-serif;
+  cursor: pointer;
+  letter-spacing: 1px;
+}
+#cut5 .poster-brand {
+  font-family: 'Noto Sans KR', sans-serif;
+  font-size: 9px;
+  color: rgba(255,255,255,0.15);
+  letter-spacing: 3px;
+}
+
+/* ===== Animations ===== */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes pulse {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0; }
+  50% { transform: translate(-50%, -50%) scale(1.5); opacity: 0.3; }
+}
+@keyframes inviteIn {
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes scrollPulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.8; }
+}
+
+@media (max-width: 420px) {
+  .phone-frame {
+    width: 100vw;
+    height: 100vh;
+    border-radius: 0;
+    border: none;
+  }
+  .phone-frame::before { display: none; }
+  .phone-frame::after { display: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="phone-frame">
+
+  <!-- CUT 1: Hook -->
+  <div id="cut1" class="screen active" onclick="goToCut(2)">
+    <div id="cut1-bg"></div>
+    <div class="overlay">
+      <div class="hook-text" id="hook-text"></div>
+      <div class="tap-hint" id="tap-hint"></div>
+    </div>
+    <div class="pulse-ring"></div>
+  </div>
+
+  <!-- CUT 2: World -->
+  <div id="cut2" class="screen" onclick="goToCut(3)">
+    <div class="place-name" id="place-name"></div>
+    <div class="tagline" id="tagline"></div>
+    <div class="scroll-hint">
+      스크롤
+      <div class="scroll-line"></div>
+    </div>
+  </div>
+
+  <!-- CUT 3: Narrative -->
+  <div id="cut3" class="screen">
+    <div class="narrative-content" id="narrative-content">
+      <!-- 동적 생성 -->
+    </div>
+  </div>
+
+  <!-- CUT 4: Choice -->
+  <div id="cut4" class="screen">
+    <div id="cut4-bg"></div>
+    <div class="choice-area">
+      <div class="day-label" id="day-label"></div>
+      <div class="scene-text" id="scene-text"></div>
+      <div class="question" id="question-text"></div>
+      <div class="choices" id="choices-container"></div>
+      <div id="reaction-text"></div>
+    </div>
+  </div>
+
+  <!-- CUT 5: Interpretation + Movie Poster -->
+  <div id="cut5" class="screen">
+    <!-- Interpretation (first view) -->
+    <div class="interp-section">
+      <div class="interp-label" id="interp-label"></div>
+      <div class="interp-divider"></div>
+      <div class="interp-name" id="interp-name"></div>
+      <div class="interp-badge"><span id="interp-badge"></span></div>
+      <div id="interp-lines"></div>
+      <div class="interp-footer">
+        <div class="interp-footer-divider"></div>
+        <div class="interp-footer-text" id="interp-footer-text"></div>
+      </div>
+      <div class="interp-scroll-hint">스크롤하여 포스터 보기 ↓</div>
+    </div>
+    <!-- Movie Poster (scroll down) -->
+    <div class="poster-section">
+      <div id="poster-bg-container"></div>
+      <div class="poster-overlay"></div>
+      <div class="poster-content">
+        <div class="poster-title-en" id="poster-title-en"></div>
+        <div class="poster-title-ko" id="poster-title-ko"></div>
+        <div class="poster-title-sub" id="poster-title-sub"></div>
+        <div class="poster-tagline" id="poster-tagline"></div>
+        <div class="poster-synopsis" id="poster-synopsis"></div>
+        <div class="poster-credit" id="poster-credit"></div>
+        <div class="poster-buttons" id="poster-buttons"></div>
+        <div class="poster-brand" id="poster-brand"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ============================
+// STORY DATA (JSON에서 주입)
+// ============================
+const STORY = {{STORY_JSON}};
+
+// ============================
+// State
+// ============================
+let selectedChoice = null;
+let userName = '';
+
+// ============================
+// Initialize
+// ============================
+function init() {
+  renderCut1();
+  renderCut2();
+  renderCut3();
+  renderCut4();
+  renderCut5();
+}
+
+// ============================
+// Cut 1: Hook
+// ============================
+function renderCut1() {
+  const cut = STORY.cuts[0];
+  const bgContainer = document.getElementById('cut1-bg');
+
+  if (cut.imageUrl) {
+    const img = document.createElement('img');
+    img.className = 'hook-bg';
+    img.src = cut.imageUrl;
+    img.alt = cut.imageDescription;
+    bgContainer.replaceWith(img);
+  } else {
+    bgContainer.className = 'hook-bg-fallback';
+    bgContainer.textContent = cut.imageDescription;
+  }
+
+  document.getElementById('hook-text').innerHTML = cut.hookText.replace(/\n/g, '<br>');
+  document.getElementById('tap-hint').textContent = cut.tapHint;
+}
+
+// ============================
+// Cut 2: World
+// ============================
+function renderCut2() {
+  const cut = STORY.cuts[1];
+  document.getElementById('place-name').textContent = cut.placeName;
+  document.getElementById('tagline').textContent = cut.tagline;
+}
+
+// ============================
+// Cut 3: Narrative
+// ============================
+function renderCut3() {
+  const cut = STORY.cuts[2];
+  const container = document.getElementById('narrative-content');
+  let html = '';
+  let delay = 0.2;
+
+  // Scene headers
+  cut.sceneHeaders.forEach((header, i) => {
+    const isFirst = i === 0 ? ' padding-top: 60px;' : '';
+    const isLast = i === cut.sceneHeaders.length - 1 ? ' margin-bottom: 0;' : '';
+    html += `<div class="scene-header" style="animation-delay:${delay}s;${isFirst}${isLast}">${header}</div>`;
+    delay += 0.2;
+  });
+
+  html += '<div class="spacer"></div>';
+  delay += 0.4;
+
+  // Scenes
+  cut.scenes.forEach(scene => {
+    switch (scene.type) {
+      case 'image':
+        if (scene.imageUrl) {
+          html += `<img class="scene-img" src="${scene.imageUrl}" alt="${scene.imageDescription}">`;
+        } else {
+          html += `<div class="scene-img-fallback">${scene.imageDescription}</div>`;
+        }
+        delay += 0.2;
+        break;
+
+      case 'narration':
+        html += `<div class="narration" style="animation-delay:${delay}s;">${scene.text}</div>`;
+        delay += 0.2;
+        break;
+
+      case 'quote':
+        html += `<div class="quote-box" style="animation-delay:${delay}s;">`;
+        if (scene.title) {
+          html += `<div class="quote-title">${scene.title}</div>`;
+        }
+        html += `<span class="quote-text">${scene.text}</span></div>`;
+        delay += 0.4;
+        html += '<div class="spacer"></div>';
+        break;
+
+      case 'emphasis':
+        html += `<div class="emphasis-text" style="animation-delay:${delay}s;">${scene.text}</div>`;
+        delay += 0.2;
+        break;
+
+      case 'nameInput':
+        html += `<div class="name-input-area" style="animation-delay:${delay}s;">`;
+        html += `<input type="text" id="name-input" placeholder="${scene.placeholder}" maxlength="20">`;
+        html += `</div>`;
+        delay += 0.2;
+        break;
+    }
+  });
+
+  // Next button
+  html += '<div class="spacer"></div>';
+  html += `<div class="next-btn" onclick="onNarrativeNext()">`;
+  html += `<div class="divider"></div>`;
+  html += `<div class="dots">${cut.nextButtonText}</div>`;
+  html += `</div>`;
+
+  container.innerHTML = html;
+
+  // Name input event
+  const nameInput = document.getElementById('name-input');
+  if (nameInput) {
+    nameInput.addEventListener('input', function() {
+      userName = this.value.trim();
+      updateUserNameReferences();
+    });
+  }
+}
+
+function updateUserNameReferences() {
+  // Update quote text that references {{userName}}
+  document.querySelectorAll('.quote-text').forEach(el => {
+    const original = el.getAttribute('data-original') || el.textContent;
+    if (!el.getAttribute('data-original')) {
+      el.setAttribute('data-original', original);
+    }
+    el.textContent = original.replace(/\{\{userName\}\}/g, userName || '___');
+  });
+}
+
+function onNarrativeNext() {
+  if (!userName) {
+    const nameInput = document.getElementById('name-input');
+    if (nameInput) {
+      nameInput.focus();
+      nameInput.style.borderColor = 'rgba(122,48,64,0.8)';
+      setTimeout(() => nameInput.style.borderColor = '', 1500);
+      return;
+    }
+  }
+  goToCut(4);
+}
+
+// ============================
+// Cut 4: Choice
+// ============================
+function renderCut4() {
+  const cut = STORY.cuts[3];
+  const bgContainer = document.getElementById('cut4-bg');
+
+  if (cut.imageUrl) {
+    const img = document.createElement('img');
+    img.className = 'voting-bg';
+    img.src = cut.imageUrl;
+    img.alt = cut.imageDescription;
+    bgContainer.replaceWith(img);
+  } else {
+    bgContainer.className = 'voting-bg-fallback';
+  }
+
+  document.getElementById('day-label').textContent = cut.dayLabel;
+  document.getElementById('scene-text').textContent = cut.sceneText;
+  document.getElementById('question-text').textContent = cut.question;
+
+  const choicesContainer = document.getElementById('choices-container');
+  cut.choices.forEach((choice, idx) => {
+    const btn = document.createElement('div');
+    btn.className = 'choice-btn';
+    btn.setAttribute('data-idx', idx);
+    btn.onclick = function() { selectChoice(idx, this); };
+    btn.innerHTML = `
+      <div class="choice-label">${choice.label}</div>
+      <div class="choice-sub">${choice.subtext}</div>
+    `;
+    choicesContainer.appendChild(btn);
+  });
+}
+
+function selectChoice(idx, el) {
+  if (selectedChoice !== null) return;
+  selectedChoice = idx;
+
+  const cut = STORY.cuts[3];
+  const ending = STORY.cuts[4];
+
+  // Highlight / dim
+  document.querySelectorAll('.choice-btn').forEach((btn, i) => {
+    if (i === idx) btn.classList.add('selected');
+    else btn.classList.add('dimmed');
+  });
+
+  document.getElementById('question-text').classList.add('faded');
+
+  // Reaction
+  const reactionDiv = document.getElementById('reaction-text');
+  reactionDiv.className = 'reaction';
+  reactionDiv.textContent = cut.choices[idx].reaction;
+
+  // Prepare interpretation + poster
+  const endingData = ending.endings[idx];
+
+  // Interpretation section
+  document.getElementById('interp-label').textContent = '당신이 선택해온 방식';
+  document.getElementById('interp-name').textContent = userName || '';
+  document.getElementById('interp-badge').textContent = endingData.typeBadge;
+
+  const linesContainer = document.getElementById('interp-lines');
+  linesContainer.innerHTML = '';
+  endingData.lines.forEach((line, i) => {
+    const div = document.createElement('div');
+    div.className = 'interp-line v' + (i + 1);
+    div.style.whiteSpace = 'pre-line';
+    div.textContent = line;
+    linesContainer.appendChild(div);
+  });
+
+  document.getElementById('interp-footer-text').textContent =
+    ending.poster.footerText || '이것은 게임의 결과가 아닙니다.\n당신이 선택해온 방식의 기록입니다.';
+
+  // Poster section
+  document.getElementById('poster-tagline').textContent = endingData.posterTagline;
+  document.getElementById('poster-credit').textContent =
+    ending.poster.credit.replace('{{userName}}', userName || '___') + '  ' + ending.brandText;
+
+  setTimeout(() => goToCut(5), 2800);
+}
+
+// ============================
+// Cut 5: Ending
+// ============================
+function renderCut5() {
+  const cut = STORY.cuts[4];
+  const poster = cut.poster;
+
+  // Background image
+  const bgContainer = document.getElementById('poster-bg-container');
+  if (poster.imageUrl) {
+    const img = document.createElement('img');
+    img.className = 'poster-bg';
+    img.src = poster.imageUrl;
+    img.alt = poster.imageDescription;
+    bgContainer.replaceWith(img);
+  } else {
+    bgContainer.className = 'poster-bg-fallback';
+  }
+
+  // Titles
+  document.getElementById('poster-title-en').textContent = poster.titleEn;
+  document.getElementById('poster-title-ko').textContent = poster.titleKo;
+  document.getElementById('poster-title-sub').textContent = '── ' + poster.titleEn + ' ──';
+  document.getElementById('poster-synopsis').textContent = poster.synopsis;
+  document.getElementById('poster-brand').textContent = cut.brandText;
+
+  // Buttons
+  const buttonsContainer = document.getElementById('poster-buttons');
+  if (cut.buttons[0]) {
+    buttonsContainer.innerHTML += `<button class="btn-save">${cut.buttons[0]}</button>`;
+  }
+  if (cut.buttons[1]) {
+    buttonsContainer.innerHTML += `<button class="btn-share">${cut.buttons[1]}</button>`;
+  }
+}
+
+// ============================
+// Navigation
+// ============================
+function goToCut(n) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  const target = document.getElementById('cut' + n);
+  target.classList.add('active');
+
+  // 포스터 엔딩은 어두운 배경 유지 — light 전환 없음
+}
+
+// ============================
+// Start
+// ============================
+init();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,3 @@
+ALTER TABLE promptoon_cut
+  ADD COLUMN IF NOT EXISTS start_effect TEXT NOT NULL DEFAULT 'none',
+  ADD COLUMN IF NOT EXISTS end_effect TEXT NOT NULL DEFAULT 'none';

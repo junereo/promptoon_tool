@@ -1,0 +1,77 @@
+import { describe, expect, it } from 'vitest';
+
+import { createChoiceSchema, createCutSchema, patchCutSchema } from '../src/modules/promptoon-authoring/promptoon.schemas';
+
+describe('promptoon cut schemas', () => {
+  it('accepts known cut effect values', () => {
+    const result = createCutSchema.safeParse({
+      kind: 'scene',
+      title: 'Intro',
+      startEffect: 'fade',
+      endEffect: 'zoom-out'
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects unknown cut effect values', () => {
+    const result = patchCutSchema.safeParse({
+      startEffect: 'blur'
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts structured content blocks and effect durations', () => {
+    const cutResult = createCutSchema.safeParse({
+      kind: 'scene',
+      title: 'Intro',
+      startEffectDurationMs: 500,
+      endEffectDurationMs: 750,
+      contentBlocks: [
+        {
+          id: 'block-1',
+          type: 'heading',
+          text: '안녕하세요',
+          textAlign: 'center',
+          fontToken: 'display'
+        },
+        {
+          id: 'block-2',
+          type: 'nameInput',
+          placeholder: '이름',
+          maxLength: 20,
+          required: true,
+          bindingKey: 'userName'
+        }
+      ]
+    });
+    const choiceResult = createChoiceSchema.safeParse({
+      label: '다음으로',
+      afterSelectReactionText: '잠시만요'
+    });
+
+    expect(cutResult.success).toBe(true);
+    expect(choiceResult.success).toBe(true);
+  });
+
+  it('rejects invalid font tokens and out-of-range effect durations', () => {
+    const cutResult = patchCutSchema.safeParse({
+      contentBlocks: [
+        {
+          id: 'block-1',
+          type: 'narration',
+          text: '본문',
+          textAlign: 'left',
+          fontToken: 'mono'
+        }
+      ]
+    });
+    const choiceResult = patchCutSchema.safeParse({
+      endEffectDurationMs: 20001
+    });
+
+    expect(cutResult.success).toBe(false);
+    expect(choiceResult.success).toBe(false);
+  });
+});

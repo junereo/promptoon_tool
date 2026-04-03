@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: promptoon_postgres
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-promptoon_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-promptoon_password}
+      POSTGRES_DB: ${POSTGRES_DB:-promptoon_db}
+      TZ: Asia/Seoul
+    volumes:
+      - ./.data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-promptoon_user} -d ${POSTGRES_DB:-promptoon_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
