@@ -247,13 +247,35 @@ maybeDescribe('promptoon api integration', () => {
 
   it('uploads an image asset and returns a served asset URL', async () => {
     const auth = await registerUser();
-    const response = await withAuth(request(app).post('/api/promptoon/assets'), auth.token).attach('file', Buffer.from('fake image bytes'), {
-      filename: 'cover.png',
-      contentType: 'image/png'
-    });
+    const project = await withAuth(request(app).post('/api/promptoon/projects'), auth.token).send({ title: 'Upload Project' });
+    const response = await withAuth(request(app).post(`/api/promptoon/projects/${project.body.id}/assets`), auth.token).attach(
+      'file',
+      Buffer.from('fake image bytes'),
+      {
+        filename: 'cover.png',
+        contentType: 'image/png'
+      }
+    );
 
     expect(response.status).toBe(201);
-    expect(response.body.assetUrl).toMatch(/^\/uploads\/.+\.png$/);
+    expect(response.body.assetUrl).toMatch(new RegExp(`^/uploads/\\d{4}/\\d{2}/\\d{2}/${project.body.id}/cover-\\d+\\.png$`));
+  });
+
+  it('rejects uploads to projects owned by another user', async () => {
+    const owner = await registerUser();
+    const intruder = await registerUser();
+    const project = await withAuth(request(app).post('/api/promptoon/projects'), owner.token).send({ title: 'Private Upload Project' });
+
+    const response = await withAuth(request(app).post(`/api/promptoon/projects/${project.body.id}/assets`), intruder.token).attach(
+      'file',
+      Buffer.from('fake image bytes'),
+      {
+        filename: 'cover.png',
+        contentType: 'image/png'
+      }
+    );
+
+    expect(response.status).toBe(403);
   });
 
   it('blocks writes to projects owned by another user', async () => {

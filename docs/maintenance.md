@@ -112,3 +112,11 @@ pnpm --filter @promptoon/web test
 3. **마이그레이션 에러**:
     - DB 컨테이너가 정상 구동 중인지 `docker ps`로 확인하세요.
     - DB 계정 (`promptoon_user`, `promptoon_password`) 등 `.env`의 접속 정보가 `docker-compose.yml` 환경과 일치하는지 점검하세요.
+
+4. **이미지 업로드 시 `EACCES` 권한 오류**:
+    - 루트 `.data` 디렉터리가 `root` 소유일 경우 새 업로드 디렉터리를 만들지 못할 수 있습니다.
+    - 현재 API는 우선 루트 `.data/uploads`를 사용하고, 권한이 없으면 자동으로 `apps/api/.data/uploads`로 폴백합니다.
+    - 루트 경로를 계속 쓰고 싶다면 소유권을 현재 사용자로 변경하세요.
+```bash
+sudo chown -R "$USER:$USER" .data
+```

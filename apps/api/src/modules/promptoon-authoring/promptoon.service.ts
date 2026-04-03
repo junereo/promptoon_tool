@@ -27,7 +27,6 @@ import type {
   ValidateEpisodeResponse
 } from '@promptoon/shared';
 import { DEFAULT_CONTENT_VIEW_MODE, DEFAULT_CUT_EFFECT_DURATION_MS, deriveCutBody, getNormalizedCutContentBlocks } from '@promptoon/shared';
-import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -35,6 +34,7 @@ import type { PoolClient } from 'pg';
 
 import { db, withTransaction } from '../../db';
 import { HttpError } from '../../lib/http-error';
+import { resolveFromApiRoot, resolveFromWorkspaceRoot } from '../../lib/workspace-paths';
 import * as repository from './promptoon.repository';
 import { validateEpisodeGraph } from './promptoon.validators';
 
@@ -233,7 +233,64 @@ function trimTrailingSlash(value: string): string {
 }
 
 function getUploadsDirectory(): string {
-  return path.resolve(process.cwd(), '.data/uploads');
+  return resolveFromWorkspaceRoot('.data/uploads');
+}
+
+function getLegacyUploadsDirectory(): string {
+  return resolveFromApiRoot('.data/uploads');
+}
+
+function isWritablePathError(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && ['EACCES', 'EPERM', 'EROFS'].includes(String(error.code));
+}
+
+async function writeUploadFile(relativeDirectory: string, fileName: string, buffer: Buffer): Promise<void> {
+  const directoryCandidates = [path.join(getUploadsDirectory(), relativeDirectory), path.join(getLegacyUploadsDirectory(), relativeDirectory)];
+  let lastError: unknown = null;
+
+  for (const uploadsDirectory of directoryCandidates) {
+    try {
+      await mkdir(uploadsDirectory, { recursive: true });
+      await writeFile(path.join(uploadsDirectory, fileName), buffer);
+
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!isWritablePathError(error)) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+function sanitizeUploadBaseName(fileName: string): string {
+  const extension = path.extname(fileName);
+  const baseName = path.basename(fileName, extension).trim();
+  const sanitized = baseName
+    .replace(/[^a-zA-Z0-9_-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 40);
+
+  return sanitized || 'image';
+}
+
+function padDatePart(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
+function getDatedUploadSegments(now: Date): [string, string, string] {
+  return [String(now.getFullYear()), padDatePart(now.getMonth() + 1), padDatePart(now.getDate())];
+}
+
+function buildProjectUploadFileName(file: Express.Multer.File, now: Date): string {
+  return `${sanitizeUploadBaseName(file.originalname)}-${now.getTime()}${getUploadExtension(file)}`;
+}
+
+function buildAssetUrl(projectId: string, fileName: string, now: Date): string {
+  return path.posix.join('/uploads', ...getDatedUploadSegments(now), projectId, fileName);
 }
 
 function getUploadExtension(file: Express.Multer.File): string {
@@ -325,7 +382,7 @@ function buildSharePageMeta(publish: Publish, endingCutId: string | undefined, b
 
 async function getBaseShareTemplate(): Promise<string> {
   try {
-    return await readFile(path.resolve(process.cwd(), 'apps/web/index.html'), 'utf8');
+    return await readFile(resolveFromWorkspaceRoot('apps/web/index.html'), 'utf8');
   } catch {
     return `<!doctype html>
 <html lang="ko">
@@ -767,19 +824,21 @@ export async function getLatestPublishedEpisode(episodeId: string, userId: strin
   return publish ? normalizePublish(publish) : null;
 }
 
-export async function uploadAsset(file: Express.Multer.File): Promise<AssetUploadResponse> {
+export async function uploadAsset(projectId: string, file: Express.Multer.File, userId: string): Promise<AssetUploadResponse> {
+  await ensureProjectOwnedByUser(projectId, userId);
+
   if (!file.mimetype.startsWith('image/')) {
     throw new HttpError(400, 'Only image uploads are supported.');
   }
 
-  const uploadsDirectory = getUploadsDirectory();
-  const fileName = `${randomUUID()}${getUploadExtension(file)}`;
+  const now = new Date();
+  const relativeDirectory = path.join(...getDatedUploadSegments(now), projectId);
+  const fileName = buildProjectUploadFileName(file, now);
 
-  await mkdir(uploadsDirectory, { recursive: true });
-  await writeFile(path.join(uploadsDirectory, fileName), file.buffer);
+  await writeUploadFile(relativeDirectory, fileName, file.buffer);
 
   return {
-    assetUrl: `/uploads/${fileName}`
+    assetUrl: buildAssetUrl(projectId, fileName, now)
   };
 }
 

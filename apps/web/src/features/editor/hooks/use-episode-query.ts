@@ -183,8 +183,8 @@ export function useUpdateCut(episodeId: string) {
 }
 
 export function useUploadAsset() {
-  return useMutation<AssetUploadResponse, Error, File>({
-    mutationFn: (file) => promptoonService.uploadAsset(file)
+  return useMutation<AssetUploadResponse, Error, { projectId: string; file: File }>({
+    mutationFn: ({ projectId, file }) => promptoonService.uploadAsset(projectId, file)
   });
 }
 

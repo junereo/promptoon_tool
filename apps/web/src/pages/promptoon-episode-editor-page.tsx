@@ -255,7 +255,7 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
   }
 
   async function handleUploadAsset(file: File) {
-    const response = await uploadAsset.mutateAsync(file);
+    const response = await uploadAsset.mutateAsync({ projectId, file });
     return response.assetUrl;
   }
 

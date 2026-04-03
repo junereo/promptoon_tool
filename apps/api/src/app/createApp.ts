@@ -1,9 +1,9 @@
 import express from 'express';
 import type { Express } from 'express';
-import path from 'node:path';
 import { ZodError } from 'zod';
 
 import { isHttpError } from '../lib/http-error';
+import { resolveFromApiRoot, resolveFromWorkspaceRoot } from '../lib/workspace-paths';
 import { createAuthRouter } from '../modules/auth/auth.routes';
 import { createPromptoonRouter } from '../modules/promptoon-authoring/promptoon.routes';
 
@@ -12,7 +12,8 @@ export function createApp(): Express {
 
   app.set('trust proxy', true);
   app.use(express.json());
-  app.use('/uploads', express.static(path.resolve(process.cwd(), '.data/uploads')));
+  app.use('/uploads', express.static(resolveFromWorkspaceRoot('.data/uploads')));
+  app.use('/uploads', express.static(resolveFromApiRoot('.data/uploads')));
 
   app.get('/health', (_request, response) => {
     response.json({ ok: true });

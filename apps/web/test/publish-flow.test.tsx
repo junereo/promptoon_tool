@@ -22,6 +22,7 @@ let analyticsData: {
 const validateMutate = vi.fn<(_: string) => Promise<ValidateEpisodeResponse>>();
 const publishMutate = vi.fn<(_: { projectId: string; episodeId: string }) => Promise<Publish>>();
 const unpublishMutate = vi.fn<(_: { projectId: string; episodeId: string }) => Promise<void>>();
+const uploadMutate = vi.fn<(_: { projectId: string; file: File }) => Promise<{ assetUrl: string }>>();
 const updateCutMutate = vi.fn();
 const updateChoiceMutate = vi.fn();
 
@@ -69,7 +70,7 @@ vi.mock('../src/features/editor/hooks/use-episode-query', () => ({
     mutateAsync: vi.fn()
   }),
   useUploadAsset: () => ({
-    mutateAsync: vi.fn()
+    mutateAsync: uploadMutate
   }),
   useUpdateCut: () => ({
     isPending: false,
@@ -106,6 +107,7 @@ beforeEach(() => {
   validateMutate.mockReset();
   publishMutate.mockReset();
   unpublishMutate.mockReset();
+  uploadMutate.mockReset();
   updateCutMutate.mockReset();
   updateChoiceMutate.mockReset();
   draftResponse = {
@@ -327,6 +329,30 @@ describe('publish flow', () => {
     expect(screen.getByText('1,250')).toBeTruthy();
     expect(screen.getByText('840')).toBeTruthy();
     expect(screen.getByText('65.4%')).toBeTruthy();
+  });
+
+  it('uploads images with the current project id', async () => {
+    uploadMutate.mockResolvedValue({
+      assetUrl: '/uploads/2026/04/03/project-1/cover-1234.png'
+    });
+
+    const { container } = renderPage();
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['fake'], 'cover.png', { type: 'image/png' });
+
+    expect(fileInput).not.toBeNull();
+
+    await act(async () => {
+      fireEvent.change(fileInput, {
+        target: {
+          files: [file]
+        }
+      });
+    });
+
+    await waitFor(() => {
+      expect(uploadMutate).toHaveBeenCalledWith({ projectId: 'project-1', file });
+    });
   });
 });
 

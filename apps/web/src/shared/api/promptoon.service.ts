@@ -34,10 +34,10 @@ export const promptoonService = {
     return data;
   },
 
-  async uploadAsset(file: File): Promise<AssetUploadResponse> {
+  async uploadAsset(projectId: string, file: File): Promise<AssetUploadResponse> {
     const formData = new FormData();
     formData.append('file', file);
-    const { data } = await apiClient.post('/assets', formData);
+    const { data } = await apiClient.post(`/projects/${projectId}/assets`, formData);
     return data;
   },
 

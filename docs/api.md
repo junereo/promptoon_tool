@@ -21,6 +21,9 @@
 - `GET /projects`: 프로젝트 목록 조회
 - `POST /projects`: 새 프로젝트 생성
   - **Body**: `{ title: string, description?: string }`
+- `POST /projects/:projectId/assets`: 프로젝트 이미지 업로드
+  - `multipart/form-data`로 `file` 필드 전송
+  - 응답: `{ assetUrl: string }`
 - `POST /projects/:projectId/publish`: 프로젝트(특정 에피소드) 배포
   - **Body**: `{ episodeId: string }`
 

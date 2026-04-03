@@ -80,12 +80,14 @@ export function createPromptoonRouter(): Router {
     response.json(await service.listProjects(getRequiredAuthUser(request).sub));
   }));
 
-  protectedRouter.post('/assets', upload.single('file'), asyncHandler(async (request, response) => {
+  protectedRouter.post('/projects/:projectId/assets', upload.single('file'), asyncHandler(async (request, response) => {
     if (!request.file) {
       throw new HttpError(400, 'Image file is required.');
     }
 
-    response.status(201).json(await service.uploadAsset(request.file));
+    response.status(201).json(
+      await service.uploadAsset(getParam(request.params.projectId, 'projectId'), request.file, getRequiredAuthUser(request).sub)
+    );
   }));
 
   protectedRouter.get('/analytics/episodes/:episodeId', asyncHandler(async (request, response) => {
