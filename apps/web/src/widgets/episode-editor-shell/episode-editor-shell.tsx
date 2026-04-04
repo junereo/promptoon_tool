@@ -144,6 +144,7 @@ export function EpisodeEditorShell({
             cuts={orderedCuts}
             onCreateChoiceConnection={onCreateChoiceConnection}
             onConnectChoice={onConnectChoice}
+            onDeleteChoice={onDeleteChoice}
             onMoveCut={onMoveCut}
             onSelectChoice={onSelectChoice}
             onSelectCut={onSelectCut}

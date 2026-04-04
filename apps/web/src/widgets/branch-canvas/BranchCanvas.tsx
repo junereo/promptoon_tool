@@ -63,6 +63,7 @@ function BranchCanvasInner({
   onCreateChoiceConnection,
   cuts,
   onConnectChoice,
+  onDeleteChoice,
   onMoveCut,
   onSelectChoice,
   onSelectCut,
@@ -72,6 +73,7 @@ function BranchCanvasInner({
   onCreateChoiceConnection: (cutId: string, targetCutId: string) => void;
   cuts: Cut[];
   onConnectChoice: (choiceId: string, targetCutId: string) => void;
+  onDeleteChoice: (choiceId: string) => void;
   onMoveCut: (cutId: string, position: { x: number; y: number }) => void;
   onSelectChoice: (choiceId: string) => void;
   onSelectCut: (cutId: string) => void;
@@ -86,6 +88,28 @@ function BranchCanvasInner({
   useEffect(() => {
     setNodes(mapCutsToFlowNodes(cuts, choices, selected));
   }, [choices, cuts, selected, setNodes]);
+
+  useEffect(() => {
+    function isEditableTarget(target: EventTarget | null) {
+      if (!(target instanceof HTMLElement)) {
+        return false;
+      }
+
+      return target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key !== 'Delete' || selected.type !== 'choice' || isEditableTarget(event.target)) {
+        return;
+      }
+
+      event.preventDefault();
+      onDeleteChoice(selected.id);
+    }
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onDeleteChoice, selected]);
 
   useEffect(() => {
     if (cuts.length === 0) {
@@ -190,6 +214,7 @@ function BranchCanvasInner({
   function handleEdgeClick(_event: React.MouseEvent, edge: Edge) {
     const choiceId = edge.id.replace(/^edge-/, '');
     onSelectChoice(choiceId);
+    canvasFrameRef.current?.focus();
     focusPoint(getEdgeCenter(edge, nodes));
   }
 
@@ -213,6 +238,7 @@ function BranchCanvasInner({
         className="relative h-[720px] min-h-[720px] flex-1 overflow-hidden rounded-[28px] border border-editor-border bg-[#121217]"
         data-testid="branch-canvas"
         ref={canvasFrameRef}
+        tabIndex={0}
       >
         {cuts.length === 0 ? (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#121217] text-center text-zinc-500">
@@ -264,6 +290,7 @@ export function BranchCanvas(props: {
   onCreateChoiceConnection: (cutId: string, targetCutId: string) => void;
   cuts: Cut[];
   onConnectChoice: (choiceId: string, targetCutId: string) => void;
+  onDeleteChoice: (choiceId: string) => void;
   onMoveCut: (cutId: string, position: { x: number; y: number }) => void;
   onSelectChoice: (choiceId: string) => void;
   onSelectCut: (cutId: string) => void;
