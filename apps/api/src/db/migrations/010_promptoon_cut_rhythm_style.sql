@@ -1,0 +1,3 @@
+ALTER TABLE promptoon_cut
+  ADD COLUMN IF NOT EXISTS edge_fade TEXT NOT NULL DEFAULT 'none',
+  ADD COLUMN IF NOT EXISTS margin_bottom_token TEXT NOT NULL DEFAULT 'none';

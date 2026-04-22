@@ -74,6 +74,11 @@ export const promptoonService = {
     return data;
   },
 
+  async updatePublishedEpisode(projectId: string, episodeId: string): Promise<Publish> {
+    const { data } = await apiClient.post(`/projects/${projectId}/publish/update`, { episodeId });
+    return data;
+  },
+
   async unpublishEpisode(projectId: string, episodeId: string): Promise<void> {
     await apiClient.post(`/projects/${projectId}/unpublish`, { episodeId });
   },

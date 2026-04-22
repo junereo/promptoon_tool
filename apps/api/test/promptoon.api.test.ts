@@ -195,6 +195,9 @@ maybeDescribe('promptoon api integration', () => {
     expect(cut.body.endEffect).toBe('none');
     expect(cut.body.startEffectDurationMs).toBe(DEFAULT_CUT_EFFECT_DURATION_MS);
     expect(cut.body.endEffectDurationMs).toBe(DEFAULT_CUT_EFFECT_DURATION_MS);
+    expect(cut.body.edgeFade).toBe('none');
+    expect(cut.body.edgeFadeIntensity).toBe('normal');
+    expect(cut.body.marginBottomToken).toBe('none');
     expect(cut.body.contentBlocks).toEqual([]);
   });
 
@@ -427,13 +430,19 @@ maybeDescribe('promptoon api integration', () => {
       title: 'Start',
       kind: 'scene',
       isStart: true,
+      edgeFade: 'bottom',
+      edgeFadeIntensity: 'strong',
+      marginBottomToken: 'xl',
       contentBlocks: [
         {
           id: 'publish-start',
           type: 'narration',
           text: '출발',
           textAlign: 'left',
-          fontToken: 'sans-kr'
+          fontToken: 'sans-kr',
+          lineHeightToken: 'loose',
+          marginTopToken: 'sm',
+          marginBottomToken: 'base'
         }
       ]
     });
@@ -467,6 +476,14 @@ maybeDescribe('promptoon api integration', () => {
     expect(publish.body.manifest.episode.status).toBe('published');
     expect(publish.body.manifest.cuts).toHaveLength(2);
     expect(publish.body.manifest.cuts.find((cut: { id: string }) => cut.id === startCut.body.id)?.contentBlocks).toHaveLength(1);
+    expect(publish.body.manifest.cuts.find((cut: { id: string }) => cut.id === startCut.body.id)?.edgeFade).toBe('bottom');
+    expect(publish.body.manifest.cuts.find((cut: { id: string }) => cut.id === startCut.body.id)?.edgeFadeIntensity).toBe('strong');
+    expect(publish.body.manifest.cuts.find((cut: { id: string }) => cut.id === startCut.body.id)?.marginBottomToken).toBe('xl');
+    expect(publish.body.manifest.cuts.find((cut: { id: string }) => cut.id === startCut.body.id)?.contentBlocks[0]).toMatchObject({
+      lineHeightToken: 'loose',
+      marginTopToken: 'sm',
+      marginBottomToken: 'base'
+    });
     expect(publish.body.manifest.cuts.find((cut: { id: string }) => cut.id === startCut.body.id)?.startEffectDurationMs).toBe(
       DEFAULT_CUT_EFFECT_DURATION_MS
     );

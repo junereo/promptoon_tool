@@ -30,6 +30,7 @@ export function FeedSlide({
             positionY: 0,
             choices: item.startChoices
           }}
+          disableCutBottomSpacing
           onChoiceClick={(choice) => onChoiceClick(choice.id)}
           showChoices
           showEndingActions={false}

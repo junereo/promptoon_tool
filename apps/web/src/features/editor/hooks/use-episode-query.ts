@@ -304,6 +304,23 @@ export function usePublishEpisode() {
   });
 }
 
+export function useUpdatePublishedEpisode() {
+  const queryClient = useQueryClient();
+
+  return useMutation<Publish, Error, { projectId: string; episodeId: string }>({
+    mutationFn: ({ projectId, episodeId }) => promptoonService.updatePublishedEpisode(projectId, episodeId),
+    onSuccess: async (publish, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: promptoonKeys.projects() }),
+        queryClient.invalidateQueries({ queryKey: promptoonKeys.episodeDraft(variables.episodeId) }),
+        queryClient.invalidateQueries({ queryKey: promptoonKeys.latestPublishedEpisode(variables.episodeId) }),
+        queryClient.invalidateQueries({ queryKey: promptoonKeys.publishedEpisode(publish.id) }),
+        queryClient.invalidateQueries({ queryKey: promptoonKeys.feed() })
+      ]);
+    }
+  });
+}
+
 export function useUnpublishEpisode() {
   const queryClient = useQueryClient();
 

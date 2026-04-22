@@ -21,10 +21,12 @@ let analyticsData: {
 };
 const validateMutate = vi.fn<(_: string) => Promise<ValidateEpisodeResponse>>();
 const publishMutate = vi.fn<(_: { projectId: string; episodeId: string }) => Promise<Publish>>();
+const updatePublishMutate = vi.fn<(_: { projectId: string; episodeId: string }) => Promise<Publish>>();
 const unpublishMutate = vi.fn<(_: { projectId: string; episodeId: string }) => Promise<void>>();
 const uploadMutate = vi.fn<(_: { projectId: string; file: File }) => Promise<{ assetUrl: string }>>();
 const updateCutMutate = vi.fn();
 const updateChoiceMutate = vi.fn();
+const queueCutPatch = vi.fn();
 
 vi.mock('../src/features/analytics/hooks/use-episode-analytics', () => ({
   useEpisodeAnalytics: () => ({
@@ -36,7 +38,7 @@ vi.mock('../src/features/analytics/hooks/use-episode-analytics', () => ({
 
 vi.mock('../src/features/editor/hooks/use-cut-autosave', () => ({
   useCutAutosave: () => ({
-    queueCutPatch: vi.fn()
+    queueCutPatch
   })
 }));
 
@@ -92,6 +94,10 @@ vi.mock('../src/features/editor/hooks/use-episode-query', () => ({
     isPending: false,
     mutateAsync: publishMutate
   }),
+  useUpdatePublishedEpisode: () => ({
+    isPending: false,
+    mutateAsync: updatePublishMutate
+  }),
   useUnpublishEpisode: () => ({
     isPending: false,
     mutateAsync: unpublishMutate
@@ -106,10 +112,12 @@ beforeEach(() => {
   useEditorStore.getState().resetForEpisode();
   validateMutate.mockReset();
   publishMutate.mockReset();
+  updatePublishMutate.mockReset();
   unpublishMutate.mockReset();
   uploadMutate.mockReset();
   updateCutMutate.mockReset();
   updateChoiceMutate.mockReset();
+  queueCutPatch.mockReset();
   draftResponse = {
     episode: {
       id: 'episode-1',
@@ -128,6 +136,7 @@ beforeEach(() => {
         kind: 'choice',
         title: 'Opening',
         body: 'Choose a route.',
+        contentBlocks: [],
         dialogAnchorX: 'left',
         dialogAnchorY: 'bottom',
         dialogOffsetX: 0,
@@ -152,6 +161,7 @@ beforeEach(() => {
         kind: 'ending',
         title: 'Ending',
         body: 'Done.',
+        contentBlocks: [],
         dialogAnchorX: 'left',
         dialogAnchorY: 'bottom',
         dialogOffsetX: 0,
@@ -236,6 +246,121 @@ describe('publish flow', () => {
     expect(screen.getByRole('button', { name: 'Save Order' }).className.includes('animate-bounce')).toBe(true);
   });
 
+  it('opens the script modal and disables apply for invalid JSON', async () => {
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Script' }));
+    const textarea = await screen.findByLabelText('Script JSON editor');
+
+    expect((textarea as HTMLTextAreaElement).value).toContain('"cutId": "cut-1"');
+
+    fireEvent.change(textarea, { target: { value: '{' } });
+
+    expect((screen.getByRole('button', { name: 'Apply' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/Fix JSON errors before applying/i)).toBeTruthy();
+    expect(screen.getByText(/Expected property name|Unexpected/i)).toBeTruthy();
+  });
+
+  it('loads script JSON from an uploaded file', async () => {
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Script' }));
+    const textarea = await screen.findByLabelText('Script JSON editor');
+    const input = screen.getByLabelText('Upload script JSON file') as HTMLInputElement;
+    const file = new File(
+      [
+        JSON.stringify([
+          {
+            cutId: 'cut-1',
+            cutTitle: 'Uploaded',
+            blocks: []
+          }
+        ])
+      ],
+      'script.json',
+      { type: 'application/json' }
+    );
+
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [file] } });
+    });
+
+    await waitFor(() => {
+      expect((textarea as HTMLTextAreaElement).value).toContain('"cutTitle":"Uploaded"');
+    });
+  });
+
+  it('applies valid script JSON through cut autosave patches and keeps unknown id warnings non-blocking', async () => {
+    draftResponse.cuts[0] = {
+      ...draftResponse.cuts[0],
+      body: 'Old line',
+      contentBlocks: [
+        {
+          id: 'dialogue-1',
+          type: 'dialogue',
+          speaker: 'Hero',
+          text: 'Old line',
+          textAlign: 'left',
+          fontToken: 'sans-kr',
+          fontSizeToken: 'lg',
+          placement: 'overlay'
+        }
+      ]
+    };
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Script' }));
+    const textarea = await screen.findByLabelText('Script JSON editor');
+    fireEvent.change(textarea, {
+      target: {
+        value: JSON.stringify(
+          [
+            {
+              cutId: 'cut-1',
+              cutTitle: 'Ignored title',
+              blocks: [
+                {
+                  blockId: 'dialogue-1',
+                  type: 'dialogue',
+                  speaker: 'Guide',
+                  text: 'New line'
+                },
+                {
+                  blockId: 'missing-block',
+                  type: 'dialogue',
+                  text: 'Skipped'
+                }
+              ]
+            }
+          ],
+          null,
+          2
+        )
+      }
+    });
+
+    expect(screen.getByText('Unknown blockId skipped in Opening: missing-block')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+
+    await waitFor(() => {
+      expect(queueCutPatch).toHaveBeenCalledWith('cut-1', {
+        body: 'New line',
+        contentBlocks: [
+          {
+            id: 'dialogue-1',
+            type: 'dialogue',
+            speaker: 'Guide',
+            text: 'New line',
+            textAlign: 'left',
+            fontToken: 'sans-kr',
+            fontSizeToken: 'lg',
+            placement: 'overlay'
+          }
+        ]
+      });
+    });
+  });
+
   it('renders validation issues in the modal', async () => {
     validateMutate.mockResolvedValue({
       isValid: false,
@@ -300,7 +425,7 @@ describe('publish flow', () => {
     expect(screen.getByText('Publish: v3 live')).toBeTruthy();
   });
 
-  it('unpublishes immediately when the episode is already published', async () => {
+  it('validates first and updates the existing publish when the episode is already published', async () => {
     draftResponse = {
       ...draftResponse,
       episode: {
@@ -308,16 +433,52 @@ describe('publish flow', () => {
         status: 'published'
       }
     };
-    unpublishMutate.mockResolvedValue(undefined);
-
-    renderPage();
-    fireEvent.click(screen.getByRole('button', { name: 'Unpublish' }));
-
-    await waitFor(() => {
-      expect(unpublishMutate).toHaveBeenCalledWith({ projectId: 'project-1', episodeId: 'episode-1' });
+    validateMutate.mockResolvedValue({
+      isValid: true,
+      errors: [],
+      warnings: []
+    });
+    updatePublishMutate.mockResolvedValue({
+      id: 'publish-existing',
+      projectId: 'project-1',
+      episodeId: 'episode-1',
+      versionNo: 2,
+      status: 'published',
+      manifest: {
+        project: {
+          id: 'project-1',
+          title: 'Project',
+          description: null,
+          thumbnailUrl: null,
+          status: 'published'
+        },
+        episode: {
+          id: 'episode-1',
+          title: 'Episode 1',
+          episodeNo: 1,
+          status: 'published',
+          startCutId: 'cut-1'
+        },
+        cuts: []
+      },
+      createdBy: 'user-1',
+      createdAt: new Date().toISOString()
     });
 
-    expect(validateMutate).not.toHaveBeenCalled();
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Update Publish' }));
+
+    expect(await screen.findByRole('button', { name: '바로 발행하기' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '바로 발행하기' }));
+
+    await waitFor(() => {
+      expect(updatePublishMutate).toHaveBeenCalledWith({ projectId: 'project-1', episodeId: 'episode-1' });
+    });
+
+    expect(validateMutate).toHaveBeenCalledWith('episode-1');
+    expect(publishMutate).not.toHaveBeenCalled();
+    expect(unpublishMutate).not.toHaveBeenCalled();
+    expect(await screen.findByText('Version 2 is now live.')).toBeTruthy();
   });
 
   it('switches to the analytics tab and renders summary cards', async () => {

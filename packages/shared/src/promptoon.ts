@@ -14,9 +14,14 @@ export type PromptoonDialogTextAlign = 'left' | 'center' | 'right';
 export type PromptoonContentTextAlign = 'left' | 'center' | 'right';
 export type PromptoonContentViewMode = 'default' | 'inverse';
 export type PromptoonFontToken = 'sans-kr' | 'serif-kr' | 'display';
+export type PromptoonFontSizeToken = 'sm' | 'base' | 'lg' | 'xl' | '2xl' | '3xl';
+export type PromptoonLineHeightToken = 'tight' | 'normal' | 'relaxed' | 'loose';
+export type PromptoonSpacingToken = 'none' | 'sm' | 'base' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl' | '6xl' | '7xl' | '8xl' | '9xl' | '10xl';
+export type PromptoonEdgeFade = 'none' | 'top' | 'bottom' | 'both';
+export type PromptoonEdgeFadeIntensity = 'soft' | 'normal' | 'strong';
 export type PromptoonContentBindingKey = 'userName';
 export type PromptoonContentPlacement = 'overlay' | 'flow';
-export type PromptoonContentBlockType = 'heading' | 'narration' | 'quote' | 'emphasis' | 'image' | 'nameInput';
+export type PromptoonContentBlockType = 'heading' | 'narration' | 'quote' | 'emphasis' | 'image' | 'nameInput' | 'dialogue';
 
 export type PromptoonProjectStatus = 'draft' | 'published';
 export type PromptoonEpisodeStatus = 'draft' | 'published';
@@ -27,16 +32,26 @@ export const DEFAULT_CUT_EFFECT_DURATION_MS = 320;
 export const MAX_CUT_EFFECT_DURATION_MS = 10000;
 export const DEFAULT_NAME_INPUT_MAX_LENGTH = 20;
 export const DEFAULT_CONTENT_FONT_TOKEN: PromptoonFontToken = 'sans-kr';
+export const DEFAULT_CONTENT_FONT_SIZE: PromptoonFontSizeToken = 'base';
 export const DEFAULT_CONTENT_TEXT_ALIGN: PromptoonContentTextAlign = 'left';
 export const DEFAULT_CONTENT_VIEW_MODE: PromptoonContentViewMode = 'default';
+export const DEFAULT_CONTENT_LINE_HEIGHT: PromptoonLineHeightToken = 'normal';
+export const DEFAULT_CONTENT_SPACING: PromptoonSpacingToken = 'none';
+export const DEFAULT_EDGE_FADE: PromptoonEdgeFade = 'none';
+export const DEFAULT_EDGE_FADE_INTENSITY: PromptoonEdgeFadeIntensity = 'normal';
 
 interface PromptoonTextContentBlockBase {
   id: string;
-  type: 'heading' | 'narration' | 'quote' | 'emphasis';
+  type: 'heading' | 'narration' | 'quote' | 'emphasis' | 'dialogue';
   text: string;
   textAlign: PromptoonContentTextAlign;
   fontToken: PromptoonFontToken;
   placement?: PromptoonContentPlacement;
+  fontSizeToken?: PromptoonFontSizeToken;
+  lineHeightToken?: PromptoonLineHeightToken;
+  marginTopToken?: PromptoonSpacingToken;
+  marginBottomToken?: PromptoonSpacingToken;
+  speaker?: string;
 }
 
 export interface PromptoonHeadingContentBlock extends PromptoonTextContentBlockBase {
@@ -54,6 +69,10 @@ export interface PromptoonQuoteContentBlock extends PromptoonTextContentBlockBas
 
 export interface PromptoonEmphasisContentBlock extends PromptoonTextContentBlockBase {
   type: 'emphasis';
+}
+
+export interface PromptoonDialogueContentBlock extends PromptoonTextContentBlockBase {
+  type: 'dialogue';
 }
 
 export interface PromptoonImageContentBlock {
@@ -77,6 +96,7 @@ export type CutContentBlock =
   | PromptoonNarrationContentBlock
   | PromptoonQuoteContentBlock
   | PromptoonEmphasisContentBlock
+  | PromptoonDialogueContentBlock
   | PromptoonImageContentBlock
   | PromptoonNameInputContentBlock;
 
@@ -124,6 +144,9 @@ export interface Cut {
   startEffectDurationMs: number;
   endEffectDurationMs: number;
   assetUrl: string | null;
+  edgeFade?: PromptoonEdgeFade;
+  edgeFadeIntensity?: PromptoonEdgeFadeIntensity;
+  marginBottomToken?: PromptoonSpacingToken;
   positionX: number;
   positionY: number;
   orderIndex: number;
@@ -249,6 +272,9 @@ export interface CreateCutRequest {
   startEffectDurationMs?: number;
   endEffectDurationMs?: number;
   assetUrl?: string | null;
+  edgeFade?: PromptoonEdgeFade;
+  edgeFadeIntensity?: PromptoonEdgeFadeIntensity;
+  marginBottomToken?: PromptoonSpacingToken;
   orderIndex?: number;
   positionX?: number;
   positionY?: number;
@@ -272,6 +298,9 @@ export interface PatchCutRequest {
   startEffectDurationMs?: number;
   endEffectDurationMs?: number;
   assetUrl?: string | null;
+  edgeFade?: PromptoonEdgeFade;
+  edgeFadeIntensity?: PromptoonEdgeFadeIntensity;
+  marginBottomToken?: PromptoonSpacingToken;
   orderIndex?: number;
   positionX?: number;
   positionY?: number;
@@ -362,6 +391,9 @@ export interface FeedItem {
     | 'endEffect'
     | 'startEffectDurationMs'
     | 'endEffectDurationMs'
+    | 'edgeFade'
+    | 'edgeFadeIntensity'
+    | 'marginBottomToken'
   >;
   startChoices: PublishManifest['cuts'][number]['choices'];
 }
@@ -391,6 +423,9 @@ export interface PublishManifest {
     startEffectDurationMs: number;
     endEffectDurationMs: number;
     assetUrl: string | null;
+    edgeFade?: PromptoonEdgeFade;
+    edgeFadeIntensity?: PromptoonEdgeFadeIntensity;
+    marginBottomToken?: PromptoonSpacingToken;
     positionX: number;
     positionY: number;
     orderIndex: number;
@@ -438,6 +473,7 @@ export function deriveCutBody(contentBlocks: CutContentBlock[], fallback = ''): 
         case 'heading':
         case 'narration':
         case 'emphasis':
+        case 'dialogue':
           return [block.text.trim()];
         case 'quote':
           return [block.title?.trim() ?? '', block.text.trim()];

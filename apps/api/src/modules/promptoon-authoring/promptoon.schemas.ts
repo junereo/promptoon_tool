@@ -5,7 +5,12 @@ const cutEffectSchema = z.enum(['none', 'fade', 'slide-left', 'slide-right', 'sl
 const contentViewModeSchema = z.enum(['default', 'inverse']);
 const contentTextAlignSchema = z.enum(['left', 'center', 'right']);
 const contentPlacementSchema = z.enum(['overlay', 'flow']);
+const fontSizeTokenSchema = z.enum(['sm', 'base', 'lg', 'xl', '2xl', '3xl']);
 const fontTokenSchema = z.enum(['sans-kr', 'serif-kr', 'display']);
+const lineHeightTokenSchema = z.enum(['tight', 'normal', 'relaxed', 'loose']);
+const spacingTokenSchema = z.enum(['none', 'sm', 'base', 'lg', 'xl', '2xl', '3xl', '4xl', '5xl', '6xl', '7xl', '8xl', '9xl', '10xl']);
+const edgeFadeSchema = z.enum(['none', 'top', 'bottom', 'both']);
+const edgeFadeIntensitySchema = z.enum(['soft', 'normal', 'strong']);
 const bindingKeySchema = z.enum(['userName']);
 const contentBlockBaseSchema = z.object({
   id: z.string().trim().min(1)
@@ -14,7 +19,12 @@ const textContentBlockSchema = contentBlockBaseSchema.extend({
   text: z.string(),
   textAlign: contentTextAlignSchema,
   fontToken: fontTokenSchema,
-  placement: contentPlacementSchema.optional()
+  placement: contentPlacementSchema.optional(),
+  fontSizeToken: fontSizeTokenSchema.optional(),
+  lineHeightToken: lineHeightTokenSchema.optional(),
+  marginTopToken: spacingTokenSchema.optional(),
+  marginBottomToken: spacingTokenSchema.optional(),
+  speaker: z.string().optional()
 });
 const headingContentBlockSchema = textContentBlockSchema.extend({
   type: z.literal('heading')
@@ -28,6 +38,9 @@ const quoteContentBlockSchema = textContentBlockSchema.extend({
 });
 const emphasisContentBlockSchema = textContentBlockSchema.extend({
   type: z.literal('emphasis')
+});
+const dialogueContentBlockSchema = textContentBlockSchema.extend({
+  type: z.literal('dialogue')
 });
 const imageContentBlockSchema = contentBlockBaseSchema.extend({
   type: z.literal('image'),
@@ -46,6 +59,7 @@ const contentBlockSchema = z.discriminatedUnion('type', [
   narrationContentBlockSchema,
   quoteContentBlockSchema,
   emphasisContentBlockSchema,
+  dialogueContentBlockSchema,
   imageContentBlockSchema,
   nameInputContentBlockSchema
 ]);
@@ -77,6 +91,9 @@ export const createCutSchema = z.object({
   startEffectDurationMs: cutEffectDurationSchema.optional(),
   endEffectDurationMs: cutEffectDurationSchema.optional(),
   assetUrl: z.string().trim().nullable().optional(),
+  edgeFade: edgeFadeSchema.optional(),
+  edgeFadeIntensity: edgeFadeIntensitySchema.optional(),
+  marginBottomToken: spacingTokenSchema.optional(),
   orderIndex: z.number().int().min(0).optional(),
   positionX: z.number().finite().optional(),
   positionY: z.number().finite().optional(),

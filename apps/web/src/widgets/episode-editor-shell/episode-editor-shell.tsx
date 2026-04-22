@@ -54,6 +54,7 @@ export function EpisodeEditorShell({
   onSaveOrder,
   onValidate,
   onPublish,
+  onOpenScriptEditor,
   onToggleViewMode
 }: {
   activeTab: 'editor' | 'analytics';
@@ -97,6 +98,7 @@ export function EpisodeEditorShell({
   onSaveOrder: () => void;
   onValidate: () => void;
   onPublish: () => void;
+  onOpenScriptEditor: () => void;
   onToggleViewMode: () => void;
 }) {
   return (
@@ -111,6 +113,7 @@ export function EpisodeEditorShell({
         isPublishing={isPublishing}
         isValidating={isValidating}
         onBack={onBack}
+        onOpenScriptEditor={onOpenScriptEditor}
         onPublish={onPublish}
         onSaveOrder={onSaveOrder}
         onTabChange={onTabChange}

@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 
-import { buildCutEffectMotionCustom, cutEffectVariants } from '../../shared/lib/cut-effects';
+import { buildCutEffectMotionCustom, cutEffectVariants, getEdgeFadeOverlayClassNames, getEdgeFadeStyle } from '../../shared/lib/cut-effects';
 import { getCutContentBlocksByPlacement } from '../../shared/lib/cut-content';
 import { CutContentBlocksView } from '../content-blocks/CutContentBlocksView';
 
@@ -170,8 +170,14 @@ export function PreviewPlayer({
                       onError={() => setImageFailed(true)}
                       onLoad={() => setImageLoaded(true)}
                       src={cut.assetUrl}
+                      style={getEdgeFadeStyle(cut.edgeFade, cut.edgeFadeIntensity)}
                     />
                   ) : null}
+                  {cut.assetUrl && !imageFailed
+                    ? getEdgeFadeOverlayClassNames(cut.edgeFade, cut.edgeFadeIntensity).map((className) => (
+                        <div className={className} key={className} />
+                      ))
+                    : null}
 
                   <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/45 to-transparent" />
                   <div className="absolute left-1/2 top-3 h-1.5 w-20 -translate-x-1/2 rounded-full bg-white/10" />

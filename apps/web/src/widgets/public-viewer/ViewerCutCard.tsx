@@ -2,7 +2,8 @@ import type { PublishManifest } from '@promptoon/shared';
 import type { CSSProperties } from 'react';
 import { useEffect, useState } from 'react';
 
-import { getCutContentBlocksByPlacement } from '../../shared/lib/cut-content';
+import { getEdgeFadeOverlayClassNames, getEdgeFadeStyle } from '../../shared/lib/cut-effects';
+import { getContentSpacingClassName, getContentSpacingMinHeight, getCutContentBlocksByPlacement } from '../../shared/lib/cut-content';
 import { CutContentBlocksView } from '../content-blocks/CutContentBlocksView';
 
 type ViewerCut = PublishManifest['cuts'][number];
@@ -12,6 +13,7 @@ interface ViewerCutCardProps {
   canGoBack?: boolean;
   compact?: boolean;
   cut: ViewerCut;
+  disableCutBottomSpacing?: boolean;
   onChoiceClick?: (choice: ViewerChoice) => void;
   onReset?: () => void;
   onUserNameChange?: (value: string) => void;
@@ -61,6 +63,7 @@ export function ViewerCutCard({
   canGoBack = false,
   compact = false,
   cut,
+  disableCutBottomSpacing = false,
   onChoiceClick,
   onReset,
   onUserNameChange,
@@ -77,6 +80,8 @@ export function ViewerCutCard({
   const hasOverlayContent = getCutContentBlocksByPlacement(cut, 'overlay').length > 0;
   const hasFlowContent = getCutContentBlocksByPlacement(cut, 'flow').length > 0;
   const showImageOverlay = cut.kind === 'choice';
+  const cutBottomSpacingClassName = disableCutBottomSpacing || hasFlowContent ? '' : getContentSpacingClassName('mb', cut.marginBottomToken);
+  const flowContentMinHeight = disableCutBottomSpacing ? undefined : getContentSpacingMinHeight(cut.marginBottomToken);
 
   useEffect(() => {
     setIsImageLoaded(false);
@@ -179,14 +184,14 @@ export function ViewerCutCard({
     );
   }
 
-  function renderFlowContent(className = 'relative z-10 px-5 py-5 sm:px-8') {
+  function renderFlowContent(className = 'relative z-10 flex items-center px-5 py-5 sm:px-8') {
     if (!hasFlowContent) {
       return null;
     }
 
     return (
-      <div className={className} data-testid="viewer-flow-content">
-        <div className={getContentPanelClassName(cut)}>
+      <div className={className} data-testid="viewer-flow-content" style={{ minHeight: flowContentMinHeight }}>
+        <div className={`${getContentPanelClassName(cut)} w-full`}>
           <CutContentBlocksView
             bindings={{ userName }}
             className="space-y-3"
@@ -201,7 +206,7 @@ export function ViewerCutCard({
 
   if (hasImage) {
     return (
-      <article className="relative w-full shrink-0 bg-[#101015]" data-viewer-layout={compact ? 'compact' : 'fullscreen'}>
+      <article className={['relative w-full shrink-0 bg-[#101015]', cutBottomSpacingClassName].filter(Boolean).join(' ')} data-viewer-layout={compact ? 'compact' : 'fullscreen'}>
         <div className="relative overflow-hidden bg-[#101015]">
           <div className="absolute inset-0 bg-gradient-to-br from-[#1a1a21] via-[#111115] to-black" />
           <img
@@ -210,7 +215,11 @@ export function ViewerCutCard({
             onError={() => setIsImageFailed(true)}
             onLoad={() => setIsImageLoaded(true)}
             src={cut.assetUrl ?? undefined}
+            style={getEdgeFadeStyle(cut.edgeFade, cut.edgeFadeIntensity)}
           />
+          {getEdgeFadeOverlayClassNames(cut.edgeFade, cut.edgeFadeIntensity).map((className) => (
+            <div className={className} key={className} />
+          ))}
           {showImageOverlay ? (
             <>
               <div
@@ -234,7 +243,7 @@ export function ViewerCutCard({
 
   if (compact) {
     return (
-      <article className="relative w-full shrink-0 bg-[#101015]" data-viewer-layout="compact">
+      <article className={['relative w-full shrink-0 bg-[#101015]', cutBottomSpacingClassName].filter(Boolean).join(' ')} data-viewer-layout="compact">
         <div className="relative min-h-[280px]">
           <div className="absolute inset-0 bg-gradient-to-br from-[#1a1a21] via-[#111115] to-black" />
           <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/35 to-transparent" />
@@ -258,7 +267,7 @@ export function ViewerCutCard({
       {hasFlowContent || footer ? (
         <div className="relative z-10 flex min-h-full flex-col justify-end px-5 pb-7 pt-20 sm:px-8 sm:pb-9">
           {hasFlowContent ? (
-            <div className={getContentPanelClassName(cut)} data-testid="viewer-flow-content">
+            <div className={`${getContentPanelClassName(cut)} w-full`} data-testid="viewer-flow-content">
               <CutContentBlocksView
                 bindings={{ userName }}
                 className="space-y-3"

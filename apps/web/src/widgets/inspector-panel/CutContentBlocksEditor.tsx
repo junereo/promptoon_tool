@@ -1,23 +1,44 @@
 import { DndContext, PointerSensor, closestCenter, type DragEndEvent, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import type { CutContentBlock, PromptoonContentPlacement, PromptoonContentTextAlign, PromptoonFontToken } from '@promptoon/shared';
+import type { ReactNode } from 'react';
+import type {
+  CutContentBlock,
+  PromptoonContentPlacement,
+  PromptoonContentTextAlign,
+  PromptoonFontSizeToken,
+  PromptoonFontToken,
+  PromptoonLineHeightToken,
+  PromptoonSpacingToken
+} from '@promptoon/shared';
 import { useEffect, useMemo, useState } from 'react';
 
 import {
   CONTENT_ALIGN_OPTIONS,
   CONTENT_BLOCK_TYPE_OPTIONS,
   CONTENT_FONT_OPTIONS,
+  CONTENT_FONT_SIZE_OPTIONS,
+  CONTENT_LINE_HEIGHT_OPTIONS,
   CONTENT_PLACEMENT_OPTIONS,
+  CONTENT_SPACING_OPTIONS,
   createContentBlock
 } from '../../shared/lib/cut-content';
 
 function inputClassName() {
-  return 'mt-2 w-full rounded-2xl border border-editor-border bg-black/20 px-4 py-3 text-sm text-zinc-100 outline-none transition focus:border-editor-accentSoft';
+  return 'mt-2 w-full rounded-2xl border border-editor-border bg-black/20 px-4 py-3 text-center text-sm text-zinc-100 outline-none transition focus:border-editor-accentSoft';
 }
 
 function inlineInputClassName() {
   return 'w-full rounded-2xl border border-transparent bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-editor-accentSoft focus:bg-black/20';
+}
+
+function ToolbarGroup({ children, title }: { children: ReactNode; title: string }) {
+  return (
+    <div className="rounded-2xl border border-editor-border bg-black/10 p-3">
+      <p className="text-center text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">{title}</p>
+      <div className="mt-3 grid gap-3">{children}</div>
+    </div>
+  );
 }
 
 function insertBlockAt(blocks: CutContentBlock[], index: number, type: CutContentBlock['type']) {
@@ -26,8 +47,8 @@ function insertBlockAt(blocks: CutContentBlock[], index: number, type: CutConten
   return nextBlocks;
 }
 
-function isTextBlock(block: CutContentBlock): block is Extract<CutContentBlock, { type: 'heading' | 'narration' | 'quote' | 'emphasis' }> {
-  return block.type === 'heading' || block.type === 'narration' || block.type === 'quote' || block.type === 'emphasis';
+function isTextBlock(block: CutContentBlock): block is Extract<CutContentBlock, { type: 'heading' | 'narration' | 'quote' | 'emphasis' | 'dialogue' }> {
+  return block.type === 'heading' || block.type === 'narration' || block.type === 'quote' || block.type === 'emphasis' || block.type === 'dialogue';
 }
 
 function blockTitle(type: CutContentBlock['type']): string {
@@ -42,7 +63,7 @@ function convertBlockType(block: CutContentBlock, nextType: CutContentBlock['typ
 
   const preservedId = block.id;
 
-  if (isTextBlock(block) && (nextType === 'heading' || nextType === 'narration' || nextType === 'quote' || nextType === 'emphasis')) {
+  if (isTextBlock(block) && (nextType === 'heading' || nextType === 'narration' || nextType === 'quote' || nextType === 'emphasis' || nextType === 'dialogue')) {
     if (nextType === 'quote') {
       return {
         id: preservedId,
@@ -51,7 +72,28 @@ function convertBlockType(block: CutContentBlock, nextType: CutContentBlock['typ
         text: block.text,
         textAlign: block.textAlign,
         fontToken: block.fontToken,
-        placement: block.placement ?? 'flow'
+        placement: block.placement ?? 'flow',
+        fontSizeToken: block.fontSizeToken ?? 'base',
+        lineHeightToken: block.lineHeightToken ?? 'normal',
+        marginTopToken: block.marginTopToken ?? 'none',
+        marginBottomToken: block.marginBottomToken ?? 'none',
+        speaker: block.speaker ?? ''
+      };
+    }
+
+    if (nextType === 'dialogue') {
+      return {
+        id: preservedId,
+        type: 'dialogue',
+        text: block.text,
+        textAlign: block.textAlign,
+        fontToken: block.fontToken,
+        placement: block.placement ?? 'overlay',
+        fontSizeToken: block.fontSizeToken ?? 'base',
+        lineHeightToken: block.lineHeightToken ?? 'normal',
+        marginTopToken: block.marginTopToken ?? 'none',
+        marginBottomToken: block.marginBottomToken ?? 'none',
+        speaker: block.speaker ?? ''
       };
     }
 
@@ -61,14 +103,19 @@ function convertBlockType(block: CutContentBlock, nextType: CutContentBlock['typ
       text: block.text,
       textAlign: block.textAlign,
       fontToken: block.fontToken,
-      placement: block.placement ?? 'flow'
+      placement: block.placement ?? 'flow',
+      fontSizeToken: block.fontSizeToken ?? 'base',
+      lineHeightToken: block.lineHeightToken ?? 'normal',
+      marginTopToken: block.marginTopToken ?? 'none',
+      marginBottomToken: block.marginBottomToken ?? 'none',
+      speaker: block.speaker ?? ''
     };
   }
 
-  if (nextType === 'heading' || nextType === 'narration' || nextType === 'quote' || nextType === 'emphasis') {
+  if (nextType === 'heading' || nextType === 'narration' || nextType === 'quote' || nextType === 'emphasis' || nextType === 'dialogue') {
     const defaultTextBlock = createContentBlock(nextType) as Extract<
       CutContentBlock,
-      { type: 'heading' | 'narration' | 'quote' | 'emphasis' }
+      { type: 'heading' | 'narration' | 'quote' | 'emphasis' | 'dialogue' }
     >;
 
     if (nextType === 'quote') {
@@ -79,7 +126,28 @@ function convertBlockType(block: CutContentBlock, nextType: CutContentBlock['typ
         text: '',
         textAlign: defaultTextBlock.textAlign,
         fontToken: defaultTextBlock.fontToken,
-        placement: defaultTextBlock.placement ?? 'flow'
+        placement: defaultTextBlock.placement ?? 'flow',
+        fontSizeToken: defaultTextBlock.fontSizeToken ?? 'base',
+        lineHeightToken: defaultTextBlock.lineHeightToken ?? 'normal',
+        marginTopToken: defaultTextBlock.marginTopToken ?? 'none',
+        marginBottomToken: defaultTextBlock.marginBottomToken ?? 'none',
+        speaker: defaultTextBlock.speaker ?? ''
+      };
+    }
+
+    if (nextType === 'dialogue') {
+      return {
+        id: preservedId,
+        type: 'dialogue',
+        text: isTextBlock(block) ? block.text : '',
+        textAlign: isTextBlock(block) ? block.textAlign : defaultTextBlock.textAlign,
+        fontToken: isTextBlock(block) ? block.fontToken : defaultTextBlock.fontToken,
+        placement: isTextBlock(block) ? (block.placement ?? 'overlay') : (defaultTextBlock.placement ?? 'overlay'),
+        fontSizeToken: isTextBlock(block) ? (block.fontSizeToken ?? 'base') : (defaultTextBlock.fontSizeToken ?? 'base'),
+        lineHeightToken: isTextBlock(block) ? (block.lineHeightToken ?? 'normal') : (defaultTextBlock.lineHeightToken ?? 'normal'),
+        marginTopToken: isTextBlock(block) ? (block.marginTopToken ?? 'none') : (defaultTextBlock.marginTopToken ?? 'none'),
+        marginBottomToken: isTextBlock(block) ? (block.marginBottomToken ?? 'none') : (defaultTextBlock.marginBottomToken ?? 'none'),
+        speaker: isTextBlock(block) ? block.speaker ?? '' : defaultTextBlock.speaker ?? ''
       };
     }
 
@@ -89,7 +157,12 @@ function convertBlockType(block: CutContentBlock, nextType: CutContentBlock['typ
       text: '',
       textAlign: defaultTextBlock.textAlign,
       fontToken: defaultTextBlock.fontToken,
-      placement: defaultTextBlock.placement ?? 'flow'
+      placement: defaultTextBlock.placement ?? 'flow',
+      fontSizeToken: defaultTextBlock.fontSizeToken ?? 'base',
+      lineHeightToken: defaultTextBlock.lineHeightToken ?? 'normal',
+      marginTopToken: defaultTextBlock.marginTopToken ?? 'none',
+      marginBottomToken: defaultTextBlock.marginBottomToken ?? 'none',
+      speaker: defaultTextBlock.speaker ?? ''
     };
   }
 
@@ -122,76 +195,166 @@ function TextStyleToolbar({
   selectedBlock,
   onAlignChange,
   onFontChange,
+  onLineHeightChange,
+  onMarginBottomChange,
+  onMarginTopChange,
+  onFontSizeChange,
   onPlacementChange
 }: {
-  selectedBlock: Extract<CutContentBlock, { type: 'heading' | 'narration' | 'quote' | 'emphasis' }> | null;
+  selectedBlock: Extract<CutContentBlock, { type: 'heading' | 'narration' | 'quote' | 'emphasis' | 'dialogue' }> | null;
   onAlignChange: (textAlign: PromptoonContentTextAlign) => void;
   onFontChange: (fontToken: PromptoonFontToken) => void;
+  onLineHeightChange: (lineHeightToken: PromptoonLineHeightToken) => void;
+  onMarginBottomChange: (spacingToken: PromptoonSpacingToken) => void;
+  onMarginTopChange: (spacingToken: PromptoonSpacingToken) => void;
+  onFontSizeChange: (fontSizeToken: PromptoonFontSizeToken) => void;
   onPlacementChange: (placement: PromptoonContentPlacement) => void;
 }) {
   const disabled = selectedBlock === null;
 
   return (
     <div className="rounded-2xl border border-editor-border bg-black/10 p-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="min-w-[160px]">
+      <div className="flex flex-col items-center gap-4 text-center">
+        <div className="w-full max-w-md">
           <p className="text-xs font-medium uppercase tracking-[0.2em] text-zinc-500">Text Style</p>
           <p className="mt-1 text-sm text-zinc-400">
-            {selectedBlock ? `${blockTitle(selectedBlock.type)} block selected` : '텍스트 블록을 선택하면 Align / Font를 조정할 수 있습니다.'}
+            {selectedBlock
+              ? `${blockTitle(selectedBlock.type)} block selected`
+              : '텍스트 블록을 선택하면 Align / Font / Size / Placement / Spacing을 조정할 수 있습니다.'}
           </p>
         </div>
 
-        <div className="grid flex-1 gap-3 md:grid-cols-3">
-          <div>
-            <label className="text-xs font-medium uppercase tracking-[0.2em] text-zinc-500">Align</label>
-            <select
-              aria-label="Block Align"
-              className={inputClassName()}
-              disabled={disabled}
-              onChange={(event) => onAlignChange(event.target.value as PromptoonContentTextAlign)}
-              value={selectedBlock?.textAlign ?? 'left'}
-            >
-              {CONTENT_ALIGN_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
+        <div className="grid w-full gap-3">
+          <ToolbarGroup title="Layout">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="min-w-0">
+                <label className="block text-center text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Align</label>
+                <select
+                  aria-label="Block Align"
+                  className={inputClassName()}
+                  disabled={disabled}
+                  onChange={(event) => onAlignChange(event.target.value as PromptoonContentTextAlign)}
+                  value={selectedBlock?.textAlign ?? 'left'}
+                >
+                  {CONTENT_ALIGN_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-          <div>
-            <label className="text-xs font-medium uppercase tracking-[0.2em] text-zinc-500">Font</label>
-            <select
-              aria-label="Block Font"
-              className={inputClassName()}
-              disabled={disabled}
-              onChange={(event) => onFontChange(event.target.value as PromptoonFontToken)}
-              value={selectedBlock?.fontToken ?? 'sans-kr'}
-            >
-              {CONTENT_FONT_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
+              <div className="min-w-0">
+                <label className="block text-center text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Placement</label>
+                <select
+                  aria-label="Block Placement"
+                  className={inputClassName()}
+                  disabled={disabled}
+                  onChange={(event) => onPlacementChange(event.target.value as PromptoonContentPlacement)}
+                  value={selectedBlock?.placement ?? 'flow'}
+                >
+                  {CONTENT_PLACEMENT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </ToolbarGroup>
 
-          <div>
-            <label className="text-xs font-medium uppercase tracking-[0.2em] text-zinc-500">Placement</label>
-            <select
-              aria-label="Block Placement"
-              className={inputClassName()}
-              disabled={disabled}
-              onChange={(event) => onPlacementChange(event.target.value as PromptoonContentPlacement)}
-              value={selectedBlock?.placement ?? 'flow'}
-            >
-              {CONTENT_PLACEMENT_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          <ToolbarGroup title="Typography">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="min-w-0">
+                <label className="block text-center text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Font</label>
+                <select
+                  aria-label="Block Font"
+                  className={inputClassName()}
+                  disabled={disabled}
+                  onChange={(event) => onFontChange(event.target.value as PromptoonFontToken)}
+                  value={selectedBlock?.fontToken ?? 'sans-kr'}
+                >
+                  {CONTENT_FONT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="min-w-0">
+                <label className="block text-center text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Size</label>
+                <select
+                  aria-label="Block Font Size"
+                  className={inputClassName()}
+                  disabled={disabled}
+                  onChange={(event) => onFontSizeChange(event.target.value as PromptoonFontSizeToken)}
+                  value={selectedBlock?.fontSizeToken ?? 'base'}
+                >
+                  {CONTENT_FONT_SIZE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="min-w-0">
+                <label className="block text-center text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Line</label>
+                <select
+                  aria-label="Block Line Height"
+                  className={inputClassName()}
+                  disabled={disabled}
+                  onChange={(event) => onLineHeightChange(event.target.value as PromptoonLineHeightToken)}
+                  value={selectedBlock?.lineHeightToken ?? 'normal'}
+                >
+                  {CONTENT_LINE_HEIGHT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </ToolbarGroup>
+
+          <ToolbarGroup title="Rhythm">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="min-w-0">
+                <label className="block text-center text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Top</label>
+                <select
+                  aria-label="Block Top Spacing"
+                  className={inputClassName()}
+                  disabled={disabled}
+                  onChange={(event) => onMarginTopChange(event.target.value as PromptoonSpacingToken)}
+                  value={selectedBlock?.marginTopToken ?? 'none'}
+                >
+                  {CONTENT_SPACING_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="min-w-0">
+                <label className="block text-center text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Bottom</label>
+                <select
+                  aria-label="Block Bottom Spacing"
+                  className={inputClassName()}
+                  disabled={disabled}
+                  onChange={(event) => onMarginBottomChange(event.target.value as PromptoonSpacingToken)}
+                  value={selectedBlock?.marginBottomToken ?? 'none'}
+                >
+                  {CONTENT_SPACING_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </ToolbarGroup>
         </div>
       </div>
     </div>
@@ -341,6 +504,18 @@ function SortableBlockRow({
 
           {isTextBlock(block) ? (
             <div className="mt-3 space-y-3">
+              {block.type === 'dialogue' ? (
+                <input
+                  aria-label="Dialogue Speaker"
+                  className={inlineInputClassName()}
+                  onChange={(event) => onUpdateBlock((current) => (current.type === 'dialogue' ? { ...current, speaker: event.target.value } : current))}
+                  onFocus={onFocusBlock}
+                  placeholder="Speaker"
+                  type="text"
+                  value={block.speaker ?? ''}
+                />
+              ) : null}
+
               {block.type === 'quote' ? (
                 <input
                   aria-label="Quote Title"
@@ -358,7 +533,7 @@ function SortableBlockRow({
                 className={`${inlineInputClassName()} min-h-[96px] resize-y whitespace-pre-wrap`}
                 onChange={(event) => onUpdateBlock((current) => ('text' in current ? { ...current, text: event.target.value } : current))}
                 onFocus={onFocusBlock}
-                placeholder={block.type === 'heading' ? 'Heading text' : 'Write a block...'}
+                placeholder={block.type === 'heading' ? 'Heading text' : block.type === 'dialogue' ? 'Dialogue text' : 'Write a block...'}
                 value={block.text}
               />
             </div>
@@ -552,6 +727,38 @@ export function CutContentBlocksEditor({
     onChange(updateBlockAt(blocks, selectedTextBlock.id, (block) => (isTextBlock(block) ? { ...block, fontToken } : block)));
   }
 
+  function handleFontSizeChange(fontSizeToken: PromptoonFontSizeToken) {
+    if (!selectedTextBlock) {
+      return;
+    }
+
+    onChange(updateBlockAt(blocks, selectedTextBlock.id, (block) => (isTextBlock(block) ? { ...block, fontSizeToken } : block)));
+  }
+
+  function handleLineHeightChange(lineHeightToken: PromptoonLineHeightToken) {
+    if (!selectedTextBlock) {
+      return;
+    }
+
+    onChange(updateBlockAt(blocks, selectedTextBlock.id, (block) => (isTextBlock(block) ? { ...block, lineHeightToken } : block)));
+  }
+
+  function handleMarginTopChange(marginTopToken: PromptoonSpacingToken) {
+    if (!selectedTextBlock) {
+      return;
+    }
+
+    onChange(updateBlockAt(blocks, selectedTextBlock.id, (block) => (isTextBlock(block) ? { ...block, marginTopToken } : block)));
+  }
+
+  function handleMarginBottomChange(marginBottomToken: PromptoonSpacingToken) {
+    if (!selectedTextBlock) {
+      return;
+    }
+
+    onChange(updateBlockAt(blocks, selectedTextBlock.id, (block) => (isTextBlock(block) ? { ...block, marginBottomToken } : block)));
+  }
+
   function handlePlacementChange(placement: PromptoonContentPlacement) {
     if (!selectedTextBlock) {
       return;
@@ -595,6 +802,10 @@ export function CutContentBlocksEditor({
         <TextStyleToolbar
           onAlignChange={handleAlignChange}
           onFontChange={handleFontChange}
+          onLineHeightChange={handleLineHeightChange}
+          onMarginBottomChange={handleMarginBottomChange}
+          onMarginTopChange={handleMarginTopChange}
+          onFontSizeChange={handleFontSizeChange}
           onPlacementChange={handlePlacementChange}
           selectedBlock={selectedTextBlock}
         />

@@ -10,6 +10,7 @@ export function EditorToolbar({
   onBack,
   onPublish,
   onSaveOrder,
+  onOpenScriptEditor,
   onTabChange,
   onToggleViewMode,
   onValidate,
@@ -28,6 +29,7 @@ export function EditorToolbar({
   onBack: () => void;
   onPublish: () => void;
   onSaveOrder: () => void;
+  onOpenScriptEditor: () => void;
   onTabChange: (tab: 'editor' | 'analytics') => void;
   onToggleViewMode: () => void;
   onValidate: () => void;
@@ -42,7 +44,7 @@ export function EditorToolbar({
       : episodeStatus === 'published'
         ? 'published'
         : 'idle';
-  const publishActionLabel = episodeStatus === 'published' ? (isPublishing ? 'Unpublishing...' : 'Unpublish') : isPublishing ? 'Publishing...' : 'Publish';
+  const publishActionLabel = episodeStatus === 'published' ? (isPublishing ? 'Updating...' : 'Update Publish') : isPublishing ? 'Publishing...' : 'Publish';
 
   return (
     <section className="rounded-[32px] border border-editor-border bg-editor-panel/80 p-6">
@@ -131,6 +133,13 @@ export function EditorToolbar({
             type="button"
           >
             {isValidating ? 'Validating...' : 'Validate'}
+          </button>
+          <button
+            className="rounded-full border border-editor-border px-4 py-2 text-sm text-zinc-200 transition hover:border-zinc-500"
+            onClick={onOpenScriptEditor}
+            type="button"
+          >
+            Script
           </button>
           <button
             className={[

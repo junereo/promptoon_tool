@@ -28,14 +28,22 @@ describe('promptoon cut schemas', () => {
       title: 'Intro',
       startEffectDurationMs: 500,
       endEffectDurationMs: 750,
+      edgeFade: 'both',
+      edgeFadeIntensity: 'strong',
+      marginBottomToken: '10xl',
       contentBlocks: [
         {
           id: 'block-1',
-          type: 'heading',
+          type: 'dialogue',
+          speaker: '화자 A',
           text: '안녕하세요',
-          textAlign: 'center',
-          fontToken: 'display',
-          placement: 'overlay'
+          textAlign: 'left',
+          fontToken: 'sans-kr',
+          placement: 'overlay',
+          fontSizeToken: 'base',
+          lineHeightToken: 'relaxed',
+          marginTopToken: 'sm',
+          marginBottomToken: 'lg'
         },
         {
           id: 'block-2',
@@ -91,5 +99,46 @@ describe('promptoon cut schemas', () => {
     });
 
     expect(result.success).toBe(false);
+  });
+
+  it('rejects invalid font size values', () => {
+    const result = patchCutSchema.safeParse({
+      contentBlocks: [
+        {
+          id: 'block-1',
+          type: 'emphasis',
+          text: '본문',
+          textAlign: 'left',
+          fontToken: 'sans-kr',
+          fontSizeToken: 'huge'
+        }
+      ]
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects invalid rhythm style tokens', () => {
+    const cutResult = patchCutSchema.safeParse({
+      edgeFade: 'middle',
+      edgeFadeIntensity: 'extreme',
+      marginBottomToken: 'massive'
+    });
+    const blockResult = patchCutSchema.safeParse({
+      contentBlocks: [
+        {
+          id: 'block-1',
+          type: 'narration',
+          text: '본문',
+          textAlign: 'left',
+          fontToken: 'sans-kr',
+          lineHeightToken: 'airy',
+          marginTopToken: 'wide'
+        }
+      ]
+    });
+
+    expect(cutResult.success).toBe(false);
+    expect(blockResult.success).toBe(false);
   });
 });

@@ -24,6 +24,7 @@ import {
   usePublishEpisode,
   useReorderCuts,
   useUnpublishEpisode,
+  useUpdatePublishedEpisode,
   useUploadAsset,
   useUpdateChoice,
   useUpdateCut,
@@ -32,6 +33,8 @@ import {
 import { useEditorStore } from '../features/editor/store/use-editor-store';
 import { AnalyticsDashboard } from '../widgets/analytics-dashboard/AnalyticsDashboard';
 import { EpisodeEditorShell } from '../widgets/episode-editor-shell/episode-editor-shell';
+import { ScriptEditorModal } from '../widgets/episode-editor-shell/ScriptEditorModal';
+import type { ScriptCutPatch } from '../shared/lib/script-sync';
 import { PublishSuccessToast } from '../widgets/publish-flow/PublishSuccessToast';
 import { ToolbarNoticeToast } from '../widgets/publish-flow/ToolbarNoticeToast';
 import { ValidationModal } from '../widgets/publish-flow/ValidationModal';
@@ -69,6 +72,7 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
   const updateChoice = useUpdateChoice(episodeId);
   const validateEpisode = useValidateEpisode();
   const publishEpisode = usePublishEpisode();
+  const updatePublishedEpisode = useUpdatePublishedEpisode();
   const unpublishEpisode = useUnpublishEpisode();
   const { queueCutPatch } = useCutAutosave(episodeId);
   const { queueChoicePatch } = useChoiceAutosave(episodeId);
@@ -93,6 +97,7 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
   const [isValidationOpen, setIsValidationOpen] = useState(false);
   const [highlightSaveOrder, setHighlightSaveOrder] = useState(false);
   const [activeTab, setActiveTab] = useState<'editor' | 'analytics'>('editor');
+  const [isScriptEditorOpen, setIsScriptEditorOpen] = useState(false);
   const [previewCutId, setPreviewCutId] = useState<string | null>(null);
   const [previewSelectedChoiceId, setPreviewSelectedChoiceId] = useState<string | null>(null);
 
@@ -115,6 +120,7 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
     setIsValidationOpen(false);
     setHighlightSaveOrder(false);
     setActiveTab('editor');
+    setIsScriptEditorOpen(false);
     setPreviewCutId(null);
     setPreviewSelectedChoiceId(null);
   }, [episodeId, resetForEpisode]);
@@ -254,6 +260,14 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
     queueChoicePatch(choiceId, patch);
   }
 
+  function handleApplyScriptPatches(patches: ScriptCutPatch[]) {
+    patches.forEach(({ cutId, patch }) => {
+      handleUpdateCut(cutId, patch);
+    });
+
+    setToolbarNotice(patches.length > 0 ? `${patches.length}개 컷의 스크립트를 적용했습니다` : '적용할 스크립트 변경사항이 없습니다');
+  }
+
   async function handleUploadAsset(file: File) {
     const response = await uploadAsset.mutateAsync({ projectId, file });
     return response.assetUrl;
@@ -351,14 +365,6 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
   }
 
   async function handlePublishRequest() {
-    if (draftQuery.data?.episode.status === 'published') {
-      await unpublishEpisode.mutateAsync({ projectId, episodeId });
-      setLastPublished(null);
-      setPublishToast(null);
-      setToolbarNotice('발행이 취소되었습니다');
-      return;
-    }
-
     if (isDirty) {
       triggerDirtyGuard();
       return;
@@ -375,10 +381,14 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
   }
 
   async function handlePublishConfirm() {
-    const result = await publishEpisode.mutateAsync({ projectId, episodeId });
+    const result =
+      draftQuery.data?.episode.status === 'published'
+        ? await updatePublishedEpisode.mutateAsync({ projectId, episodeId })
+        : await publishEpisode.mutateAsync({ projectId, episodeId });
     setIsValidationOpen(false);
     setLastPublished(result);
     setPublishToast(result);
+    setToolbarNotice(draftQuery.data?.episode.status === 'published' ? '발행본이 업데이트되었습니다' : null);
   }
 
   if (draftQuery.isLoading) {
@@ -462,7 +472,7 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
         highlightSaveOrder={highlightSaveOrder}
         isDirty={isDirty}
         lastPublishedVersion={lastPublished?.versionNo ?? latestPublishedEpisode?.versionNo ?? null}
-        isPublishing={publishEpisode.isPending || unpublishEpisode.isPending}
+        isPublishing={publishEpisode.isPending || updatePublishedEpisode.isPending || unpublishEpisode.isPending}
         isValidating={validateEpisode.isPending}
         onBack={() => navigate('/promptoon/projects')}
         onTabChange={handleTabChange}
@@ -475,6 +485,7 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
         onDeleteCut={handleDeleteCut}
         onDragEnd={handleDragEnd}
         onMoveCut={handleMoveCut}
+        onOpenScriptEditor={() => setIsScriptEditorOpen(true)}
         onPublish={handlePublishRequest}
         onPreviewSelectChoice={(choiceId) => setPreviewSelectedChoiceId(choiceId)}
         onPreviewSelectCut={(cutId) => {
@@ -501,9 +512,15 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
         toolbarNotice={toolbarNotice}
         viewMode={viewMode}
       />
+      <ScriptEditorModal
+        cuts={orderedCuts}
+        isOpen={isScriptEditorOpen}
+        onApply={handleApplyScriptPatches}
+        onClose={() => setIsScriptEditorOpen(false)}
+      />
       <ValidationModal
         isOpen={isValidationOpen}
-        isPublishing={publishEpisode.isPending}
+        isPublishing={publishEpisode.isPending || updatePublishedEpisode.isPending}
         onClose={() => setIsValidationOpen(false)}
         onPublish={handlePublishConfirm}
         result={validationResult}

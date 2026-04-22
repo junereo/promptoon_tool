@@ -29,6 +29,7 @@ function buildCut(id: string, overrides?: Partial<Cut>): Cut {
     kind: 'scene',
     title: `Cut ${id}`,
     body: 'Body',
+    contentBlocks: [],
     dialogAnchorX: 'left',
     dialogAnchorY: 'bottom',
     dialogOffsetX: 0,
@@ -191,6 +192,7 @@ describe('EpisodeEditorShell graph mode', () => {
         onDeleteCut={vi.fn()}
         onDragEnd={vi.fn()}
         onMoveCut={vi.fn()}
+        onOpenScriptEditor={vi.fn()}
         onPublish={vi.fn()}
         onSaveOrder={vi.fn()}
         onSelectChoice={vi.fn()}

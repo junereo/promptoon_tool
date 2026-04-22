@@ -1,8 +1,12 @@
 import type { Cut, PromptoonContentPlacement, PublishManifest } from '@promptoon/shared';
 import type { CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   getContentFontFamily,
+  getContentFontSizeClassName,
+  getContentLineHeightClassName,
+  getContentSpacingClassName,
   getCutContentBlocksByPlacement,
   normalizeCutContentBlocks,
   replaceContentBindings,
@@ -17,10 +21,14 @@ interface CutContentBlocksViewProps {
   bindings: ViewerBindings;
   className?: string;
   cut: RenderableCut;
+  dialogueAnimationScope?: string;
   emptyLabel?: string;
   onBindingChange?: (bindingKey: 'userName', value: string) => void;
   placement?: PromptoonContentPlacement;
 }
+
+const DIALOGUE_TYPEWRITER_INTERVAL_MS = 28;
+const playedDialogueAnimationKeys = new Set<string>();
 
 function getTextAlignStyle(textAlign: 'left' | 'center' | 'right'): CSSProperties {
   return {
@@ -28,10 +36,99 @@ function getTextAlignStyle(textAlign: 'left' | 'center' | 'right'): CSSPropertie
   };
 }
 
+function TypewriterText({
+  animationKey,
+  text
+}: {
+  animationKey: string;
+  text: string;
+}) {
+  const containerRef = useRef<HTMLSpanElement | null>(null);
+  const characters = useMemo(() => Array.from(text), [text]);
+  const canAnimate = text.length > 0 && !playedDialogueAnimationKeys.has(animationKey);
+  const [hasReachedTriggerPosition, setHasReachedTriggerPosition] = useState(() => !canAnimate);
+  const [visibleCharacterCount, setVisibleCharacterCount] = useState(() => (canAnimate ? 0 : characters.length));
+  const shouldType = canAnimate && hasReachedTriggerPosition;
+  const visibleText = canAnimate ? characters.slice(0, visibleCharacterCount).join('') : text;
+  const isTyping = shouldType && visibleCharacterCount < characters.length;
+
+  useEffect(() => {
+    if (!canAnimate) {
+      setHasReachedTriggerPosition(true);
+      setVisibleCharacterCount(characters.length);
+      return;
+    }
+
+    setHasReachedTriggerPosition(false);
+    setVisibleCharacterCount(0);
+  }, [animationKey, canAnimate, characters.length]);
+
+  useEffect(() => {
+    if (!canAnimate || hasReachedTriggerPosition) {
+      return;
+    }
+
+    const element = containerRef.current;
+
+    if (!element || typeof IntersectionObserver === 'undefined') {
+      setHasReachedTriggerPosition(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting && entry.intersectionRatio > 0)) {
+          setHasReachedTriggerPosition(true);
+          observer.disconnect();
+        }
+      },
+      {
+        root: null,
+        rootMargin: '-45% 0px -45% 0px',
+        threshold: 0.01
+      }
+    );
+
+    observer.observe(element);
+
+    return () => observer.disconnect();
+  }, [canAnimate, hasReachedTriggerPosition]);
+
+  useEffect(() => {
+    if (!shouldType) {
+      return;
+    }
+
+    if (visibleCharacterCount >= characters.length) {
+      playedDialogueAnimationKeys.add(animationKey);
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setVisibleCharacterCount((currentCount) => Math.min(currentCount + 1, characters.length));
+    }, DIALOGUE_TYPEWRITER_INTERVAL_MS);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [animationKey, characters.length, shouldType, visibleCharacterCount]);
+
+  return (
+    <span className="relative block" data-testid={`dialogue-typewriter-${animationKey}`} ref={containerRef}>
+      <span aria-hidden="true" className="invisible whitespace-pre-wrap">
+        {text || '\u00a0'}
+      </span>
+      <span aria-hidden="true" className="absolute inset-0 whitespace-pre-wrap" data-testid={`dialogue-typewriter-visible-${animationKey}`}>
+        {visibleText}
+        {isTyping ? <span className="ml-0.5 inline-block h-[1em] w-px translate-y-0.5 animate-pulse bg-current opacity-70" /> : null}
+      </span>
+    </span>
+  );
+}
+
 export function CutContentBlocksView({
   bindings,
   className,
   cut,
+  dialogueAnimationScope,
   emptyLabel = 'No dialogue yet.',
   onBindingChange,
   placement
@@ -92,10 +189,19 @@ export function CutContentBlocksView({
           ...getTextAlignStyle(block.textAlign),
           fontFamily: getContentFontFamily(block.fontToken)
         };
+        const textSizeClassName = getContentFontSizeClassName(block.fontSizeToken);
+        const lineHeightClassName = getContentLineHeightClassName(block.lineHeightToken);
+        const spacingClassName = [
+          getContentSpacingClassName('mt', block.marginTopToken),
+          getContentSpacingClassName('mb', block.marginBottomToken)
+        ]
+          .filter(Boolean)
+          .join(' ');
+        const textClassName = [textSizeClassName, 'whitespace-pre-wrap', lineHeightClassName, spacingClassName].filter(Boolean).join(' ');
 
         if (block.type === 'heading') {
           return (
-            <p className={isInverse ? 'whitespace-pre-wrap text-2xl leading-tight text-zinc-950' : 'whitespace-pre-wrap text-2xl leading-tight text-white'} key={block.id} style={textStyle}>
+            <p className={isInverse ? `${textClassName} text-zinc-950` : `${textClassName} text-white`} key={block.id} style={textStyle}>
               {replaceContentBindings(block.text, bindings)}
             </p>
           );
@@ -104,7 +210,11 @@ export function CutContentBlocksView({
         if (block.type === 'quote') {
           return (
             <div
-              className={isInverse ? 'rounded-[24px] border border-zinc-900/10 bg-zinc-950/5 px-4 py-4' : 'rounded-[24px] border border-white/10 bg-black/15 px-4 py-4'}
+              className={
+                isInverse
+                  ? `${spacingClassName} rounded-[24px] border border-zinc-900/10 bg-zinc-950/5 px-4 py-4`
+                  : `${spacingClassName} rounded-[24px] border border-white/10 bg-black/15 px-4 py-4`
+              }
               key={block.id}
               style={textStyle}
             >
@@ -113,8 +223,37 @@ export function CutContentBlocksView({
                   {replaceContentBindings(block.title, bindings)}
                 </p>
               ) : null}
-              <p className={isInverse ? 'whitespace-pre-wrap text-base leading-7 text-zinc-900/88 sm:text-lg' : 'whitespace-pre-wrap text-base leading-7 text-white/88 sm:text-lg'}>
+              <p className={isInverse ? `${textSizeClassName} whitespace-pre-wrap ${lineHeightClassName} text-zinc-900/88` : `${textSizeClassName} whitespace-pre-wrap ${lineHeightClassName} text-white/88`}>
                 {replaceContentBindings(block.text, bindings)}
+              </p>
+            </div>
+          );
+        }
+
+        if (block.type === 'dialogue') {
+          const dialogueText = replaceContentBindings(block.text, bindings);
+          const typewriterAnimationKey = [dialogueAnimationScope ?? cut.id, placement ?? 'all', block.id, dialogueText].join(':');
+
+          return (
+            <div
+              className={
+                isInverse
+                  ? `${spacingClassName} rounded-[24px] border border-zinc-900/10 bg-zinc-950/5 px-4 py-4`
+                  : `${spacingClassName} rounded-[24px] border border-white/10 bg-black/15 px-4 py-4`
+              }
+              key={block.id}
+              style={textStyle}
+            >
+              {block.speaker?.trim() ? (
+                <p className={isInverse ? 'mb-2 text-xs uppercase tracking-[0.22em] text-zinc-500' : 'mb-2 text-xs uppercase tracking-[0.22em] text-white/45'}>
+                  {replaceContentBindings(block.speaker, bindings)}
+                </p>
+              ) : null}
+              <p
+                aria-label={dialogueText}
+                className={isInverse ? `${textSizeClassName} whitespace-pre-wrap ${lineHeightClassName} text-zinc-900/88` : `${textSizeClassName} whitespace-pre-wrap ${lineHeightClassName} text-white/88`}
+              >
+                <TypewriterText animationKey={typewriterAnimationKey} key={typewriterAnimationKey} text={dialogueText} />
               </p>
             </div>
           );
@@ -122,14 +261,14 @@ export function CutContentBlocksView({
 
         if (block.type === 'emphasis') {
           return (
-            <p className={isInverse ? 'whitespace-pre-wrap text-lg font-semibold leading-7 text-zinc-950 sm:text-xl' : 'whitespace-pre-wrap text-lg font-semibold leading-7 text-white sm:text-xl'} key={block.id} style={textStyle}>
+            <p className={isInverse ? `${textClassName} font-semibold text-zinc-950` : `${textClassName} font-semibold text-white`} key={block.id} style={textStyle}>
               {replaceContentBindings(block.text, bindings)}
             </p>
           );
         }
 
         return (
-          <p className={isInverse ? 'whitespace-pre-wrap text-base leading-7 text-zinc-900/88 sm:text-lg' : 'whitespace-pre-wrap text-base leading-7 text-white/88 sm:text-lg'} key={block.id} style={textStyle}>
+          <p className={isInverse ? `${textClassName} text-zinc-900/88` : `${textClassName} text-white/88`} key={block.id} style={textStyle}>
             {replaceContentBindings(block.text, bindings)}
           </p>
         );

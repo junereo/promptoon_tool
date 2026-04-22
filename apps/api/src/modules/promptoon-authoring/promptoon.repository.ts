@@ -13,7 +13,7 @@ import type {
   ReorderEpisodeCutsRequest,
   TelemetryEventType
 } from '@promptoon/shared';
-import { DEFAULT_CUT_EFFECT_DURATION_MS } from '@promptoon/shared';
+import { DEFAULT_CONTENT_SPACING, DEFAULT_CUT_EFFECT_DURATION_MS, DEFAULT_EDGE_FADE, DEFAULT_EDGE_FADE_INTENSITY } from '@promptoon/shared';
 import { randomUUID } from 'node:crypto';
 
 import type { DbExecutor } from '../../db';
@@ -62,6 +62,9 @@ interface CutRow {
   start_effect_duration_ms: number | null;
   end_effect_duration_ms: number | null;
   asset_url: string | null;
+  edge_fade: Cut['edgeFade'] | null;
+  edge_fade_intensity: Cut['edgeFadeIntensity'] | null;
+  margin_bottom_token: Cut['marginBottomToken'] | null;
   position_x: number;
   position_y: number;
   order_index: number;
@@ -168,6 +171,9 @@ function mapCut(row: CutRow): Cut {
     startEffectDurationMs: row.start_effect_duration_ms ?? DEFAULT_CUT_EFFECT_DURATION_MS,
     endEffectDurationMs: row.end_effect_duration_ms ?? DEFAULT_CUT_EFFECT_DURATION_MS,
     assetUrl: row.asset_url,
+    edgeFade: row.edge_fade ?? DEFAULT_EDGE_FADE,
+    edgeFadeIntensity: row.edge_fade_intensity ?? DEFAULT_EDGE_FADE_INTENSITY,
+    marginBottomToken: row.margin_bottom_token ?? DEFAULT_CONTENT_SPACING,
     positionX: row.position_x,
     positionY: row.position_y,
     orderIndex: row.order_index,
@@ -403,6 +409,9 @@ export async function createCut(
     startEffectDurationMs?: number;
     endEffectDurationMs?: number;
     assetUrl?: string | null;
+    edgeFade?: Cut['edgeFade'];
+    edgeFadeIntensity?: Cut['edgeFadeIntensity'];
+    marginBottomToken?: Cut['marginBottomToken'];
     orderIndex?: number;
     positionX?: number;
     positionY?: number;
@@ -421,8 +430,8 @@ export async function createCut(
   const result = await db.query<CutRow>(
     `INSERT INTO promptoon_cut (
       id, episode_id, kind, title, body, content_blocks, content_view_mode, dialog_anchor_x, dialog_anchor_y, dialog_offset_x, dialog_offset_y, dialog_text_align,
-      start_effect, end_effect, start_effect_duration_ms, end_effect_duration_ms, asset_url, position_x, position_y, order_index, is_start, is_ending
-     ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+      start_effect, end_effect, start_effect_duration_ms, end_effect_duration_ms, asset_url, edge_fade, edge_fade_intensity, margin_bottom_token, position_x, position_y, order_index, is_start, is_ending
+     ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
      RETURNING *`,
     [
       randomUUID(),
@@ -442,6 +451,9 @@ export async function createCut(
       input.startEffectDurationMs ?? DEFAULT_CUT_EFFECT_DURATION_MS,
       input.endEffectDurationMs ?? DEFAULT_CUT_EFFECT_DURATION_MS,
       input.assetUrl ?? null,
+      input.edgeFade ?? DEFAULT_EDGE_FADE,
+      input.edgeFadeIntensity ?? DEFAULT_EDGE_FADE_INTENSITY,
+      input.marginBottomToken ?? DEFAULT_CONTENT_SPACING,
       input.positionX ?? defaultPositionX,
       input.positionY ?? defaultPositionY,
       input.orderIndex ?? defaultOrderIndex,
@@ -481,6 +493,9 @@ export async function updateCut(
     startEffectDurationMs: number;
     endEffectDurationMs: number;
     assetUrl: string | null;
+    edgeFade: Cut['edgeFade'];
+    edgeFadeIntensity: Cut['edgeFadeIntensity'];
+    marginBottomToken: Cut['marginBottomToken'];
     orderIndex: number;
     positionX: number;
     positionY: number;
@@ -513,13 +528,16 @@ export async function updateCut(
          start_effect_duration_ms = $13,
          end_effect_duration_ms = $14,
          asset_url = $15,
-         position_x = $16,
-         position_y = $17,
-         order_index = $18,
-         is_start = $19,
-         is_ending = $20,
+         edge_fade = $16,
+         edge_fade_intensity = $17,
+         margin_bottom_token = $18,
+         position_x = $19,
+         position_y = $20,
+         order_index = $21,
+         is_start = $22,
+         is_ending = $23,
          updated_at = NOW()
-     WHERE id = $21
+     WHERE id = $24
      RETURNING *`,
     [
       patch.kind ?? existing.kind,
@@ -537,6 +555,9 @@ export async function updateCut(
       patch.startEffectDurationMs ?? existing.startEffectDurationMs,
       patch.endEffectDurationMs ?? existing.endEffectDurationMs,
       nextAssetUrl,
+      patch.edgeFade ?? existing.edgeFade ?? DEFAULT_EDGE_FADE,
+      patch.edgeFadeIntensity ?? existing.edgeFadeIntensity ?? DEFAULT_EDGE_FADE_INTENSITY,
+      patch.marginBottomToken ?? existing.marginBottomToken ?? DEFAULT_CONTENT_SPACING,
       patch.positionX ?? existing.positionX,
       patch.positionY ?? existing.positionY,
       patch.orderIndex ?? existing.orderIndex,
@@ -903,6 +924,35 @@ export async function createPublish(
   );
 
   return mapPublish(result.rows[0]);
+}
+
+export async function updateLatestPublishForEpisode(
+  db: DbExecutor,
+  input: {
+    projectId: string;
+    episodeId: string;
+    manifest: PublishManifest;
+    createdBy: string;
+  }
+): Promise<Publish | null> {
+  const result = await db.query<PublishRow>(
+    `UPDATE promptoon_publish
+     SET manifest = $3,
+         created_by = $4,
+         created_at = NOW()
+     WHERE id = (
+       SELECT id
+       FROM promptoon_publish
+       WHERE project_id = $1
+         AND episode_id = $2
+       ORDER BY version_no DESC, created_at DESC, id DESC
+       LIMIT 1
+     )
+     RETURNING *`,
+    [input.projectId, input.episodeId, JSON.stringify(input.manifest), input.createdBy]
+  );
+
+  return result.rows[0] ? mapPublish(result.rows[0]) : null;
 }
 
 export async function markProjectPublished(db: DbExecutor, projectId: string): Promise<void> {

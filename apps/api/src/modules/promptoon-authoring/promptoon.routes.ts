@@ -170,6 +170,12 @@ export function createPromptoonRouter(): Router {
     response.status(201).json(await service.publishProject(getParam(request.params.projectId, 'projectId'), body, userId));
   }));
 
+  protectedRouter.post('/projects/:projectId/publish/update', asyncHandler(async (request, response) => {
+    const body = publishSchema.parse(request.body);
+    const userId = getRequiredAuthUser(request).sub;
+    response.json(await service.updatePublishedProject(getParam(request.params.projectId, 'projectId'), body, userId));
+  }));
+
   protectedRouter.post('/projects/:projectId/unpublish', asyncHandler(async (request, response) => {
     const body = publishSchema.parse(request.body);
     await service.unpublishProject(getParam(request.params.projectId, 'projectId'), body, getRequiredAuthUser(request).sub);

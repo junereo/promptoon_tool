@@ -415,7 +415,8 @@ describe('CutEditorForm', () => {
           text: '',
           textAlign: 'center',
           fontToken: 'display',
-          placement: 'flow'
+          placement: 'flow',
+          fontSizeToken: '2xl'
         })
       ])
     });
@@ -467,6 +468,169 @@ describe('CutEditorForm', () => {
           textAlign: 'left',
           fontToken: 'sans-kr',
           placement: 'overlay'
+        }
+      ]
+    });
+
+    vi.useRealTimers();
+  });
+
+  it('creates dialogue blocks with overlay defaults and persists speaker edits', () => {
+    vi.useFakeTimers();
+    const onQueuePatch = vi.fn();
+    const cut = buildCut('cut-1');
+
+    render(
+      <CutEditorForm
+        cut={cut}
+        onCommitPatch={vi.fn().mockResolvedValue(undefined)}
+        onDeleteCut={vi.fn()}
+        onKindPreviewChange={vi.fn()}
+        onQueuePatch={onQueuePatch}
+        onUploadAsset={vi.fn()}
+        pendingAutosaveCount={0}
+      />
+    );
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Insert block' })[1]);
+    fireEvent.click(screen.getByRole('button', { name: 'Dialogue' }));
+
+    fireEvent.change(screen.getByLabelText('Dialogue Speaker'), { target: { value: 'Hero' } });
+
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+
+    expect(onQueuePatch).toHaveBeenCalledWith('cut-1', {
+      body: 'Default body',
+      contentBlocks: expect.arrayContaining([
+        {
+          id: 'cut-1-legacy-body',
+          type: 'narration',
+          text: 'Default body',
+          textAlign: 'left',
+          fontToken: 'sans-kr',
+          placement: 'flow'
+        },
+        expect.objectContaining({
+          type: 'dialogue',
+          speaker: 'Hero',
+          placement: 'overlay',
+          fontSizeToken: 'base'
+        })
+      ])
+    });
+
+    vi.useRealTimers();
+  });
+
+  it('queues font size changes for selected text blocks only', () => {
+    vi.useFakeTimers();
+    const onQueuePatch = vi.fn();
+    const cut = buildCut('cut-1', {
+      contentBlocks: [
+        {
+          id: 'block-1',
+          type: 'heading',
+          text: 'Heading',
+          textAlign: 'center',
+          fontToken: 'display',
+          fontSizeToken: '2xl'
+        }
+      ]
+    });
+
+    render(
+      <CutEditorForm
+        cut={cut}
+        onCommitPatch={vi.fn().mockResolvedValue(undefined)}
+        onDeleteCut={vi.fn()}
+        onKindPreviewChange={vi.fn()}
+        onQueuePatch={onQueuePatch}
+        onUploadAsset={vi.fn()}
+        pendingAutosaveCount={0}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText('Block Font Size'), { target: { value: '3xl' } });
+
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+
+    expect(onQueuePatch).toHaveBeenCalledWith('cut-1', {
+      body: 'Heading',
+      contentBlocks: [
+        {
+          id: 'block-1',
+          type: 'heading',
+          text: 'Heading',
+          textAlign: 'center',
+          fontToken: 'display',
+          fontSizeToken: '3xl'
+        }
+      ]
+    });
+
+    vi.useRealTimers();
+  });
+
+  it('queues rhythm style changes for cuts and selected text blocks', () => {
+    vi.useFakeTimers();
+    const onQueuePatch = vi.fn();
+    const cut = buildCut('cut-1', {
+      contentBlocks: [
+        {
+          id: 'block-1',
+          type: 'narration',
+          text: 'Narration',
+          textAlign: 'left',
+          fontToken: 'sans-kr',
+          lineHeightToken: 'normal',
+          marginTopToken: 'none',
+          marginBottomToken: 'none'
+        }
+      ]
+    });
+
+    render(
+      <CutEditorForm
+        cut={cut}
+        onCommitPatch={vi.fn().mockResolvedValue(undefined)}
+        onDeleteCut={vi.fn()}
+        onKindPreviewChange={vi.fn()}
+        onQueuePatch={onQueuePatch}
+        onUploadAsset={vi.fn()}
+        pendingAutosaveCount={0}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText('Edge Fade'), { target: { value: 'both' } });
+    fireEvent.change(screen.getByLabelText('Edge Fade Intensity'), { target: { value: 'strong' } });
+    fireEvent.change(screen.getByLabelText('Cut Bottom Spacing'), { target: { value: 'xl' } });
+    fireEvent.change(screen.getByLabelText('Block Line Height'), { target: { value: 'loose' } });
+    fireEvent.change(screen.getByLabelText('Block Top Spacing'), { target: { value: 'sm' } });
+    fireEvent.change(screen.getByLabelText('Block Bottom Spacing'), { target: { value: 'lg' } });
+
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+
+    expect(onQueuePatch).toHaveBeenCalledWith('cut-1', {
+      body: 'Narration',
+      edgeFade: 'both',
+      edgeFadeIntensity: 'strong',
+      marginBottomToken: 'xl',
+      contentBlocks: [
+        {
+          id: 'block-1',
+          type: 'narration',
+          text: 'Narration',
+          textAlign: 'left',
+          fontToken: 'sans-kr',
+          lineHeightToken: 'loose',
+          marginTopToken: 'sm',
+          marginBottomToken: 'lg'
         }
       ]
     });

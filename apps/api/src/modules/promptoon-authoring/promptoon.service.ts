@@ -26,7 +26,15 @@ import type {
   TelemetryEventRequest,
   ValidateEpisodeResponse
 } from '@promptoon/shared';
-import { DEFAULT_CONTENT_VIEW_MODE, DEFAULT_CUT_EFFECT_DURATION_MS, deriveCutBody, getNormalizedCutContentBlocks } from '@promptoon/shared';
+import {
+  DEFAULT_CONTENT_SPACING,
+  DEFAULT_CONTENT_VIEW_MODE,
+  DEFAULT_CUT_EFFECT_DURATION_MS,
+  DEFAULT_EDGE_FADE,
+  DEFAULT_EDGE_FADE_INTENSITY,
+  deriveCutBody,
+  getNormalizedCutContentBlocks
+} from '@promptoon/shared';
 import { readFile } from 'node:fs/promises';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -82,6 +90,9 @@ function normalizeManifest(manifest: PublishManifest): PublishManifest {
         body: deriveCutBody(contentBlocks, cut.body),
         contentBlocks,
         contentViewMode: cut.contentViewMode ?? DEFAULT_CONTENT_VIEW_MODE,
+        edgeFade: cut.edgeFade ?? DEFAULT_EDGE_FADE,
+        edgeFadeIntensity: cut.edgeFadeIntensity ?? DEFAULT_EDGE_FADE_INTENSITY,
+        marginBottomToken: cut.marginBottomToken ?? DEFAULT_CONTENT_SPACING,
         startEffect: cut.startEffect ?? 'none',
         endEffect: cut.endEffect ?? 'none',
         startEffectDurationMs: normalizeCutEffectDurationMs(cut.startEffectDurationMs),
@@ -193,6 +204,9 @@ function buildManifest(draft: EpisodeDraftResponse, project: Project): PublishMa
       title: cut.title,
       body: deriveCutBody(getNormalizedCutContentBlocks(cut), cut.body),
       contentViewMode: cut.contentViewMode ?? DEFAULT_CONTENT_VIEW_MODE,
+      edgeFade: cut.edgeFade ?? DEFAULT_EDGE_FADE,
+      edgeFadeIntensity: cut.edgeFadeIntensity ?? DEFAULT_EDGE_FADE_INTENSITY,
+      marginBottomToken: cut.marginBottomToken ?? DEFAULT_CONTENT_SPACING,
       dialogAnchorX: cut.dialogAnchorX,
       dialogAnchorY: cut.dialogAnchorY,
       dialogOffsetX: cut.dialogOffsetX,
@@ -531,6 +545,9 @@ function buildFeedItem(publish: Publish): FeedItem | null {
       contentBlocks: startCut.contentBlocks,
       contentViewMode: startCut.contentViewMode ?? DEFAULT_CONTENT_VIEW_MODE,
       assetUrl: startCut.assetUrl,
+      edgeFade: startCut.edgeFade ?? DEFAULT_EDGE_FADE,
+      edgeFadeIntensity: startCut.edgeFadeIntensity ?? DEFAULT_EDGE_FADE_INTENSITY,
+      marginBottomToken: startCut.marginBottomToken ?? DEFAULT_CONTENT_SPACING,
       dialogAnchorX: startCut.dialogAnchorX,
       dialogAnchorY: startCut.dialogAnchorY,
       dialogOffsetX: startCut.dialogOffsetX,
@@ -994,6 +1011,52 @@ export async function publishProject(projectId: string, request: PublishRequest,
       manifest,
       createdBy: userId
     });
+  });
+}
+
+export async function updatePublishedProject(projectId: string, request: PublishRequest, userId: string): Promise<Publish> {
+  await ensureProjectOwnedByUser(projectId, userId);
+  await ensureEpisodeBelongsToProject(projectId, request.episodeId);
+
+  return withTransaction(async (client) => {
+    await repository.lockEpisodeForPublish(client, request.episodeId);
+
+    const project = assertExists(await repository.getProjectById(client, projectId), 'Project not found.');
+    const existingPublish = assertExists(
+      await repository.getLatestPublishByEpisodeId(client, request.episodeId),
+      'Published episode not found.'
+    );
+    const { draft, validation } = await getValidatedDraft(request.episodeId, client);
+    if (!validation.isValid) {
+      throw new HttpError(409, 'Episode validation failed.', validation);
+    }
+
+    await repository.markProjectPublished(client, projectId);
+    await repository.markEpisodePublished(client, request.episodeId);
+
+    const manifest = buildManifest(
+      {
+        ...draft,
+        episode: {
+          ...draft.episode,
+          status: 'published'
+        }
+      },
+      {
+        ...project,
+        status: 'published'
+      }
+    );
+
+    return assertExists(
+      await repository.updateLatestPublishForEpisode(client, {
+        projectId,
+        episodeId: existingPublish.episodeId,
+        manifest,
+        createdBy: userId
+      }),
+      'Published episode not found.'
+    );
   });
 }
 

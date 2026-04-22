@@ -3,9 +3,16 @@ import type { ChangeEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-import { deriveContentBlocksBody, normalizeCutContentBlocks } from '../../shared/lib/cut-content';
+import { CONTENT_SPACING_OPTIONS, deriveContentBlocksBody, normalizeCutContentBlocks } from '../../shared/lib/cut-content';
 import { useDebounce } from '../../shared/lib/use-debounce';
-import { CUT_EFFECT_OPTIONS, DEFAULT_CUT_EFFECT, DEFAULT_CUT_EFFECT_DURATION_MS, MAX_CUT_EFFECT_DURATION_MS } from '../../shared/lib/cut-effects';
+import {
+  CUT_EFFECT_OPTIONS,
+  DEFAULT_CUT_EFFECT,
+  DEFAULT_CUT_EFFECT_DURATION_MS,
+  EDGE_FADE_INTENSITY_OPTIONS,
+  EDGE_FADE_OPTIONS,
+  MAX_CUT_EFFECT_DURATION_MS
+} from '../../shared/lib/cut-effects';
 import { ApiError } from '../../shared/api/client';
 import { CutContentBlocksEditor } from './CutContentBlocksEditor';
 
@@ -32,6 +39,9 @@ interface CutFormState {
   startEffectDurationMs: number;
   endEffectDurationMs: number;
   assetUrl: string;
+  edgeFade: NonNullable<Cut['edgeFade']>;
+  edgeFadeIntensity: NonNullable<Cut['edgeFadeIntensity']>;
+  marginBottomToken: NonNullable<Cut['marginBottomToken']>;
   isStart: boolean;
   isEnding: boolean;
 }
@@ -52,6 +62,9 @@ function toFormState(cut: Cut): CutFormState {
     startEffectDurationMs: cut.startEffectDurationMs ?? DEFAULT_CUT_EFFECT_DURATION_MS,
     endEffectDurationMs: cut.endEffectDurationMs ?? DEFAULT_CUT_EFFECT_DURATION_MS,
     assetUrl: cut.assetUrl ?? '',
+    edgeFade: cut.edgeFade ?? 'none',
+    edgeFadeIntensity: cut.edgeFadeIntensity ?? 'normal',
+    marginBottomToken: cut.marginBottomToken ?? 'none',
     isStart: cut.isStart,
     isEnding: cut.isEnding
   };
@@ -126,6 +139,18 @@ function buildCutPatch(cut: Cut, formState: CutFormState): PatchCutRequest | nul
     patch.endEffectDurationMs = formState.endEffectDurationMs;
   }
 
+  if (formState.edgeFade !== (cut.edgeFade ?? 'none')) {
+    patch.edgeFade = formState.edgeFade;
+  }
+
+  if (formState.edgeFadeIntensity !== (cut.edgeFadeIntensity ?? 'normal')) {
+    patch.edgeFadeIntensity = formState.edgeFadeIntensity;
+  }
+
+  if (formState.marginBottomToken !== (cut.marginBottomToken ?? 'none')) {
+    patch.marginBottomToken = formState.marginBottomToken;
+  }
+
   if (formState.isStart !== cut.isStart) {
     patch.isStart = formState.isStart;
   }
@@ -189,6 +214,9 @@ export function CutEditorForm({
     cut.startEffectDurationMs,
     cut.endEffectDurationMs,
     cut.assetUrl,
+    cut.edgeFade,
+    cut.edgeFadeIntensity,
+    cut.marginBottomToken,
     cut.isStart,
     cut.isEnding,
     onKindPreviewChange
@@ -534,6 +562,69 @@ export function CutEditorForm({
                   type="number"
                   value={formState.endEffectDurationMs}
                 />
+              </div>
+
+              <div>
+                <FieldLabel>Edge Fade</FieldLabel>
+                <select
+                  aria-label="Edge Fade"
+                  className={inputClassName()}
+                  onChange={(event) =>
+                    setFormState((current) => ({
+                      ...current,
+                      edgeFade: event.target.value as NonNullable<Cut['edgeFade']>
+                    }))
+                  }
+                  value={formState.edgeFade}
+                >
+                  {EDGE_FADE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <FieldLabel>Edge Fade Intensity</FieldLabel>
+                <select
+                  aria-label="Edge Fade Intensity"
+                  className={inputClassName()}
+                  onChange={(event) =>
+                    setFormState((current) => ({
+                      ...current,
+                      edgeFadeIntensity: event.target.value as NonNullable<Cut['edgeFadeIntensity']>
+                    }))
+                  }
+                  value={formState.edgeFadeIntensity}
+                >
+                  {EDGE_FADE_INTENSITY_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <FieldLabel>Cut Bottom Spacing</FieldLabel>
+                <select
+                  aria-label="Cut Bottom Spacing"
+                  className={inputClassName()}
+                  onChange={(event) =>
+                    setFormState((current) => ({
+                      ...current,
+                      marginBottomToken: event.target.value as NonNullable<Cut['marginBottomToken']>
+                    }))
+                  }
+                  value={formState.marginBottomToken}
+                >
+                  {CONTENT_SPACING_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
 

@@ -2,6 +2,9 @@ import type {
   CutContentBlock,
   Cut,
   PromptoonContentPlacement,
+  PromptoonFontSizeToken,
+  PromptoonLineHeightToken,
+  PromptoonSpacingToken,
   PromptoonContentTextAlign,
   PromptoonFontToken,
   PromptoonHeadingContentBlock,
@@ -13,6 +16,8 @@ import type {
 
 const DEFAULT_NAME_INPUT_MAX_LENGTH = 20;
 const DEFAULT_CONTENT_FONT_TOKEN: PromptoonFontToken = 'sans-kr';
+const DEFAULT_CONTENT_FONT_SIZE: PromptoonFontSizeToken = 'base';
+const DEFAULT_CONTENT_LINE_HEIGHT: PromptoonLineHeightToken = 'normal';
 const DEFAULT_CONTENT_TEXT_ALIGN: PromptoonContentTextAlign = 'left';
 
 export interface ViewerBindings {
@@ -29,6 +34,39 @@ export const CONTENT_FONT_OPTIONS: Array<{ label: string; value: PromptoonFontTo
   { label: 'Display', value: 'display' }
 ];
 
+export const CONTENT_FONT_SIZE_OPTIONS: Array<{ label: string; value: PromptoonFontSizeToken }> = [
+  { label: 'Small', value: 'sm' },
+  { label: 'Normal', value: 'base' },
+  { label: 'Large', value: 'lg' },
+  { label: 'Extra Large', value: 'xl' },
+  { label: 'Title', value: '2xl' },
+  { label: 'Hero', value: '3xl' }
+];
+
+export const CONTENT_LINE_HEIGHT_OPTIONS: Array<{ label: string; value: PromptoonLineHeightToken }> = [
+  { label: 'Tight', value: 'tight' },
+  { label: 'Normal', value: 'normal' },
+  { label: 'Relaxed', value: 'relaxed' },
+  { label: 'Loose', value: 'loose' }
+];
+
+export const CONTENT_SPACING_OPTIONS: Array<{ label: string; value: PromptoonSpacingToken }> = [
+  { label: 'None', value: 'none' },
+  { label: 'Small', value: 'sm' },
+  { label: 'Normal', value: 'base' },
+  { label: 'Large', value: 'lg' },
+  { label: 'Extra Large', value: 'xl' },
+  { label: '2XL', value: '2xl' },
+  { label: '3XL', value: '3xl' },
+  { label: '4XL', value: '4xl' },
+  { label: '5XL', value: '5xl' },
+  { label: '6XL', value: '6xl' },
+  { label: '7XL', value: '7xl' },
+  { label: '8XL', value: '8xl' },
+  { label: '9XL', value: '9xl' },
+  { label: '10XL', value: '10xl' }
+];
+
 export const CONTENT_ALIGN_OPTIONS: Array<{ label: string; value: PromptoonContentTextAlign }> = [
   { label: 'Left', value: 'left' },
   { label: 'Center', value: 'center' },
@@ -43,6 +81,7 @@ export const CONTENT_PLACEMENT_OPTIONS: Array<{ label: string; value: PromptoonC
 export const CONTENT_BLOCK_TYPE_OPTIONS: Array<{ label: string; value: CutContentBlock['type'] }> = [
   { label: 'Heading', value: 'heading' },
   { label: 'Narration', value: 'narration' },
+  { label: 'Dialogue', value: 'dialogue' },
   { label: 'Quote', value: 'quote' },
   { label: 'Emphasis', value: 'emphasis' },
   { label: 'Image', value: 'image' },
@@ -58,6 +97,142 @@ export function getContentFontFamily(fontToken: PromptoonFontToken): string {
     case 'sans-kr':
     default:
       return '"Noto Sans KR", "IBM Plex Sans", sans-serif';
+  }
+}
+
+export function getContentFontSizeClassName(fontSizeToken?: PromptoonFontSizeToken): string {
+  switch (fontSizeToken ?? DEFAULT_CONTENT_FONT_SIZE) {
+    case 'sm':
+      return 'text-sm';
+    case 'lg':
+      return 'text-lg';
+    case 'xl':
+      return 'text-xl';
+    case '2xl':
+      return 'text-2xl';
+    case '3xl':
+      return 'text-3xl';
+    case 'base':
+    default:
+      return 'text-base';
+  }
+}
+
+export function getContentLineHeightClassName(lineHeightToken?: PromptoonLineHeightToken): string {
+  switch (lineHeightToken ?? DEFAULT_CONTENT_LINE_HEIGHT) {
+    case 'tight':
+      return 'leading-tight';
+    case 'relaxed':
+      return 'leading-relaxed';
+    case 'loose':
+      return 'leading-loose';
+    case 'normal':
+    default:
+      return 'leading-normal';
+  }
+}
+
+export function getContentSpacingClassName(prefix: 'mt' | 'mb', spacingToken?: PromptoonSpacingToken): string {
+  if (!spacingToken || spacingToken === 'none') {
+    return '';
+  }
+
+  if (prefix === 'mt') {
+    switch (spacingToken) {
+      case 'sm':
+        return 'mt-4';
+      case 'base':
+        return 'mt-8';
+      case 'lg':
+        return 'mt-16';
+      case 'xl':
+        return 'mt-32';
+      case '2xl':
+        return 'mt-48';
+      case '3xl':
+        return 'mt-64';
+      case '4xl':
+        return 'mt-[320px]';
+      case '5xl':
+        return 'mt-[384px]';
+      case '6xl':
+        return 'mt-[448px]';
+      case '7xl':
+        return 'mt-[512px]';
+      case '8xl':
+        return 'mt-[576px]';
+      case '9xl':
+        return 'mt-[640px]';
+      case '10xl':
+        return 'mt-[704px]';
+      default:
+        return '';
+    }
+  }
+
+  switch (spacingToken) {
+    case 'sm':
+      return 'mb-4';
+    case 'base':
+      return 'mb-8';
+    case 'lg':
+      return 'mb-16';
+    case 'xl':
+      return 'mb-32';
+    case '2xl':
+      return 'mb-48';
+    case '3xl':
+      return 'mb-64';
+    case '4xl':
+      return 'mb-[320px]';
+    case '5xl':
+      return 'mb-[384px]';
+    case '6xl':
+      return 'mb-[448px]';
+    case '7xl':
+      return 'mb-[512px]';
+    case '8xl':
+      return 'mb-[576px]';
+    case '9xl':
+      return 'mb-[640px]';
+    case '10xl':
+      return 'mb-[704px]';
+    default:
+      return '';
+  }
+}
+
+export function getContentSpacingMinHeight(spacingToken?: PromptoonSpacingToken): string | undefined {
+  switch (spacingToken) {
+    case 'sm':
+      return '16px';
+    case 'base':
+      return '32px';
+    case 'lg':
+      return '64px';
+    case 'xl':
+      return '128px';
+    case '2xl':
+      return '192px';
+    case '3xl':
+      return '256px';
+    case '4xl':
+      return '320px';
+    case '5xl':
+      return '384px';
+    case '6xl':
+      return '448px';
+    case '7xl':
+      return '512px';
+    case '8xl':
+      return '576px';
+    case '9xl':
+      return '640px';
+    case '10xl':
+      return '704px';
+    case 'none':
+    default:
+      return undefined;
   }
 }
 
@@ -88,8 +263,8 @@ export function normalizeCutContentBlocks(cut: ContentRenderableCut): CutContent
 
 export function isTextContentBlock(
   block: CutContentBlock
-): block is Extract<CutContentBlock, { type: 'heading' | 'narration' | 'quote' | 'emphasis' }> {
-  return block.type === 'heading' || block.type === 'narration' || block.type === 'quote' || block.type === 'emphasis';
+): block is Extract<CutContentBlock, { type: 'heading' | 'narration' | 'quote' | 'emphasis' | 'dialogue' }> {
+  return block.type === 'heading' || block.type === 'narration' || block.type === 'quote' || block.type === 'emphasis' || block.type === 'dialogue';
 }
 
 export function getContentBlockPlacement(block: CutContentBlock): PromptoonContentPlacement {
@@ -107,6 +282,7 @@ export function deriveContentBlocksBody(contentBlocks: CutContentBlock[], fallba
         case 'heading':
         case 'narration':
         case 'emphasis':
+        case 'dialogue':
           return [block.text.trim()];
         case 'quote':
           return [block.title?.trim() ?? '', block.text.trim()];
@@ -132,7 +308,26 @@ function createBlockId(): string {
   return `block-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function createTextBlock<T extends PromptoonHeadingContentBlock | PromptoonNarrationContentBlock | PromptoonQuoteContentBlock | PromptoonEmphasisContentBlock>(
+function createTextBlock<
+  T extends
+    | PromptoonHeadingContentBlock
+    | PromptoonNarrationContentBlock
+    | PromptoonQuoteContentBlock
+    | PromptoonEmphasisContentBlock
+    | {
+        id: string;
+        type: 'dialogue';
+        text: string;
+        textAlign: PromptoonContentTextAlign;
+        fontToken: PromptoonFontToken;
+        placement?: PromptoonContentPlacement;
+        fontSizeToken?: PromptoonFontSizeToken;
+        lineHeightToken?: PromptoonLineHeightToken;
+        marginTopToken?: PromptoonSpacingToken;
+        marginBottomToken?: PromptoonSpacingToken;
+        speaker?: string;
+      }
+>(
   block: T
 ): T {
   return block;
@@ -147,7 +342,20 @@ export function createContentBlock(type: CutContentBlock['type']): CutContentBlo
         text: '',
         textAlign: 'center',
         fontToken: 'display',
-        placement: 'flow'
+        placement: 'flow',
+        fontSizeToken: '2xl',
+        speaker: ''
+      });
+    case 'dialogue':
+      return createTextBlock({
+        id: createBlockId(),
+        type,
+        text: '',
+        speaker: '',
+        textAlign: DEFAULT_CONTENT_TEXT_ALIGN,
+        fontToken: DEFAULT_CONTENT_FONT_TOKEN,
+        placement: 'overlay',
+        fontSizeToken: DEFAULT_CONTENT_FONT_SIZE
       });
     case 'quote':
       return createTextBlock({
@@ -157,7 +365,9 @@ export function createContentBlock(type: CutContentBlock['type']): CutContentBlo
         text: '',
         textAlign: DEFAULT_CONTENT_TEXT_ALIGN,
         fontToken: 'serif-kr',
-        placement: 'flow'
+        placement: 'flow',
+        fontSizeToken: 'lg',
+        speaker: ''
       });
     case 'emphasis':
       return createTextBlock({
@@ -166,7 +376,9 @@ export function createContentBlock(type: CutContentBlock['type']): CutContentBlo
         text: '',
         textAlign: 'center',
         fontToken: 'serif-kr',
-        placement: 'flow'
+        placement: 'flow',
+        fontSizeToken: 'xl',
+        speaker: ''
       });
     case 'image':
       return {
@@ -192,7 +404,9 @@ export function createContentBlock(type: CutContentBlock['type']): CutContentBlo
         text: '',
         textAlign: DEFAULT_CONTENT_TEXT_ALIGN,
         fontToken: DEFAULT_CONTENT_FONT_TOKEN,
-        placement: 'flow'
+        placement: 'flow',
+        fontSizeToken: DEFAULT_CONTENT_FONT_SIZE,
+        speaker: ''
       });
   }
 }

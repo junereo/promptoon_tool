@@ -1,4 +1,5 @@
-import type { PromptoonCutEffect } from '@promptoon/shared';
+import type { PromptoonCutEffect, PromptoonEdgeFade, PromptoonEdgeFadeIntensity } from '@promptoon/shared';
+import type { CSSProperties } from 'react';
 import type { Variants } from 'framer-motion';
 
 export const DEFAULT_CUT_EFFECT: PromptoonCutEffect = 'none';
@@ -14,6 +15,19 @@ export const CUT_EFFECT_OPTIONS: Array<{ label: string; value: PromptoonCutEffec
   { label: 'Slide Down', value: 'slide-down' },
   { label: 'Zoom In', value: 'zoom-in' },
   { label: 'Zoom Out', value: 'zoom-out' }
+];
+
+export const EDGE_FADE_OPTIONS: Array<{ label: string; value: PromptoonEdgeFade }> = [
+  { label: 'None', value: 'none' },
+  { label: 'Top', value: 'top' },
+  { label: 'Bottom', value: 'bottom' },
+  { label: 'Both', value: 'both' }
+];
+
+export const EDGE_FADE_INTENSITY_OPTIONS: Array<{ label: string; value: PromptoonEdgeFadeIntensity }> = [
+  { label: 'Soft', value: 'soft' },
+  { label: 'Normal', value: 'normal' },
+  { label: 'Strong', value: 'strong' }
 ];
 
 export const CUT_EFFECT_TRANSITION = {
@@ -115,4 +129,66 @@ export function buildCutEffectMotionCustom(
     enterDurationMs: startEffectDurationMs ?? DEFAULT_CUT_EFFECT_DURATION_MS,
     exitDurationMs: endEffectDurationMs ?? DEFAULT_CUT_EFFECT_DURATION_MS
   };
+}
+
+function getEdgeFadeStops(edgeFadeIntensity?: PromptoonEdgeFadeIntensity | null) {
+  switch (edgeFadeIntensity ?? 'normal') {
+    case 'soft':
+      return { topVisibleStart: 8, bottomVisibleEnd: 92 };
+    case 'strong':
+      return { topVisibleStart: 28, bottomVisibleEnd: 72 };
+    case 'normal':
+    default:
+      return { topVisibleStart: 15, bottomVisibleEnd: 85 };
+  }
+}
+
+function getEdgeFadeOverlayHeightClassName(edgeFadeIntensity?: PromptoonEdgeFadeIntensity | null): string {
+  switch (edgeFadeIntensity ?? 'normal') {
+    case 'soft':
+      return 'h-16';
+    case 'strong':
+      return 'h-36';
+    case 'normal':
+    default:
+      return 'h-24';
+  }
+}
+
+export function getEdgeFadeStyle(edgeFade?: PromptoonEdgeFade | null, edgeFadeIntensity?: PromptoonEdgeFadeIntensity | null): CSSProperties {
+  const stops = getEdgeFadeStops(edgeFadeIntensity);
+  const maskImage = (() => {
+    switch (edgeFade ?? 'none') {
+      case 'top':
+        return `linear-gradient(to bottom, transparent 0%, black ${stops.topVisibleStart}%, black 100%)`;
+      case 'bottom':
+        return `linear-gradient(to bottom, black 0%, black ${stops.bottomVisibleEnd}%, transparent 100%)`;
+      case 'both':
+        return `linear-gradient(to bottom, transparent 0%, black ${stops.topVisibleStart}%, black ${stops.bottomVisibleEnd}%, transparent 100%)`;
+      case 'none':
+      default:
+        return null;
+    }
+  })();
+
+  return maskImage ? { maskImage, WebkitMaskImage: maskImage } : {};
+}
+
+export function getEdgeFadeOverlayClassNames(edgeFade?: PromptoonEdgeFade | null, edgeFadeIntensity?: PromptoonEdgeFadeIntensity | null): string[] {
+  const heightClassName = getEdgeFadeOverlayHeightClassName(edgeFadeIntensity);
+
+  switch (edgeFade ?? 'none') {
+    case 'top':
+      return [`pointer-events-none absolute inset-x-0 top-0 z-[1] ${heightClassName} bg-gradient-to-b from-[#101015] to-transparent`];
+    case 'bottom':
+      return [`pointer-events-none absolute inset-x-0 bottom-0 z-[1] ${heightClassName} bg-gradient-to-t from-[#101015] to-transparent`];
+    case 'both':
+      return [
+        `pointer-events-none absolute inset-x-0 top-0 z-[1] ${heightClassName} bg-gradient-to-b from-[#101015] to-transparent`,
+        `pointer-events-none absolute inset-x-0 bottom-0 z-[1] ${heightClassName} bg-gradient-to-t from-[#101015] to-transparent`
+      ];
+    case 'none':
+    default:
+      return [];
+  }
 }
