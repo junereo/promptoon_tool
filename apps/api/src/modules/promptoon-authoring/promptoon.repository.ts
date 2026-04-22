@@ -1,6 +1,8 @@
 import type {
   AnalyticsChoiceStat,
+  AnalyticsCutEngagement,
   AnalyticsDailyView,
+  AnalyticsEndingStat,
   Choice,
   Cut,
   CutContentBlock,
@@ -114,6 +116,18 @@ interface ChoiceStatRow {
   cut_id: string;
   choice_id: string;
   label: string;
+  count: string;
+  avg_hesitation_ms: string | null;
+}
+
+interface CutEngagementRow {
+  cut_id: string;
+  drop_off_count: string | null;
+  avg_duration_ms: string | null;
+}
+
+interface EndingStatRow {
+  cut_id: string;
   count: string;
 }
 
@@ -799,15 +813,27 @@ export async function createViewerEvent(
     publishId: string;
     episodeId: string;
     anonymousId: string;
+    sessionId: string;
     eventType: TelemetryEventType;
     cutId: string;
     choiceId?: string;
+    durationMs?: number;
   }
 ): Promise<void> {
   await db.query<ViewerEventInsertRow>(
-    `INSERT INTO promptoon_viewer_event (id, publish_id, episode_id, anonymous_id, event_type, cut_id, choice_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    [randomUUID(), input.publishId, input.episodeId, input.anonymousId, input.eventType, input.cutId, input.choiceId ?? null]
+    `INSERT INTO promptoon_viewer_event (id, publish_id, episode_id, anonymous_id, session_id, event_type, cut_id, choice_id, duration_ms)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [
+      randomUUID(),
+      input.publishId,
+      input.episodeId,
+      input.anonymousId,
+      input.sessionId,
+      input.eventType,
+      input.cutId,
+      input.choiceId ?? null,
+      input.durationMs ?? null
+    ]
   );
 }
 
@@ -844,7 +870,8 @@ export async function getChoiceClickStats(db: DbExecutor, episodeId: string): Pr
        event.cut_id,
        event.choice_id,
        choice.label,
-       COUNT(*)::text AS count
+       COUNT(*)::text AS count,
+       ROUND(AVG(event.duration_ms))::text AS avg_hesitation_ms
      FROM promptoon_viewer_event AS event
      INNER JOIN promptoon_choice AS choice ON choice.id = event.choice_id
      WHERE event.episode_id = $1
@@ -863,7 +890,8 @@ export async function getChoiceClickStats(db: DbExecutor, episodeId: string): Pr
       choiceId: row.choice_id,
       label: row.label,
       count: Number(row.count),
-      percentage: 0
+      percentage: 0,
+      avgHesitationMs: row.avg_hesitation_ms === null ? undefined : Number(row.avg_hesitation_ms)
     });
     grouped.set(row.cut_id, list);
   }
@@ -880,6 +908,102 @@ export async function getChoiceClickStats(db: DbExecutor, episodeId: string): Pr
   }
 
   return grouped;
+}
+
+export async function getCutEngagementStats(db: DbExecutor, episodeId: string): Promise<Map<string, AnalyticsCutEngagement>> {
+  const result = await db.query<CutEngagementRow>(
+    `WITH cut_durations AS (
+       SELECT
+         cut_id,
+         ROUND(AVG(duration_ms))::text AS avg_duration_ms
+       FROM promptoon_viewer_event
+       WHERE episode_id = $1
+         AND event_type = 'cut_leave'
+         AND duration_ms IS NOT NULL
+       GROUP BY cut_id
+     ),
+     cut_dropoffs AS (
+       SELECT
+         viewed.cut_id,
+         COUNT(*)::text AS drop_off_count
+       FROM promptoon_viewer_event AS viewed
+       WHERE viewed.episode_id = $1
+         AND viewed.event_type = 'cut_view'
+         AND viewed.session_id IS NOT NULL
+         AND NOT EXISTS (
+           SELECT 1
+           FROM promptoon_viewer_event AS next_event
+           WHERE next_event.episode_id = viewed.episode_id
+             AND next_event.session_id = viewed.session_id
+             AND next_event.created_at > viewed.created_at
+             AND next_event.event_type IN ('cut_view', 'choice_click', 'ending_reach')
+         )
+       GROUP BY viewed.cut_id
+     )
+     SELECT
+       COALESCE(cut_durations.cut_id, cut_dropoffs.cut_id) AS cut_id,
+       cut_dropoffs.drop_off_count,
+       cut_durations.avg_duration_ms
+     FROM cut_durations
+     FULL OUTER JOIN cut_dropoffs ON cut_dropoffs.cut_id = cut_durations.cut_id`,
+    [episodeId]
+  );
+
+  return new Map(
+    result.rows.map((row) => [
+      row.cut_id,
+      {
+        cutId: row.cut_id,
+        dropOffCount: Number(row.drop_off_count ?? 0),
+        avgDurationMs: Number(row.avg_duration_ms ?? 0)
+      }
+    ])
+  );
+}
+
+export async function getEndingDistributionStats(db: DbExecutor, episodeId: string): Promise<AnalyticsEndingStat[]> {
+  const result = await db.query<EndingStatRow>(
+    `SELECT
+       cut_id,
+       COUNT(*)::text AS count
+     FROM promptoon_viewer_event
+     WHERE episode_id = $1
+       AND event_type = 'ending_reach'
+     GROUP BY cut_id
+     ORDER BY count DESC, cut_id ASC`,
+    [episodeId]
+  );
+  const total = result.rows.reduce((sum, row) => sum + Number(row.count), 0);
+
+  return result.rows.map((row) => ({
+    cutId: row.cut_id,
+    count: Number(row.count),
+    percentage: total === 0 ? 0 : Number(((Number(row.count) / total) * 100).toFixed(1))
+  }));
+}
+
+export async function countReplayViewers(db: DbExecutor, input: { episodeId: string; startCutId: string }): Promise<number> {
+  const result = await db.query<ViewerEventCountRow>(
+    `SELECT COUNT(DISTINCT replay_start.anonymous_id)::text AS count
+     FROM promptoon_viewer_event AS replay_start
+     WHERE replay_start.episode_id = $1
+       AND replay_start.event_type = 'cut_view'
+       AND replay_start.cut_id = $2
+       AND replay_start.session_id IS NOT NULL
+       AND EXISTS (
+         SELECT 1
+         FROM promptoon_viewer_event AS prior_ending
+         WHERE prior_ending.episode_id = replay_start.episode_id
+           AND prior_ending.anonymous_id = replay_start.anonymous_id
+           AND prior_ending.event_type = 'ending_reach'
+           AND prior_ending.session_id IS NOT NULL
+           AND prior_ending.session_id <> replay_start.session_id
+           AND prior_ending.created_at < replay_start.created_at
+       )`,
+    [input.episodeId, input.startCutId]
+  );
+
+  return Number(result.rows[0]?.count ?? 0);
 }
 
 export async function getDailyStartViews(

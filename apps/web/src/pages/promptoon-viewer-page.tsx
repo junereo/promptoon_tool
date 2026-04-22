@@ -144,7 +144,7 @@ export function PromptoonViewerPage() {
   const pathSteps = useMemo(() => buildViewerPathSteps(activeCut, cutsById), [activeCut, cutsById]);
   const visibleCuts = useMemo(() => pathSteps.map((step) => step.cut), [pathSteps]);
   const terminalCut = pathSteps[pathSteps.length - 1]?.cut ?? null;
-  const { trackChoiceClick } = useViewerTelemetry({
+  const { startNewSession, trackChoiceClick, trackEndingShare } = useViewerTelemetry({
     publishId,
     visibleCuts
   });
@@ -287,11 +287,13 @@ export function PromptoonViewerPage() {
           text: shareText,
           url: shareUrl
         });
+        trackEndingShare(terminalCut.id);
         return;
       }
 
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(shareUrl);
+        trackEndingShare(terminalCut.id);
         setShareNotice('링크가 복사되었습니다.');
         return;
       }
@@ -321,6 +323,7 @@ export function PromptoonViewerPage() {
       onInteraction={() => showChrome()}
       onReset={() => {
         clearPendingTransition();
+        startNewSession();
         reset(startCutId);
       }}
       onUserNameChange={setUserName}

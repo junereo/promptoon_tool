@@ -742,6 +742,7 @@ maybeDescribe('promptoon api integration', () => {
 
   it('accepts telemetry events without authentication and persists them', async () => {
     const anonymousId = randomUUID();
+    const sessionId = randomUUID();
     const fixture = await createPublishedEpisodeFixture();
     const choice = await query<{ id: string }>('SELECT id FROM promptoon_choice LIMIT 1');
 
@@ -750,15 +751,20 @@ maybeDescribe('promptoon api integration', () => {
       .send({
         publishId: fixture.publish.body.id,
         anonymousId,
+        sessionId,
         eventType: 'choice_click',
         cutId: fixture.startCut.body.id,
-        choiceId: choice.rows[0]?.id
+        choiceId: choice.rows[0]?.id,
+        durationMs: 1500
       });
 
     const countResult = await query<{ count: string }>('SELECT COUNT(*)::text AS count FROM promptoon_viewer_event');
+    const eventResult = await query<{ session_id: string; duration_ms: number }>('SELECT session_id::text AS session_id, duration_ms FROM promptoon_viewer_event LIMIT 1');
 
     expect(response.status).toBe(202);
     expect(Number(countResult.rows[0].count)).toBe(1);
+    expect(eventResult.rows[0].session_id).toBe(sessionId);
+    expect(eventResult.rows[0].duration_ms).toBe(1500);
   });
 
   it('returns analytics for an episode with choice split and completion rate', async () => {
@@ -797,12 +803,14 @@ maybeDescribe('promptoon api integration', () => {
 
     for (let index = 0; index < 100; index += 1) {
       const anonymousId = randomUUID();
+      const sessionId = randomUUID();
       if (index < 80) {
         await request(app)
           .post('/api/promptoon/telemetry/events')
           .send({
             publishId: publish.body.id,
             anonymousId,
+            sessionId,
             eventType: 'feed_impression',
             cutId: startCut.body.id
           });
@@ -814,6 +822,7 @@ maybeDescribe('promptoon api integration', () => {
           .send({
             publishId: publish.body.id,
             anonymousId,
+            sessionId,
             eventType: 'feed_choice_click',
             cutId: startCut.body.id,
             choiceId: choiceA.body.id
@@ -825,8 +834,20 @@ maybeDescribe('promptoon api integration', () => {
         .send({
           publishId: publish.body.id,
           anonymousId,
+          sessionId,
           eventType: 'cut_view',
           cutId: startCut.body.id
+        });
+
+      await request(app)
+        .post('/api/promptoon/telemetry/events')
+        .send({
+          publishId: publish.body.id,
+          anonymousId,
+          sessionId,
+          eventType: 'cut_leave',
+          cutId: startCut.body.id,
+          durationMs: index < 60 ? 1000 : 2000
         });
 
       if (index < 60) {
@@ -835,9 +856,11 @@ maybeDescribe('promptoon api integration', () => {
           .send({
             publishId: publish.body.id,
             anonymousId,
+            sessionId,
             eventType: 'choice_click',
             cutId: startCut.body.id,
-            choiceId: choiceA.body.id
+            choiceId: choiceA.body.id,
+            durationMs: 1200
           });
       } else {
         await request(app)
@@ -845,9 +868,11 @@ maybeDescribe('promptoon api integration', () => {
           .send({
             publishId: publish.body.id,
             anonymousId,
+            sessionId,
             eventType: 'choice_click',
             cutId: startCut.body.id,
-            choiceId: choiceB.body.id
+            choiceId: choiceB.body.id,
+            durationMs: 2400
           });
       }
 
@@ -857,8 +882,21 @@ maybeDescribe('promptoon api integration', () => {
           .send({
             publishId: publish.body.id,
             anonymousId,
+            sessionId,
             eventType: 'ending_reach',
             cutId: index < 60 ? endingA.body.id : endingB.body.id
+          });
+      }
+
+      if (index < 10) {
+        await request(app)
+          .post('/api/promptoon/telemetry/events')
+          .send({
+            publishId: publish.body.id,
+            anonymousId,
+            sessionId: randomUUID(),
+            eventType: 'cut_view',
+            cutId: startCut.body.id
           });
       }
     }
@@ -866,11 +904,16 @@ maybeDescribe('promptoon api integration', () => {
     const response = await withAuth(request(app).get(`/api/promptoon/analytics/episodes/${episode.body.id}`), auth.token);
 
     expect(response.status).toBe(200);
-    expect(response.body.totalViews).toBe(100);
+    expect(response.body.totalViews).toBe(110);
     expect(response.body.uniqueViewers).toBe(100);
     expect(response.body.completionRate).toBe(65);
+    expect(response.body.replayRate).toBe(10);
     expect(response.body.choiceStats[startCut.body.id][0].percentage).toBe(60);
+    expect(response.body.choiceStats[startCut.body.id][0].avgHesitationMs).toBe(1200);
     expect(response.body.choiceStats[startCut.body.id][1].percentage).toBe(40);
+    expect(response.body.cutEngagement.find((stat: { cutId: string }) => stat.cutId === startCut.body.id).avgDurationMs).toBe(1400);
+    expect(response.body.endingDistribution[0].cutId).toBe(endingA.body.id);
+    expect(response.body.endingDistribution[0].percentage).toBeCloseTo(92.3, 1);
     expect(response.body.feedEntry.impressions).toBe(80);
     expect(response.body.feedEntry.choiceClicks).toBe(30);
     expect(response.body.feedEntry.conversionRate).toBe(37.5);

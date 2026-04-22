@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { createChoiceSchema, createCutSchema, patchCutSchema } from '../src/modules/promptoon-authoring/promptoon.schemas';
+import { createChoiceSchema, createCutSchema, patchCutSchema, telemetryEventSchema } from '../src/modules/promptoon-authoring/promptoon.schemas';
 
 describe('promptoon cut schemas', () => {
   it('accepts known cut effect values', () => {
@@ -140,5 +140,28 @@ describe('promptoon cut schemas', () => {
 
     expect(cutResult.success).toBe(false);
     expect(blockResult.success).toBe(false);
+  });
+
+  it('accepts interactive telemetry fields and rejects invalid durations', () => {
+    const validResult = telemetryEventSchema.safeParse({
+      publishId: '00000000-0000-4000-8000-000000000001',
+      anonymousId: '00000000-0000-4000-8000-000000000002',
+      sessionId: '00000000-0000-4000-8000-000000000003',
+      eventType: 'choice_click',
+      cutId: '00000000-0000-4000-8000-000000000004',
+      choiceId: '00000000-0000-4000-8000-000000000005',
+      durationMs: 1234
+    });
+    const invalidResult = telemetryEventSchema.safeParse({
+      publishId: '00000000-0000-4000-8000-000000000001',
+      anonymousId: '00000000-0000-4000-8000-000000000002',
+      sessionId: '00000000-0000-4000-8000-000000000003',
+      eventType: 'cut_leave',
+      cutId: '00000000-0000-4000-8000-000000000004',
+      durationMs: -1
+    });
+
+    expect(validResult.success).toBe(true);
+    expect(invalidResult.success).toBe(false);
   });
 });

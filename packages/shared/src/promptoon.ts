@@ -26,7 +26,7 @@ export type PromptoonContentBlockType = 'heading' | 'narration' | 'quote' | 'emp
 export type PromptoonProjectStatus = 'draft' | 'published';
 export type PromptoonEpisodeStatus = 'draft' | 'published';
 export type PromptoonPublishStatus = 'published';
-export type TelemetryEventType = 'cut_view' | 'choice_click' | 'ending_reach' | 'feed_impression' | 'feed_choice_click';
+export type TelemetryEventType = 'cut_view' | 'cut_leave' | 'choice_click' | 'ending_reach' | 'ending_share' | 'feed_impression' | 'feed_choice_click';
 
 export const DEFAULT_CUT_EFFECT_DURATION_MS = 320;
 export const MAX_CUT_EFFECT_DURATION_MS = 10000;
@@ -206,9 +206,11 @@ export interface LoginRequest {
 export interface TelemetryEventRequest {
   publishId: string;
   anonymousId: string;
+  sessionId: string;
   eventType: TelemetryEventType;
   cutId: string;
   choiceId?: string;
+  durationMs?: number;
 }
 
 export interface AssetUploadResponse {
@@ -344,6 +346,19 @@ export interface AnalyticsChoiceStat {
   label: string;
   count: number;
   percentage: number;
+  avgHesitationMs?: number;
+}
+
+export interface AnalyticsCutEngagement {
+  cutId: string;
+  dropOffCount: number;
+  avgDurationMs: number;
+}
+
+export interface AnalyticsEndingStat {
+  cutId: string;
+  count: number;
+  percentage: number;
 }
 
 export interface AnalyticsDailyView {
@@ -361,8 +376,11 @@ export interface AnalyticsEpisodeResponse {
   totalViews: number;
   uniqueViewers: number;
   completionRate: number;
+  replayRate: number;
   funnel: AnalyticsFunnelStep[];
+  cutEngagement: AnalyticsCutEngagement[];
   choiceStats: Record<string, AnalyticsChoiceStat[]>;
+  endingDistribution: AnalyticsEndingStat[];
   dailyViews: AnalyticsDailyView[];
   feedEntry: AnalyticsFeedEntry;
 }

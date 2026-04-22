@@ -14,8 +14,11 @@ let analyticsData: {
   totalViews: number;
   uniqueViewers: number;
   completionRate: number;
+  replayRate: number;
   funnel: Array<{ key: 'start_view' | 'choice_engaged' | 'ending_reached'; label: string; viewers: number }>;
-  choiceStats: Record<string, Array<{ choiceId: string; label: string; count: number; percentage: number }>>;
+  cutEngagement: Array<{ cutId: string; dropOffCount: number; avgDurationMs: number }>;
+  choiceStats: Record<string, Array<{ choiceId: string; label: string; count: number; percentage: number; avgHesitationMs?: number }>>;
+  endingDistribution: Array<{ cutId: string; count: number; percentage: number }>;
   dailyViews: Array<{ date: string; views: number }>;
   feedEntry: { impressions: number; choiceClicks: number; conversionRate: number };
 };
@@ -197,20 +200,28 @@ beforeEach(() => {
     totalViews: 1250,
     uniqueViewers: 840,
     completionRate: 65.4,
+    replayRate: 12.5,
     funnel: [
       { key: 'start_view', label: '시작', viewers: 840 },
       { key: 'choice_engaged', label: '선택', viewers: 700 },
       { key: 'ending_reached', label: '엔딩', viewers: 549 }
     ],
+    cutEngagement: [
+      { cutId: 'cut-1', dropOffCount: 18, avgDurationMs: 9300 },
+      { cutId: 'cut-2', dropOffCount: 3, avgDurationMs: 4200 }
+    ],
     choiceStats: {
       'cut-1': [
-        { choiceId: 'choice-1', label: 'Go', count: 600, percentage: 75 },
-        { choiceId: 'choice-2', label: 'Stay', count: 200, percentage: 25 }
+        { choiceId: 'choice-1', label: 'Go', count: 600, percentage: 75, avgHesitationMs: 2400 },
+        { choiceId: 'choice-2', label: 'Stay', count: 200, percentage: 25, avgHesitationMs: 5100 }
       ],
       'cut-single': [
         { choiceId: 'choice-single', label: 'Continue', count: 120, percentage: 100 }
       ]
     },
+    endingDistribution: [
+      { cutId: 'cut-2', count: 549, percentage: 100 }
+    ],
     dailyViews: [
       { date: '2026-03-12', views: 20 },
       { date: '2026-03-13', views: 35 }
@@ -493,8 +504,12 @@ describe('publish flow', () => {
     expect(screen.getByText('1,250')).toBeTruthy();
     expect(screen.getByText('840')).toBeTruthy();
     expect(screen.getByText('65.4%')).toBeTruthy();
+    expect(screen.getByText('12.5%')).toBeTruthy();
     expect(screen.getByText('선택지 비율 · Opening')).toBeTruthy();
     expect(screen.queryByText('선택지 비율 · cut-single')).toBeNull();
+    expect(screen.getByText('Ending Distribution')).toBeTruthy();
+    expect(screen.getByText('Cut Engagement')).toBeTruthy();
+    expect(screen.getByText(/2.4s/)).toBeTruthy();
   });
 
   it('uploads images with the current project id', async () => {

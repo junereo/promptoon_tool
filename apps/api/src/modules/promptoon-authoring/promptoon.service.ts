@@ -880,8 +880,8 @@ export async function trackViewerEvent(request: TelemetryEventRequest): Promise<
     throw new HttpError(400, 'Telemetry cut must exist in the published manifest.');
   }
 
-  if (request.eventType === 'ending_reach' && !(targetCut.isEnding || targetCut.kind === 'ending')) {
-    throw new HttpError(400, 'ending_reach events must target an ending cut.');
+  if ((request.eventType === 'ending_reach' || request.eventType === 'ending_share') && !(targetCut.isEnding || targetCut.kind === 'ending')) {
+    throw new HttpError(400, 'ending events must target an ending cut.');
   }
 
   if (request.choiceId) {
@@ -896,9 +896,11 @@ export async function trackViewerEvent(request: TelemetryEventRequest): Promise<
     publishId: request.publishId,
     episodeId: publish.episodeId,
     anonymousId: request.anonymousId,
+    sessionId: request.sessionId,
     eventType: request.eventType,
     cutId: request.cutId,
-    choiceId: request.choiceId
+    choiceId: request.choiceId,
+    durationMs: request.durationMs
   });
 }
 
@@ -907,10 +909,25 @@ export async function getEpisodeAnalytics(episodeId: string, userId: string): Pr
   const draft = assertExists(await repository.getEpisodeDraft(db, episodeId), 'Episode not found.');
   const startCutId = getStartCutId(draft);
 
-  const [choiceEngaged, endingReached, choiceStatsMap, rawDailyViews, totalViews, uniqueViewers, feedImpressions, feedChoiceClicks] = await Promise.all([
+  const [
+    choiceEngaged,
+    endingReached,
+    choiceStatsMap,
+    cutEngagementMap,
+    endingDistribution,
+    replayViewers,
+    rawDailyViews,
+    totalViews,
+    uniqueViewers,
+    feedImpressions,
+    feedChoiceClicks
+  ] = await Promise.all([
     repository.countViewerEvents(db, { episodeId, eventType: 'choice_click', distinctAnonymous: true }),
     repository.countViewerEvents(db, { episodeId, eventType: 'ending_reach', distinctAnonymous: true }),
     repository.getChoiceClickStats(db, episodeId),
+    repository.getCutEngagementStats(db, episodeId),
+    repository.getEndingDistributionStats(db, episodeId),
+    startCutId ? repository.countReplayViewers(db, { episodeId, startCutId }) : Promise.resolve(0),
     startCutId ? repository.getDailyStartViews(db, { episodeId, startCutId, days: 14 }) : Promise.resolve([]),
     startCutId ? repository.countViewerEvents(db, { episodeId, eventType: 'cut_view', cutId: startCutId }) : Promise.resolve(0),
     startCutId
@@ -924,12 +941,19 @@ export async function getEpisodeAnalytics(episodeId: string, userId: string): Pr
     totalViews,
     uniqueViewers,
     completionRate: uniqueViewers === 0 ? 0 : Number(((endingReached / uniqueViewers) * 100).toFixed(1)),
+    replayRate: uniqueViewers === 0 ? 0 : Number(((replayViewers / uniqueViewers) * 100).toFixed(1)),
     funnel: [
       { key: 'start_view', label: '시작', viewers: uniqueViewers },
       { key: 'choice_engaged', label: '선택', viewers: choiceEngaged },
       { key: 'ending_reached', label: '엔딩', viewers: endingReached }
     ],
+    cutEngagement: draft.cuts.map((cut) => ({
+      cutId: cut.id,
+      dropOffCount: cutEngagementMap.get(cut.id)?.dropOffCount ?? 0,
+      avgDurationMs: cutEngagementMap.get(cut.id)?.avgDurationMs ?? 0
+    })),
     choiceStats: buildChoiceStats(draft, choiceStatsMap),
+    endingDistribution,
     dailyViews: fillDailyViews(rawDailyViews, 14),
     feedEntry: {
       impressions: feedImpressions,

@@ -47,6 +47,15 @@ function ChartCard({
   );
 }
 
+function formatDurationMs(value: number | undefined): string {
+  const durationMs = Number(value ?? 0);
+  if (!Number.isFinite(durationMs) || durationMs <= 0) {
+    return '0.0s';
+  }
+
+  return `${(durationMs / 1000).toFixed(1)}s`;
+}
+
 export function AnalyticsDashboard({
   analytics,
   cuts,
@@ -79,13 +88,20 @@ export function AnalyticsDashboard({
   }
 
   const analyticsData = analytics;
-  const choiceGroups = Object.entries(analyticsData.choiceStats).filter(([, stats]) => stats.length >= 2);
+  const replayRate = analyticsData.replayRate ?? 0;
+  const cutEngagement = analyticsData.cutEngagement ?? [];
+  const endingDistribution = analyticsData.endingDistribution ?? [];
+  const choiceGroups = Object.entries(analyticsData.choiceStats ?? {}).filter(([, stats]) => stats.length >= 2);
+  const maxEndingCount = Math.max(1, ...endingDistribution.map((stat) => stat.count));
+  const maxDropOffCount = Math.max(1, ...cutEngagement.map((stat) => stat.dropOffCount));
   const hasData =
     analyticsData.totalViews > 0 ||
     analyticsData.uniqueViewers > 0 ||
     analyticsData.feedEntry.impressions > 0 ||
     analyticsData.feedEntry.choiceClicks > 0 ||
     choiceGroups.length > 0 ||
+    cutEngagement.some((stat) => stat.dropOffCount > 0 || stat.avgDurationMs > 0) ||
+    endingDistribution.length > 0 ||
     analyticsData.dailyViews.some((day) => day.views > 0);
 
   if (!hasData) {
@@ -98,10 +114,11 @@ export function AnalyticsDashboard({
 
   return (
     <section className="grid gap-6">
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-5">
         <SummaryCard label="총 조회수" value={analyticsData.totalViews.toLocaleString()} />
         <SummaryCard label="유니크 시청자" value={analyticsData.uniqueViewers.toLocaleString()} />
         <SummaryCard label="완주율" value={`${analyticsData.completionRate.toFixed(1)}%`} />
+        <SummaryCard label="리플레이율" value={`${replayRate.toFixed(1)}%`} />
         <SummaryCard label="피드 진입률" value={`${analyticsData.feedEntry.conversionRate.toFixed(1)}%`} />
       </div>
 
@@ -146,6 +163,31 @@ export function AnalyticsDashboard({
           <SummaryCard label="전환율" value={`${analyticsData.feedEntry.conversionRate.toFixed(1)}%`} />
         </div>
       </ChartCard>
+
+      {endingDistribution.length > 0 ? (
+        <article className="rounded-[32px] border border-editor-border bg-editor-panel/85 p-6 shadow-lg shadow-black/15">
+          <p className="font-display text-2xl font-semibold text-zinc-50">Ending Distribution</p>
+          <div className="mt-5 grid gap-3">
+            {endingDistribution.map((stat, index) => (
+              <div className="grid gap-2" key={stat.cutId}>
+                <div className="flex items-center justify-between gap-4 text-sm text-zinc-300">
+                  <span className="truncate">{cutTitleById.get(stat.cutId) ?? stat.cutId}</span>
+                  <span className="shrink-0">{stat.count.toLocaleString()} · {stat.percentage.toFixed(1)}%</span>
+                </div>
+                <div className="h-3 overflow-hidden rounded-full bg-black/25">
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      backgroundColor: PIE_COLORS[index % PIE_COLORS.length],
+                      width: `${Math.max(4, (stat.count / maxEndingCount) * 100)}%`
+                    }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </article>
+      ) : null}
 
       {choiceGroups.length > 0 ? (
         <div className="grid gap-6 xl:grid-cols-2">
@@ -192,13 +234,37 @@ export function AnalyticsDashboard({
                       />
                       {stat.label}
                     </span>
-                    <span>{stat.count.toLocaleString()} · {stat.percentage.toFixed(1)}%</span>
+                    <span>
+                      {stat.count.toLocaleString()} · {stat.percentage.toFixed(1)}% · {formatDurationMs(stat.avgHesitationMs)}
+                    </span>
                   </div>
                 ))}
               </div>
             </ChartCard>
           ))}
         </div>
+      ) : null}
+
+      {cutEngagement.length > 0 ? (
+        <article className="rounded-[32px] border border-editor-border bg-editor-panel/85 p-6 shadow-lg shadow-black/15">
+          <p className="font-display text-2xl font-semibold text-zinc-50">Cut Engagement</p>
+          <div className="mt-5 grid gap-3">
+            {cutEngagement.map((stat) => (
+              <div className="grid gap-2 rounded-2xl border border-editor-border bg-black/10 px-4 py-3" key={stat.cutId}>
+                <div className="flex items-center justify-between gap-4 text-sm text-zinc-300">
+                  <span className="truncate">{cutTitleById.get(stat.cutId) ?? stat.cutId}</span>
+                  <span className="shrink-0">이탈 {stat.dropOffCount.toLocaleString()} · 평균 {formatDurationMs(stat.avgDurationMs)}</span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-black/25">
+                  <div
+                    className="h-full rounded-full bg-editor-accent"
+                    style={{ width: `${Math.max(stat.dropOffCount > 0 ? 4 : 0, (stat.dropOffCount / maxDropOffCount) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </article>
       ) : null}
     </section>
   );

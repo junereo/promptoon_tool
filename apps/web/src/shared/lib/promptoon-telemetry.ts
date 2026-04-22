@@ -18,6 +18,10 @@ function createAnonymousId() {
   return created;
 }
 
+export function createPromptoonSessionId() {
+  return crypto.randomUUID();
+}
+
 export function getPromptoonAnonymousId() {
   if (isValidUuid(cachedAnonymousId)) {
     if (!window.localStorage.getItem(DEVICE_ID_KEY)) {
