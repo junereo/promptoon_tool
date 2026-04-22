@@ -225,7 +225,8 @@ describe('CutEditorForm', () => {
           type: 'narration',
           text: 'Updated body text',
           textAlign: 'left',
-          fontToken: 'sans-kr'
+          fontToken: 'sans-kr',
+          placement: 'flow'
         }
       ]
     });
@@ -406,15 +407,68 @@ describe('CutEditorForm', () => {
           type: 'narration',
           text: 'Default body',
           textAlign: 'left',
-          fontToken: 'sans-kr'
+          fontToken: 'sans-kr',
+          placement: 'flow'
         },
         expect.objectContaining({
           type: 'heading',
           text: '',
           textAlign: 'center',
-          fontToken: 'display'
+          fontToken: 'display',
+          placement: 'flow'
         })
       ])
+    });
+
+    vi.useRealTimers();
+  });
+
+  it('queues placement changes for selected text blocks only', () => {
+    vi.useFakeTimers();
+    const onQueuePatch = vi.fn();
+    const cut = buildCut('cut-1', {
+      contentBlocks: [
+        {
+          id: 'block-1',
+          type: 'narration',
+          text: 'Narration',
+          textAlign: 'left',
+          fontToken: 'sans-kr',
+          placement: 'flow'
+        }
+      ]
+    });
+
+    render(
+      <CutEditorForm
+        cut={cut}
+        onCommitPatch={vi.fn().mockResolvedValue(undefined)}
+        onDeleteCut={vi.fn()}
+        onKindPreviewChange={vi.fn()}
+        onQueuePatch={onQueuePatch}
+        onUploadAsset={vi.fn()}
+        pendingAutosaveCount={0}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText('Block Placement'), { target: { value: 'overlay' } });
+
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+
+    expect(onQueuePatch).toHaveBeenCalledWith('cut-1', {
+      body: 'Narration',
+      contentBlocks: [
+        {
+          id: 'block-1',
+          type: 'narration',
+          text: 'Narration',
+          textAlign: 'left',
+          fontToken: 'sans-kr',
+          placement: 'overlay'
+        }
+      ]
     });
 
     vi.useRealTimers();

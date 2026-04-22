@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 
 import { buildCutEffectMotionCustom, cutEffectVariants } from '../../shared/lib/cut-effects';
+import { getCutContentBlocksByPlacement } from '../../shared/lib/cut-content';
 import { CutContentBlocksView } from '../content-blocks/CutContentBlocksView';
 
 const PREVIEW_BASE_WIDTH = 320;
@@ -66,6 +67,8 @@ export function PreviewPlayer({
   const phoneFrameRef = useRef<HTMLDivElement | null>(null);
   const showChoices = cut !== null && !cut.isEnding && cut.kind !== 'ending' && choices.length > 0;
   const activeSelectedChoiceId = pendingChoiceId ?? selectedChoiceId;
+  const hasOverlayContent = cut ? getCutContentBlocksByPlacement(cut, 'overlay').length > 0 : false;
+  const hasFlowContent = cut ? getCutContentBlocksByPlacement(cut, 'flow').length > 0 : false;
 
   useEffect(() => {
     setImageLoaded(false);
@@ -179,21 +182,36 @@ export function PreviewPlayer({
                     </span>
                   </div>
 
-                  <div className={getDialogPlacementClasses(cut)}>
-                    <div
-                      className={getContentPanelClassName(cut)}
-                      style={getDialogPlacementStyle(cut)}
-                    >
-                      <CutContentBlocksView
-                        bindings={{ userName }}
-                        className="space-y-3"
-                        cut={cut}
-                        onBindingChange={(_bindingKey, value) => setUserName(value)}
-                      />
+                  {hasOverlayContent ? (
+                    <div className={getDialogPlacementClasses(cut)}>
+                      <div
+                        className={getContentPanelClassName(cut)}
+                        style={getDialogPlacementStyle(cut)}
+                      >
+                        <CutContentBlocksView
+                          bindings={{ userName }}
+                          className="space-y-3"
+                          cut={cut}
+                          onBindingChange={(_bindingKey, value) => setUserName(value)}
+                          placement="overlay"
+                        />
+                      </div>
                     </div>
-                  </div>
+                  ) : null}
 
                   <div className="relative z-10 flex h-full flex-col justify-end p-6">
+                    {hasFlowContent ? (
+                      <div className={`${getContentPanelClassName(cut)} mb-4`}>
+                        <CutContentBlocksView
+                          bindings={{ userName }}
+                          className="space-y-3"
+                          cut={cut}
+                          onBindingChange={(_bindingKey, value) => setUserName(value)}
+                          placement="flow"
+                        />
+                      </div>
+                    ) : null}
+
                     <div className="rounded-[28px] border border-white/10 bg-black/20 p-5 backdrop-blur-sm">
                       <p className="text-xs uppercase tracking-[0.24em] text-white/45">{cut.title}</p>
 

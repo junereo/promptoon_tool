@@ -156,7 +156,25 @@ function renderPage(initialEntry = '/v/publish-1') {
 }
 
 async function getTelemetryPayloads() {
-  return sendBeaconMock.mock.calls.map(([, body]: [string, string]) => JSON.parse(body) as Record<string, unknown>);
+  async function readBody(body: BodyInit) {
+    if (!(body instanceof Blob)) {
+      return String(body);
+    }
+
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(reader.error);
+      reader.onload = () => resolve(String(reader.result));
+      reader.readAsText(body);
+    });
+  }
+
+  return Promise.all(
+    sendBeaconMock.mock.calls.map(async ([, body]: [string, BodyInit]) => {
+      const text = await readBody(body);
+      return JSON.parse(text) as Record<string, unknown>;
+    })
+  );
 }
 
 describe('PromptoonViewerPage', () => {

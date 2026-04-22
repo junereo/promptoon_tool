@@ -1,7 +1,13 @@
-import type { Cut, PublishManifest } from '@promptoon/shared';
+import type { Cut, PromptoonContentPlacement, PublishManifest } from '@promptoon/shared';
 import type { CSSProperties } from 'react';
 
-import { getContentFontFamily, normalizeCutContentBlocks, replaceContentBindings, type ViewerBindings } from '../../shared/lib/cut-content';
+import {
+  getContentFontFamily,
+  getCutContentBlocksByPlacement,
+  normalizeCutContentBlocks,
+  replaceContentBindings,
+  type ViewerBindings
+} from '../../shared/lib/cut-content';
 
 type RenderableCut =
   | Pick<Cut, 'id' | 'body' | 'contentBlocks' | 'contentViewMode'>
@@ -13,6 +19,7 @@ interface CutContentBlocksViewProps {
   cut: RenderableCut;
   emptyLabel?: string;
   onBindingChange?: (bindingKey: 'userName', value: string) => void;
+  placement?: PromptoonContentPlacement;
 }
 
 function getTextAlignStyle(textAlign: 'left' | 'center' | 'right'): CSSProperties {
@@ -26,9 +33,10 @@ export function CutContentBlocksView({
   className,
   cut,
   emptyLabel = 'No dialogue yet.',
-  onBindingChange
+  onBindingChange,
+  placement
 }: CutContentBlocksViewProps) {
-  const blocks = normalizeCutContentBlocks(cut);
+  const blocks = placement ? getCutContentBlocksByPlacement(cut, placement) : normalizeCutContentBlocks(cut);
   const isInverse = (cut.contentViewMode ?? 'default') === 'inverse';
 
   if (blocks.length === 0) {

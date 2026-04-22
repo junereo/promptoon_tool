@@ -34,7 +34,8 @@ describe('promptoon cut schemas', () => {
           type: 'heading',
           text: '안녕하세요',
           textAlign: 'center',
-          fontToken: 'display'
+          fontToken: 'display',
+          placement: 'overlay'
         },
         {
           id: 'block-2',
@@ -73,5 +74,22 @@ describe('promptoon cut schemas', () => {
 
     expect(cutResult.success).toBe(false);
     expect(choiceResult.success).toBe(false);
+  });
+
+  it('rejects invalid content placement values', () => {
+    const result = patchCutSchema.safeParse({
+      contentBlocks: [
+        {
+          id: 'block-1',
+          type: 'narration',
+          text: '본문',
+          textAlign: 'left',
+          fontToken: 'sans-kr',
+          placement: 'side'
+        }
+      ]
+    });
+
+    expect(result.success).toBe(false);
   });
 });

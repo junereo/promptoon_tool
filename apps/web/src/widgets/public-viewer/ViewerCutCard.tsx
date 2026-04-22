@@ -2,7 +2,7 @@ import type { PublishManifest } from '@promptoon/shared';
 import type { CSSProperties } from 'react';
 import { useEffect, useState } from 'react';
 
-import { normalizeCutContentBlocks } from '../../shared/lib/cut-content';
+import { getCutContentBlocksByPlacement } from '../../shared/lib/cut-content';
 import { CutContentBlocksView } from '../content-blocks/CutContentBlocksView';
 
 type ViewerCut = PublishManifest['cuts'][number];
@@ -51,15 +51,6 @@ function getDialogPlacementStyle(cut: ViewerCut): CSSProperties {
   };
 }
 
-function getCompactDialogWrapperClassName(cut: ViewerCut): string {
-  const dialogAnchorX = cut.dialogAnchorX ?? 'left';
-
-  return [
-    'relative z-10 flex px-5 pb-5 pt-20 sm:px-8',
-    dialogAnchorX === 'left' ? 'justify-start' : 'justify-end'
-  ].join(' ');
-}
-
 function getContentPanelClassName(cut: ViewerCut): string {
   return (cut.contentViewMode ?? 'default') === 'inverse'
     ? 'rounded-[28px] border border-zinc-900/10 bg-white/88 px-5 py-4 text-zinc-950 shadow-[0_18px_48px_rgba(255,255,255,0.12)] backdrop-blur-sm'
@@ -83,7 +74,8 @@ export function ViewerCutCard({
   const [isImageLoaded, setIsImageLoaded] = useState(false);
   const [isImageFailed, setIsImageFailed] = useState(false);
   const hasImage = Boolean(cut.assetUrl) && !isImageFailed;
-  const hasContent = normalizeCutContentBlocks(cut).length > 0;
+  const hasOverlayContent = getCutContentBlocksByPlacement(cut, 'overlay').length > 0;
+  const hasFlowContent = getCutContentBlocksByPlacement(cut, 'flow').length > 0;
   const showImageOverlay = cut.kind === 'choice';
 
   useEffect(() => {
@@ -164,6 +156,49 @@ export function ViewerCutCard({
 
   const footer = renderFooter();
 
+  function renderOverlayContent() {
+    if (!hasOverlayContent) {
+      return null;
+    }
+
+    return (
+      <div className={getDialogPlacementClasses(cut)}>
+        <div
+          className={getContentPanelClassName(cut)}
+          style={getDialogPlacementStyle(cut)}
+        >
+          <CutContentBlocksView
+            bindings={{ userName }}
+            className="space-y-3"
+            cut={cut}
+            onBindingChange={(_bindingKey, value) => onUserNameChange?.(value)}
+            placement="overlay"
+          />
+        </div>
+      </div>
+    );
+  }
+
+  function renderFlowContent(className = 'relative z-10 px-5 py-5 sm:px-8') {
+    if (!hasFlowContent) {
+      return null;
+    }
+
+    return (
+      <div className={className} data-testid="viewer-flow-content">
+        <div className={getContentPanelClassName(cut)}>
+          <CutContentBlocksView
+            bindings={{ userName }}
+            className="space-y-3"
+            cut={cut}
+            onBindingChange={(_bindingKey, value) => onUserNameChange?.(value)}
+            placement="flow"
+          />
+        </div>
+      </div>
+    );
+  }
+
   if (hasImage) {
     return (
       <article className="relative w-full shrink-0 bg-[#101015]" data-viewer-layout={compact ? 'compact' : 'fullscreen'}>
@@ -189,30 +224,10 @@ export function ViewerCutCard({
             </>
           ) : null}
 
-          {hasContent ? (
-            <div className={getDialogPlacementClasses(cut)}>
-              <div
-                className={getContentPanelClassName(cut)}
-                style={getDialogPlacementStyle(cut)}
-              >
-                <CutContentBlocksView
-                  bindings={{ userName }}
-                  className="space-y-3"
-                  cut={cut}
-                  onBindingChange={(_bindingKey, value) => onUserNameChange?.(value)}
-                />
-              </div>
-            </div>
-          ) : null}
-
-          {footer ? (
-            compact ? (
-              <div className="relative z-20 px-5 pb-6 pt-4 sm:px-8 sm:pb-8">{footer}</div>
-            ) : (
-              <div className="absolute inset-x-0 bottom-0 z-20 px-5 pb-7 pt-24 sm:px-8 sm:pb-9">{footer}</div>
-            )
-          ) : null}
+          {renderOverlayContent()}
         </div>
+        {renderFlowContent()}
+        {footer ? <div className="relative z-20 px-5 pb-7 pt-4 sm:px-8 sm:pb-9">{footer}</div> : null}
       </article>
     );
   }
@@ -220,25 +235,13 @@ export function ViewerCutCard({
   if (compact) {
     return (
       <article className="relative w-full shrink-0 bg-[#101015]" data-viewer-layout="compact">
-        <div className="absolute inset-0 bg-gradient-to-br from-[#1a1a21] via-[#111115] to-black" />
-        <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/35 to-transparent" />
+        <div className="relative min-h-[280px]">
+          <div className="absolute inset-0 bg-gradient-to-br from-[#1a1a21] via-[#111115] to-black" />
+          <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/35 to-transparent" />
+          {renderOverlayContent()}
+        </div>
 
-        {hasContent ? (
-          <div className={getCompactDialogWrapperClassName(cut)}>
-            <div
-              className={`w-full ${getContentPanelClassName(cut)}`}
-              style={{ maxWidth: 'min(22rem, calc(100% - 2rem))', textAlign: cut.dialogTextAlign ?? 'left' }}
-            >
-              <CutContentBlocksView
-                bindings={{ userName }}
-                className="space-y-3"
-                cut={cut}
-                onBindingChange={(_bindingKey, value) => onUserNameChange?.(value)}
-              />
-            </div>
-          </div>
-        ) : null}
-
+        {renderFlowContent()}
         {footer ? <div className="relative z-10 px-5 pb-6 pt-4 sm:px-8 sm:pb-8">{footer}</div> : null}
       </article>
     );
@@ -250,23 +253,24 @@ export function ViewerCutCard({
       <div className="absolute inset-x-0 bottom-0 top-1/3 bg-gradient-to-t from-black via-black/70 to-transparent" />
       <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/35 to-transparent" />
 
-      {hasContent ? (
-        <div className={getDialogPlacementClasses(cut)}>
-          <div
-            className={getContentPanelClassName(cut)}
-            style={getDialogPlacementStyle(cut)}
-          >
-            <CutContentBlocksView
-              bindings={{ userName }}
-              className="space-y-3"
-              cut={cut}
-              onBindingChange={(_bindingKey, value) => onUserNameChange?.(value)}
-            />
-          </div>
+      {renderOverlayContent()}
+
+      {hasFlowContent || footer ? (
+        <div className="relative z-10 flex min-h-full flex-col justify-end px-5 pb-7 pt-20 sm:px-8 sm:pb-9">
+          {hasFlowContent ? (
+            <div className={getContentPanelClassName(cut)} data-testid="viewer-flow-content">
+              <CutContentBlocksView
+                bindings={{ userName }}
+                className="space-y-3"
+                cut={cut}
+                onBindingChange={(_bindingKey, value) => onUserNameChange?.(value)}
+                placement="flow"
+              />
+            </div>
+          ) : null}
+          {footer ? <div className={hasFlowContent ? 'mt-6' : undefined}>{footer}</div> : null}
         </div>
       ) : null}
-
-      {footer ? <div className="relative z-10 flex min-h-full flex-col justify-end px-5 pb-7 pt-20 sm:px-8 sm:pb-9">{footer}</div> : null}
     </article>
   );
 }

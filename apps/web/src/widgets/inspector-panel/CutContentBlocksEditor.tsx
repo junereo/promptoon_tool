@@ -1,13 +1,14 @@
 import { DndContext, PointerSensor, closestCenter, type DragEndEvent, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import type { CutContentBlock, PromptoonContentTextAlign, PromptoonFontToken } from '@promptoon/shared';
+import type { CutContentBlock, PromptoonContentPlacement, PromptoonContentTextAlign, PromptoonFontToken } from '@promptoon/shared';
 import { useEffect, useMemo, useState } from 'react';
 
 import {
   CONTENT_ALIGN_OPTIONS,
   CONTENT_BLOCK_TYPE_OPTIONS,
   CONTENT_FONT_OPTIONS,
+  CONTENT_PLACEMENT_OPTIONS,
   createContentBlock
 } from '../../shared/lib/cut-content';
 
@@ -49,7 +50,8 @@ function convertBlockType(block: CutContentBlock, nextType: CutContentBlock['typ
         title: block.type === 'quote' ? block.title : '',
         text: block.text,
         textAlign: block.textAlign,
-        fontToken: block.fontToken
+        fontToken: block.fontToken,
+        placement: block.placement ?? 'flow'
       };
     }
 
@@ -58,7 +60,8 @@ function convertBlockType(block: CutContentBlock, nextType: CutContentBlock['typ
       type: nextType,
       text: block.text,
       textAlign: block.textAlign,
-      fontToken: block.fontToken
+      fontToken: block.fontToken,
+      placement: block.placement ?? 'flow'
     };
   }
 
@@ -75,7 +78,8 @@ function convertBlockType(block: CutContentBlock, nextType: CutContentBlock['typ
         title: '',
         text: '',
         textAlign: defaultTextBlock.textAlign,
-        fontToken: defaultTextBlock.fontToken
+        fontToken: defaultTextBlock.fontToken,
+        placement: defaultTextBlock.placement ?? 'flow'
       };
     }
 
@@ -84,7 +88,8 @@ function convertBlockType(block: CutContentBlock, nextType: CutContentBlock['typ
       type: nextType,
       text: '',
       textAlign: defaultTextBlock.textAlign,
-      fontToken: defaultTextBlock.fontToken
+      fontToken: defaultTextBlock.fontToken,
+      placement: defaultTextBlock.placement ?? 'flow'
     };
   }
 
@@ -116,11 +121,13 @@ function updateBlockAt(blocks: CutContentBlock[], blockId: string, updater: (blo
 function TextStyleToolbar({
   selectedBlock,
   onAlignChange,
-  onFontChange
+  onFontChange,
+  onPlacementChange
 }: {
   selectedBlock: Extract<CutContentBlock, { type: 'heading' | 'narration' | 'quote' | 'emphasis' }> | null;
   onAlignChange: (textAlign: PromptoonContentTextAlign) => void;
   onFontChange: (fontToken: PromptoonFontToken) => void;
+  onPlacementChange: (placement: PromptoonContentPlacement) => void;
 }) {
   const disabled = selectedBlock === null;
 
@@ -134,7 +141,7 @@ function TextStyleToolbar({
           </p>
         </div>
 
-        <div className="grid flex-1 gap-3 md:grid-cols-2">
+        <div className="grid flex-1 gap-3 md:grid-cols-3">
           <div>
             <label className="text-xs font-medium uppercase tracking-[0.2em] text-zinc-500">Align</label>
             <select
@@ -162,6 +169,23 @@ function TextStyleToolbar({
               value={selectedBlock?.fontToken ?? 'sans-kr'}
             >
               {CONTENT_FONT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium uppercase tracking-[0.2em] text-zinc-500">Placement</label>
+            <select
+              aria-label="Block Placement"
+              className={inputClassName()}
+              disabled={disabled}
+              onChange={(event) => onPlacementChange(event.target.value as PromptoonContentPlacement)}
+              value={selectedBlock?.placement ?? 'flow'}
+            >
+              {CONTENT_PLACEMENT_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
@@ -528,6 +552,14 @@ export function CutContentBlocksEditor({
     onChange(updateBlockAt(blocks, selectedTextBlock.id, (block) => (isTextBlock(block) ? { ...block, fontToken } : block)));
   }
 
+  function handlePlacementChange(placement: PromptoonContentPlacement) {
+    if (!selectedTextBlock) {
+      return;
+    }
+
+    onChange(updateBlockAt(blocks, selectedTextBlock.id, (block) => (isTextBlock(block) ? { ...block, placement } : block)));
+  }
+
   function handleTypeChange(blockId: string, nextType: CutContentBlock['type']) {
     onChange(updateBlockAt(blocks, blockId, (block) => convertBlockType(block, nextType)));
     setSelectedBlockId(blockId);
@@ -560,7 +592,12 @@ export function CutContentBlocksEditor({
       </div>
 
       <div className="mt-4">
-        <TextStyleToolbar onAlignChange={handleAlignChange} onFontChange={handleFontChange} selectedBlock={selectedTextBlock} />
+        <TextStyleToolbar
+          onAlignChange={handleAlignChange}
+          onFontChange={handleFontChange}
+          onPlacementChange={handlePlacementChange}
+          selectedBlock={selectedTextBlock}
+        />
       </div>
 
       <div className="mt-5">

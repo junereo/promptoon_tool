@@ -4,6 +4,7 @@ const uuidSchema = z.string().uuid();
 const cutEffectSchema = z.enum(['none', 'fade', 'slide-left', 'slide-right', 'slide-up', 'slide-down', 'zoom-in', 'zoom-out']);
 const contentViewModeSchema = z.enum(['default', 'inverse']);
 const contentTextAlignSchema = z.enum(['left', 'center', 'right']);
+const contentPlacementSchema = z.enum(['overlay', 'flow']);
 const fontTokenSchema = z.enum(['sans-kr', 'serif-kr', 'display']);
 const bindingKeySchema = z.enum(['userName']);
 const contentBlockBaseSchema = z.object({
@@ -12,7 +13,8 @@ const contentBlockBaseSchema = z.object({
 const textContentBlockSchema = contentBlockBaseSchema.extend({
   text: z.string(),
   textAlign: contentTextAlignSchema,
-  fontToken: fontTokenSchema
+  fontToken: fontTokenSchema,
+  placement: contentPlacementSchema.optional()
 });
 const headingContentBlockSchema = textContentBlockSchema.extend({
   type: z.literal('heading')

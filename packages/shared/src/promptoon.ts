@@ -15,6 +15,7 @@ export type PromptoonContentTextAlign = 'left' | 'center' | 'right';
 export type PromptoonContentViewMode = 'default' | 'inverse';
 export type PromptoonFontToken = 'sans-kr' | 'serif-kr' | 'display';
 export type PromptoonContentBindingKey = 'userName';
+export type PromptoonContentPlacement = 'overlay' | 'flow';
 export type PromptoonContentBlockType = 'heading' | 'narration' | 'quote' | 'emphasis' | 'image' | 'nameInput';
 
 export type PromptoonProjectStatus = 'draft' | 'published';
@@ -35,6 +36,7 @@ interface PromptoonTextContentBlockBase {
   text: string;
   textAlign: PromptoonContentTextAlign;
   fontToken: PromptoonFontToken;
+  placement?: PromptoonContentPlacement;
 }
 
 export interface PromptoonHeadingContentBlock extends PromptoonTextContentBlockBase {
@@ -410,7 +412,8 @@ export function createLegacyNarrationContentBlock(cutId: string, body: string): 
     type: 'narration',
     text: body,
     textAlign: DEFAULT_CONTENT_TEXT_ALIGN,
-    fontToken: DEFAULT_CONTENT_FONT_TOKEN
+    fontToken: DEFAULT_CONTENT_FONT_TOKEN,
+    placement: 'flow'
   };
 }
 

@@ -1,6 +1,7 @@
 import type {
   CutContentBlock,
   Cut,
+  PromptoonContentPlacement,
   PromptoonContentTextAlign,
   PromptoonFontToken,
   PromptoonHeadingContentBlock,
@@ -32,6 +33,11 @@ export const CONTENT_ALIGN_OPTIONS: Array<{ label: string; value: PromptoonConte
   { label: 'Left', value: 'left' },
   { label: 'Center', value: 'center' },
   { label: 'Right', value: 'right' }
+];
+
+export const CONTENT_PLACEMENT_OPTIONS: Array<{ label: string; value: PromptoonContentPlacement }> = [
+  { label: 'Flow', value: 'flow' },
+  { label: 'Overlay', value: 'overlay' }
 ];
 
 export const CONTENT_BLOCK_TYPE_OPTIONS: Array<{ label: string; value: CutContentBlock['type'] }> = [
@@ -74,9 +80,24 @@ export function normalizeCutContentBlocks(cut: ContentRenderableCut): CutContent
       type: 'narration',
       text: cut.body,
       textAlign: DEFAULT_CONTENT_TEXT_ALIGN,
-      fontToken: DEFAULT_CONTENT_FONT_TOKEN
+      fontToken: DEFAULT_CONTENT_FONT_TOKEN,
+      placement: 'flow'
     }
   ];
+}
+
+export function isTextContentBlock(
+  block: CutContentBlock
+): block is Extract<CutContentBlock, { type: 'heading' | 'narration' | 'quote' | 'emphasis' }> {
+  return block.type === 'heading' || block.type === 'narration' || block.type === 'quote' || block.type === 'emphasis';
+}
+
+export function getContentBlockPlacement(block: CutContentBlock): PromptoonContentPlacement {
+  return isTextContentBlock(block) ? (block.placement ?? 'flow') : 'flow';
+}
+
+export function getCutContentBlocksByPlacement(cut: ContentRenderableCut, placement: PromptoonContentPlacement): CutContentBlock[] {
+  return normalizeCutContentBlocks(cut).filter((block) => getContentBlockPlacement(block) === placement);
 }
 
 export function deriveContentBlocksBody(contentBlocks: CutContentBlock[], fallback = ''): string {
@@ -125,7 +146,8 @@ export function createContentBlock(type: CutContentBlock['type']): CutContentBlo
         type,
         text: '',
         textAlign: 'center',
-        fontToken: 'display'
+        fontToken: 'display',
+        placement: 'flow'
       });
     case 'quote':
       return createTextBlock({
@@ -134,7 +156,8 @@ export function createContentBlock(type: CutContentBlock['type']): CutContentBlo
         title: '',
         text: '',
         textAlign: DEFAULT_CONTENT_TEXT_ALIGN,
-        fontToken: 'serif-kr'
+        fontToken: 'serif-kr',
+        placement: 'flow'
       });
     case 'emphasis':
       return createTextBlock({
@@ -142,7 +165,8 @@ export function createContentBlock(type: CutContentBlock['type']): CutContentBlo
         type,
         text: '',
         textAlign: 'center',
-        fontToken: 'serif-kr'
+        fontToken: 'serif-kr',
+        placement: 'flow'
       });
     case 'image':
       return {
@@ -167,7 +191,8 @@ export function createContentBlock(type: CutContentBlock['type']): CutContentBlo
         type: 'narration',
         text: '',
         textAlign: DEFAULT_CONTENT_TEXT_ALIGN,
-        fontToken: DEFAULT_CONTENT_FONT_TOKEN
+        fontToken: DEFAULT_CONTENT_FONT_TOKEN,
+        placement: 'flow'
       });
   }
 }
