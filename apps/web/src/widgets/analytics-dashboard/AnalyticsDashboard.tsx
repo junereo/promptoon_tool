@@ -79,7 +79,7 @@ export function AnalyticsDashboard({
   }
 
   const analyticsData = analytics;
-  const choiceGroups = Object.entries(analyticsData.choiceStats).filter(([, stats]) => stats.length > 0);
+  const choiceGroups = Object.entries(analyticsData.choiceStats).filter(([, stats]) => stats.length >= 2);
   const hasData =
     analyticsData.totalViews > 0 ||
     analyticsData.uniqueViewers > 0 ||

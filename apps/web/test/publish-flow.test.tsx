@@ -206,6 +206,9 @@ beforeEach(() => {
       'cut-1': [
         { choiceId: 'choice-1', label: 'Go', count: 600, percentage: 75 },
         { choiceId: 'choice-2', label: 'Stay', count: 200, percentage: 25 }
+      ],
+      'cut-single': [
+        { choiceId: 'choice-single', label: 'Continue', count: 120, percentage: 100 }
       ]
     },
     dailyViews: [
@@ -490,6 +493,8 @@ describe('publish flow', () => {
     expect(screen.getByText('1,250')).toBeTruthy();
     expect(screen.getByText('840')).toBeTruthy();
     expect(screen.getByText('65.4%')).toBeTruthy();
+    expect(screen.getByText('선택지 비율 · Opening')).toBeTruthy();
+    expect(screen.queryByText('선택지 비율 · cut-single')).toBeNull();
   });
 
   it('uploads images with the current project id', async () => {
