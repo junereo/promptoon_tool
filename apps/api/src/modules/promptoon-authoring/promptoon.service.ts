@@ -14,6 +14,7 @@ import type {
   EpisodeDraftResponse,
   FeedItem,
   FeedResponse,
+  PatchEpisodeRequest,
   PatchChoiceRequest,
   PatchCutRequest,
   Project,
@@ -27,10 +28,15 @@ import type {
   ValidateEpisodeResponse
 } from '@promptoon/shared';
 import {
+  createHash,
+  randomUUID
+} from 'node:crypto';
+import {
   DEFAULT_CONTENT_SPACING,
   DEFAULT_CONTENT_VIEW_MODE,
   DEFAULT_CUT_EFFECT_DURATION_MS,
   DEFAULT_EDGE_FADE,
+  DEFAULT_EDGE_FADE_COLOR,
   DEFAULT_EDGE_FADE_INTENSITY,
   deriveCutBody,
   getNormalizedCutContentBlocks
@@ -82,6 +88,10 @@ function normalizeManifestContentBlocks(cut: { id: string; body: string; content
 function normalizeManifest(manifest: PublishManifest): PublishManifest {
   return {
     ...manifest,
+    episode: {
+      ...manifest.episode,
+      coverImageUrl: manifest.episode.coverImageUrl ?? null
+    },
     cuts: manifest.cuts.map((cut) => {
       const contentBlocks = normalizeManifestContentBlocks(cut);
 
@@ -92,6 +102,7 @@ function normalizeManifest(manifest: PublishManifest): PublishManifest {
         contentViewMode: cut.contentViewMode ?? DEFAULT_CONTENT_VIEW_MODE,
         edgeFade: cut.edgeFade ?? DEFAULT_EDGE_FADE,
         edgeFadeIntensity: cut.edgeFadeIntensity ?? DEFAULT_EDGE_FADE_INTENSITY,
+        edgeFadeColor: cut.edgeFadeColor ?? DEFAULT_EDGE_FADE_COLOR,
         marginBottomToken: cut.marginBottomToken ?? DEFAULT_CONTENT_SPACING,
         startEffect: cut.startEffect ?? 'none',
         endEffect: cut.endEffect ?? 'none',
@@ -194,6 +205,7 @@ function buildManifest(draft: EpisodeDraftResponse, project: Project): PublishMa
       id: draft.episode.id,
       title: draft.episode.title,
       episodeNo: draft.episode.episodeNo,
+      coverImageUrl: draft.episode.coverImageUrl,
       status: draft.episode.status,
       startCutId: draft.episode.startCutId
     },
@@ -206,6 +218,7 @@ function buildManifest(draft: EpisodeDraftResponse, project: Project): PublishMa
       contentViewMode: cut.contentViewMode ?? DEFAULT_CONTENT_VIEW_MODE,
       edgeFade: cut.edgeFade ?? DEFAULT_EDGE_FADE,
       edgeFadeIntensity: cut.edgeFadeIntensity ?? DEFAULT_EDGE_FADE_INTENSITY,
+      edgeFadeColor: cut.edgeFadeColor ?? DEFAULT_EDGE_FADE_COLOR,
       marginBottomToken: cut.marginBottomToken ?? DEFAULT_CONTENT_SPACING,
       dialogAnchorX: cut.dialogAnchorX,
       dialogAnchorY: cut.dialogAnchorY,
@@ -303,8 +316,12 @@ function buildProjectUploadFileName(file: Express.Multer.File, now: Date): strin
   return `${sanitizeUploadBaseName(file.originalname)}-${now.getTime()}${getUploadExtension(file)}`;
 }
 
-function buildAssetUrl(projectId: string, fileName: string, now: Date): string {
-  return path.posix.join('/uploads', ...getDatedUploadSegments(now), projectId, fileName);
+function buildPublicUploadScope(): string {
+  return randomUUID().replaceAll('-', '').slice(0, 12);
+}
+
+function buildAssetUrl(publicUploadScope: string, fileName: string, now: Date): string {
+  return path.posix.join('/uploads', ...getDatedUploadSegments(now), publicUploadScope, fileName);
 }
 
 function getUploadExtension(file: Express.Multer.File): string {
@@ -342,6 +359,26 @@ function toAbsoluteUrl(baseOrigin: string, value: string | null | undefined): st
   return `${normalizedOrigin}/${value}`;
 }
 
+function toPublicProjectRef(projectId: string): string {
+  return `prj_${createHash('sha256').update(projectId).digest('base64url').slice(0, 10)}`;
+}
+
+function toPublicPublish(publish: Publish): Publish {
+  const publicProjectRef = toPublicProjectRef(publish.projectId);
+
+  return {
+    ...publish,
+    projectId: publicProjectRef,
+    manifest: {
+      ...publish.manifest,
+      project: {
+        ...publish.manifest.project,
+        id: publicProjectRef
+      }
+    }
+  };
+}
+
 function summarizeDescription(value: string | null | undefined, fallback: string): string {
   const normalized = value?.trim();
   if (!normalized) {
@@ -361,6 +398,7 @@ function getShareImageUrl(publish: Publish, endingCutId: string | undefined, bas
 
   return (
     toAbsoluteUrl(baseOrigin, endingCut?.assetUrl) ??
+    toAbsoluteUrl(baseOrigin, manifest.episode.coverImageUrl) ??
     toAbsoluteUrl(baseOrigin, fallbackCutWithImage?.assetUrl) ??
     toAbsoluteUrl(baseOrigin, manifest.project.thumbnailUrl)
   );
@@ -534,9 +572,9 @@ function buildFeedItem(publish: Publish): FeedItem | null {
   return {
     publishId: publish.id,
     episodeId: publish.episodeId,
-    projectId: publish.projectId,
     episodeTitle: publish.manifest.episode.title,
     projectTitle: publish.manifest.project.title,
+    coverImageUrl: publish.manifest.episode.coverImageUrl ?? null,
     publishedAt: publish.createdAt,
     startCut: {
       id: startCut.id,
@@ -547,6 +585,7 @@ function buildFeedItem(publish: Publish): FeedItem | null {
       assetUrl: startCut.assetUrl,
       edgeFade: startCut.edgeFade ?? DEFAULT_EDGE_FADE,
       edgeFadeIntensity: startCut.edgeFadeIntensity ?? DEFAULT_EDGE_FADE_INTENSITY,
+      edgeFadeColor: startCut.edgeFadeColor ?? DEFAULT_EDGE_FADE_COLOR,
       marginBottomToken: startCut.marginBottomToken ?? DEFAULT_CONTENT_SPACING,
       dialogAnchorX: startCut.dialogAnchorX,
       dialogAnchorY: startCut.dialogAnchorY,
@@ -657,8 +696,19 @@ export async function createEpisode(projectId: string, request: CreateEpisodeReq
     return await repository.createEpisode(db, {
       projectId,
       title: request.title,
-      episodeNo: request.episodeNo
+      episodeNo: request.episodeNo,
+      coverImageUrl: request.coverImageUrl
     });
+  } catch (error) {
+    throw mapDatabaseError(error);
+  }
+}
+
+export async function updateEpisode(episodeId: string, request: PatchEpisodeRequest, userId: string): Promise<Episode> {
+  await ensureEpisodeOwnedByUser(episodeId, userId);
+
+  try {
+    return assertExists(await repository.updateEpisode(db, episodeId, request), 'Episode not found.');
   } catch (error) {
     throw mapDatabaseError(error);
   }
@@ -776,7 +826,7 @@ export async function validateEpisode(episodeId: string, userId: string): Promis
 }
 
 export async function getPublishedEpisode(publishId: string): Promise<Publish> {
-  return normalizePublish(assertExists(await repository.getPublishById(db, publishId), 'Published episode not found.'));
+  return toPublicPublish(normalizePublish(assertExists(await repository.getPublishById(db, publishId), 'Published episode not found.')));
 }
 
 export async function getEpisodeFeed(input: { cursor?: string; limit: number }): Promise<FeedResponse> {
@@ -849,13 +899,14 @@ export async function uploadAsset(projectId: string, file: Express.Multer.File, 
   }
 
   const now = new Date();
-  const relativeDirectory = path.join(...getDatedUploadSegments(now), projectId);
+  const publicUploadScope = buildPublicUploadScope();
+  const relativeDirectory = path.join(...getDatedUploadSegments(now), publicUploadScope);
   const fileName = buildProjectUploadFileName(file, now);
 
   await writeUploadFile(relativeDirectory, fileName, file.buffer);
 
   return {
-    assetUrl: buildAssetUrl(projectId, fileName, now)
+    assetUrl: buildAssetUrl(publicUploadScope, fileName, now)
   };
 }
 

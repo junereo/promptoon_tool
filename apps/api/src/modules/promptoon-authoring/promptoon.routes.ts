@@ -12,6 +12,7 @@ import {
   createProjectSchema,
   feedQuerySchema,
   patchChoiceSchema,
+  patchEpisodeSchema,
   patchCutSchema,
   reorderEpisodeCutsSchema,
   publishSchema,
@@ -115,6 +116,11 @@ export function createPromptoonRouter(): Router {
 
   protectedRouter.get('/episodes/:episodeId/draft', asyncHandler(async (request, response) => {
     response.json(await service.getEpisodeDraft(getParam(request.params.episodeId, 'episodeId'), getRequiredAuthUser(request).sub));
+  }));
+
+  protectedRouter.patch('/episodes/:episodeId', asyncHandler(async (request, response) => {
+    const body = patchEpisodeSchema.parse(request.body);
+    response.json(await service.updateEpisode(getParam(request.params.episodeId, 'episodeId'), body, getRequiredAuthUser(request).sub));
   }));
 
   protectedRouter.post('/episodes/:episodeId/cuts', asyncHandler(async (request, response) => {

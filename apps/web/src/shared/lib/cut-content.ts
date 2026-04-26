@@ -16,7 +16,7 @@ import type {
 
 const DEFAULT_NAME_INPUT_MAX_LENGTH = 20;
 const DEFAULT_CONTENT_FONT_TOKEN: PromptoonFontToken = 'sans-kr';
-const DEFAULT_CONTENT_FONT_SIZE: PromptoonFontSizeToken = 'base';
+const DEFAULT_CONTENT_FONT_SIZE: PromptoonFontSizeToken = 'lg';
 const DEFAULT_CONTENT_LINE_HEIGHT: PromptoonLineHeightToken = 'normal';
 const DEFAULT_CONTENT_TEXT_ALIGN: PromptoonContentTextAlign = 'left';
 
@@ -103,18 +103,18 @@ export function getContentFontFamily(fontToken: PromptoonFontToken): string {
 export function getContentFontSizeClassName(fontSizeToken?: PromptoonFontSizeToken): string {
   switch (fontSizeToken ?? DEFAULT_CONTENT_FONT_SIZE) {
     case 'sm':
-      return 'text-sm';
+      return 'text-[clamp(0.75rem,min(3.59vw,1.66dvh),0.875rem)]';
     case 'lg':
-      return 'text-lg';
+      return 'text-[clamp(0.9375rem,min(4.62vw,2.13dvh),1.125rem)]';
     case 'xl':
-      return 'text-xl';
+      return 'text-[clamp(1rem,min(5.13vw,2.37dvh),1.25rem)]';
     case '2xl':
-      return 'text-2xl';
+      return 'text-[clamp(1.1875rem,min(6.15vw,2.84dvh),1.5rem)]';
     case '3xl':
-      return 'text-3xl';
+      return 'text-[clamp(1.4375rem,min(7.69vw,3.55dvh),1.875rem)]';
     case 'base':
     default:
-      return 'text-base';
+      return 'text-[clamp(0.8125rem,min(4.1vw,1.9dvh),1rem)]';
   }
 }
 

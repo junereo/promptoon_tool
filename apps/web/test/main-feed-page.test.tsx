@@ -13,6 +13,7 @@ type TriggerableIntersectionObserverGlobal = typeof globalThis & {
 const trackImpressionMock = vi.fn();
 const trackChoiceClickMock = vi.fn();
 const fetchNextPageMock = vi.fn(() => Promise.resolve());
+const preloadViewerForPublishMock = vi.hoisted(() => vi.fn(() => Promise.resolve()));
 const imageSources: string[] = [];
 
 let feedResponse: FeedResponse;
@@ -37,6 +38,10 @@ vi.mock('../src/features/feed/hooks/use-feed-telemetry', () => ({
   })
 }));
 
+vi.mock('../src/features/viewer/lib/preload-viewer', () => ({
+  preloadViewerForPublish: preloadViewerForPublishMock
+}));
+
 function LocationDisplay() {
   const location = useLocation();
   return <div>{`${location.pathname}${location.search}`}</div>;
@@ -50,6 +55,8 @@ beforeEach(() => {
   trackImpressionMock.mockReset();
   trackChoiceClickMock.mockReset();
   fetchNextPageMock.mockReset();
+  preloadViewerForPublishMock.mockReset();
+  preloadViewerForPublishMock.mockResolvedValue(undefined);
   imageSources.length = 0;
 
   class ImageMock {
@@ -68,9 +75,9 @@ beforeEach(() => {
       {
         publishId: 'publish-1',
         episodeId: 'episode-1',
-        projectId: 'project-1',
         episodeTitle: 'Episode 1',
         projectTitle: 'Project 1',
+        coverImageUrl: 'https://cdn.example.com/cover-1.jpg',
         publishedAt: new Date().toISOString(),
         startCut: {
           id: 'cut-1',
@@ -95,9 +102,9 @@ beforeEach(() => {
       {
         publishId: 'publish-2',
         episodeId: 'episode-2',
-        projectId: 'project-1',
         episodeTitle: 'Episode 2',
         projectTitle: 'Project 1',
+        coverImageUrl: 'https://cdn.example.com/cover-2.jpg',
         publishedAt: new Date().toISOString(),
         startCut: {
           id: 'cut-2',
@@ -119,9 +126,9 @@ beforeEach(() => {
       {
         publishId: 'publish-3',
         episodeId: 'episode-3',
-        projectId: 'project-2',
         episodeTitle: 'Episode 3',
         projectTitle: 'Project 2',
+        coverImageUrl: null,
         publishedAt: new Date().toISOString(),
         startCut: {
           id: 'cut-3',
@@ -160,13 +167,17 @@ describe('MainFeedPage', () => {
   it('renders feed slides, preloads the next images, and deduplicates impressions per publish', async () => {
     renderPage();
 
-    expect(await screen.findByText('첫 번째 선택입니다.')).toBeTruthy();
+    expect(await screen.findByText('Episode 1')).toBeTruthy();
+    expect(screen.getByTestId('feed-banner-slide')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Promptoon Instagram' }).getAttribute('href')).toBe(
+      'https://www.instagram.com/promptoon_ai/'
+    );
 
     await waitFor(() => {
       expect(trackImpressionMock).toHaveBeenCalledTimes(1);
     });
 
-    expect(imageSources).toEqual(['https://cdn.example.com/2.jpg', 'https://cdn.example.com/3.jpg']);
+    expect(imageSources).toEqual(['https://cdn.example.com/cover-2.jpg', 'https://cdn.example.com/3.jpg']);
 
     const firstSlide = document.querySelector('[data-publish-id="publish-1"]');
     expect(firstSlide).toBeTruthy();
@@ -178,17 +189,55 @@ describe('MainFeedPage', () => {
     });
   });
 
-  it('tracks feed choice clicks, navigates to the viewer, and disables unlinked choices', async () => {
+  it('opens the viewer only from the CTA button without rendering choices', async () => {
     renderPage();
 
-    const disabledChoice = await screen.findByRole('button', { name: /잠김/ });
-    expect((disabledChoice as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole('button', { name: '들어가기' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /잠김/ })).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: '들어가기' }));
+    const firstSlide = await screen.findByText('Episode 1');
+    fireEvent.click(firstSlide);
+    expect(screen.queryByText('/v/publish-1')).toBeNull();
 
-    await waitFor(() => {
-      expect(trackChoiceClickMock).toHaveBeenCalledWith(feedResponse.items[0], 'choice-1');
-    });
+    fireEvent.click(screen.getAllByRole('button', { name: '지금 보기' })[0]);
+    expect(trackChoiceClickMock).not.toHaveBeenCalled();
+    expect(preloadViewerForPublishMock).toHaveBeenCalledWith('publish-1');
+    expect(await screen.findByText('/v/publish-1')).toBeTruthy();
+  });
+
+  it('preloads on CTA intent and shows progress until preload finishes', async () => {
+    let resolvePreload: (() => void) | null = null;
+    preloadViewerForPublishMock.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolvePreload = resolve;
+        })
+    );
+
+    renderPage();
+
+    const ctaButton = (await screen.findAllByRole('button', { name: '지금 보기' }))[0];
+
+    fireEvent.pointerEnter(ctaButton);
+    expect(preloadViewerForPublishMock).toHaveBeenCalledWith('publish-1');
+
+    fireEvent.click(ctaButton);
+
+    expect((await screen.findByRole('button', { name: '여는 중...' })).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByTestId('feed-open-progress')).toBeTruthy();
+    expect(screen.queryByText('/v/publish-1')).toBeNull();
+
+    resolvePreload?.();
+
+    expect(await screen.findByText('/v/publish-1')).toBeTruthy();
+  });
+
+  it('still navigates when viewer preload fails', async () => {
+    preloadViewerForPublishMock.mockRejectedValue(new Error('preload failed'));
+
+    renderPage();
+
+    fireEvent.click((await screen.findAllByRole('button', { name: '지금 보기' }))[0]);
 
     expect(await screen.findByText('/v/publish-1')).toBeTruthy();
   });

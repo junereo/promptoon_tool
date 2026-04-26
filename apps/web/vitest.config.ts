@@ -1,11 +1,10 @@
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
+import react from '@vitejs/plugin-react';
+import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   plugins: [react()],
-  base: "/",               // ✅ 중요 (서브경로 아님)
-  build: {
-    outDir: "dist",        // 기본값
-    sourcemap: false,      // 운영 권장
-  },
+  test: {
+    environment: 'jsdom',
+    setupFiles: ['./test/setup.ts']
+  }
 });

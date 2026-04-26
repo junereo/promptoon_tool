@@ -1,7 +1,8 @@
 import { startTransition, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { useCreateEpisode, useCreateProject, useProjects } from '../features/project/hooks/use-project-query';
+import { useUploadAsset } from '../features/editor/hooks/use-episode-query';
+import { useCreateEpisode, useCreateProject, useProjects, useUpdateEpisode } from '../features/project/hooks/use-project-query';
 
 function createEpisodeInputId(projectId: string): string {
   return `episode-title-${projectId}`;
@@ -12,10 +13,14 @@ export function PromptoonProjectListPage() {
   const projectsQuery = useProjects();
   const createProject = useCreateProject();
   const createEpisode = useCreateEpisode();
+  const updateEpisode = useUpdateEpisode();
+  const uploadAsset = useUploadAsset();
 
   const [newProjectTitle, setNewProjectTitle] = useState('');
   const [projectDescriptions, setProjectDescriptions] = useState<Record<string, string>>({});
   const [episodeTitlesByProjectId, setEpisodeTitlesByProjectId] = useState<Record<string, string>>({});
+  const [uploadingEpisodeId, setUploadingEpisodeId] = useState<string | null>(null);
+  const [uploadErrorByEpisodeId, setUploadErrorByEpisodeId] = useState<Record<string, string>>({});
 
   async function handleCreateProject() {
     const title = newProjectTitle.trim();
@@ -57,6 +62,35 @@ export function PromptoonProjectListPage() {
         [projectId]: ''
       }));
     });
+  }
+
+  async function handleEpisodeCoverUpload(projectId: string, episodeId: string, file: File | null) {
+    if (!file) {
+      return;
+    }
+
+    setUploadingEpisodeId(episodeId);
+    setUploadErrorByEpisodeId((current) => ({
+      ...current,
+      [episodeId]: ''
+    }));
+
+    try {
+      const response = await uploadAsset.mutateAsync({ projectId, file });
+      await updateEpisode.mutateAsync({
+        episodeId,
+        payload: {
+          coverImageUrl: response.assetUrl
+        }
+      });
+    } catch {
+      setUploadErrorByEpisodeId((current) => ({
+        ...current,
+        [episodeId]: 'Cover upload failed.'
+      }));
+    } finally {
+      setUploadingEpisodeId((current) => (current === episodeId ? null : current));
+    }
   }
 
   if (projectsQuery.isLoading) {
@@ -198,22 +232,87 @@ export function PromptoonProjectListPage() {
                     This project has no episodes yet.
                   </div>
                 ) : (
-                  project.episodes.map((episode) => (
-                    <button
-                      key={episode.id}
-                      className="group min-h-[132px] min-w-[200px] rounded-[28px] border border-editor-border bg-editor-panelAlt/70 p-5 text-left transition hover:border-editor-accentSoft hover:bg-editor-panelAlt"
-                      onClick={() => navigate(`/promptoon/projects/${project.id}/episodes/${episode.id}`)}
-                      type="button"
-                    >
-                      <p className="text-[11px] uppercase tracking-[0.24em] text-zinc-500">EP.{episode.episodeNo}</p>
-                      <p className="mt-3 font-display text-xl font-semibold text-zinc-100 transition group-hover:text-white">
-                        {episode.title}
-                      </p>
-                      <p className="mt-4 text-sm text-zinc-500">
-                        Status: <span className="text-zinc-300">{episode.status}</span>
-                      </p>
-                    </button>
-                  ))
+                  project.episodes.map((episode) => {
+                    const inputId = `episode-cover-${episode.id}`;
+                    const isUploading = uploadingEpisodeId === episode.id;
+
+                    return (
+                      <article
+                        key={episode.id}
+                        className="group w-[190px] shrink-0 overflow-hidden rounded-[28px] border border-editor-border bg-editor-panelAlt/70 transition hover:border-editor-accentSoft hover:bg-editor-panelAlt"
+                      >
+                        <button
+                          aria-label={`Open ${episode.title}`}
+                          className="relative block aspect-[9/16] w-full overflow-hidden bg-black text-left"
+                          onClick={() => navigate(`/promptoon/projects/${project.id}/episodes/${episode.id}`)}
+                          type="button"
+                        >
+                          {episode.coverImageUrl ? (
+                            <img alt={episode.title} className="h-full w-full object-cover" src={episode.coverImageUrl} />
+                          ) : (
+                            <div className="flex h-full w-full flex-col justify-between bg-gradient-to-br from-zinc-950 via-zinc-900 to-black p-4">
+                              <p className="text-[11px] uppercase tracking-[0.24em] text-zinc-500">Recommended 9:16</p>
+                              <div>
+                                <p className="text-[11px] uppercase tracking-[0.24em] text-zinc-500">EP.{episode.episodeNo}</p>
+                                <p className="mt-3 font-display text-xl font-semibold leading-tight text-zinc-100 transition group-hover:text-white">
+                                  {episode.title}
+                                </p>
+                              </div>
+                            </div>
+                          )}
+                          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/65 to-transparent p-4">
+                            <p className="text-[11px] uppercase tracking-[0.24em] text-white/55">EP.{episode.episodeNo}</p>
+                            <p className="mt-2 line-clamp-2 font-display text-lg font-semibold leading-tight text-white">{episode.title}</p>
+                            <p className="mt-2 text-xs text-white/55">
+                              Status: <span className="text-white/80">{episode.status}</span>
+                            </p>
+                          </div>
+                        </button>
+                        <div className="space-y-2 p-3">
+                          <input
+                            accept="image/*"
+                            className="sr-only"
+                            disabled={isUploading}
+                            id={inputId}
+                            onChange={(event) => {
+                              void handleEpisodeCoverUpload(project.id, episode.id, event.target.files?.[0] ?? null);
+                              event.target.value = '';
+                            }}
+                            type="file"
+                          />
+                          <label
+                            className={[
+                              'block cursor-pointer rounded-2xl border border-editor-border px-4 py-2 text-center text-xs font-medium text-zinc-200 transition hover:border-zinc-500 hover:bg-white/5',
+                              isUploading ? 'pointer-events-none opacity-60' : ''
+                            ].join(' ')}
+                            htmlFor={inputId}
+                          >
+                            {isUploading ? 'Uploading...' : episode.coverImageUrl ? 'Replace Cover' : 'Upload Cover'}
+                          </label>
+                          {episode.coverImageUrl ? (
+                            <button
+                              className="w-full rounded-2xl border border-editor-border px-4 py-2 text-xs text-zinc-400 transition hover:border-zinc-500 hover:text-zinc-100"
+                              disabled={updateEpisode.isPending}
+                              onClick={() => {
+                                void updateEpisode.mutateAsync({
+                                  episodeId: episode.id,
+                                  payload: {
+                                    coverImageUrl: null
+                                  }
+                                });
+                              }}
+                              type="button"
+                            >
+                              Remove Cover
+                            </button>
+                          ) : null}
+                          {uploadErrorByEpisodeId[episode.id] ? (
+                            <p className="text-xs text-red-300">{uploadErrorByEpisodeId[episode.id]}</p>
+                          ) : null}
+                        </div>
+                      </article>
+                    );
+                  })
                 )}
               </div>
             </article>

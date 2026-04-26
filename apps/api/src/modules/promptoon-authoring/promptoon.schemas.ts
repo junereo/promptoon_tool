@@ -10,7 +10,9 @@ const fontTokenSchema = z.enum(['sans-kr', 'serif-kr', 'display']);
 const lineHeightTokenSchema = z.enum(['tight', 'normal', 'relaxed', 'loose']);
 const spacingTokenSchema = z.enum(['none', 'sm', 'base', 'lg', 'xl', '2xl', '3xl', '4xl', '5xl', '6xl', '7xl', '8xl', '9xl', '10xl']);
 const edgeFadeSchema = z.enum(['none', 'top', 'bottom', 'both']);
-const edgeFadeIntensitySchema = z.enum(['soft', 'normal', 'strong']);
+const edgeFadeIntensitySchema = z.enum(['minimal', 'barely-soft', 'ultra-soft', 'very-soft', 'soft', 'semi-soft', 'normal', 'strong']);
+const edgeFadeColorSchema = z.enum(['black', 'white']);
+const dialogAnchorYSchema = z.enum(['top', 'upper', 'center', 'lower', 'bottom']);
 const bindingKeySchema = z.enum(['userName']);
 const contentBlockBaseSchema = z.object({
   id: z.string().trim().min(1)
@@ -72,7 +74,15 @@ export const createProjectSchema = z.object({
 
 export const createEpisodeSchema = z.object({
   title: z.string().trim().min(1),
-  episodeNo: z.number().int().positive()
+  episodeNo: z.number().int().positive(),
+  coverImageUrl: z.string().trim().nullable().optional()
+});
+
+export const patchEpisodeSchema = z.object({
+  title: z.string().trim().min(1).optional(),
+  coverImageUrl: z.string().trim().nullable().optional()
+}).refine((value) => Object.keys(value).length > 0, {
+  message: 'At least one episode field is required.'
 });
 
 export const createCutSchema = z.object({
@@ -81,8 +91,8 @@ export const createCutSchema = z.object({
   body: z.string().optional(),
   contentBlocks: z.array(contentBlockSchema).optional(),
   contentViewMode: contentViewModeSchema.optional(),
-  dialogAnchorX: z.enum(['left', 'right']).optional(),
-  dialogAnchorY: z.enum(['top', 'bottom']).optional(),
+  dialogAnchorX: z.enum(['left', 'center', 'right']).optional(),
+  dialogAnchorY: dialogAnchorYSchema.optional(),
   dialogOffsetX: z.number().finite().min(0).max(160).optional(),
   dialogOffsetY: z.number().finite().min(0).max(160).optional(),
   dialogTextAlign: z.enum(['left', 'center', 'right']).optional(),
@@ -93,6 +103,7 @@ export const createCutSchema = z.object({
   assetUrl: z.string().trim().nullable().optional(),
   edgeFade: edgeFadeSchema.optional(),
   edgeFadeIntensity: edgeFadeIntensitySchema.optional(),
+  edgeFadeColor: edgeFadeColorSchema.optional(),
   marginBottomToken: spacingTokenSchema.optional(),
   orderIndex: z.number().int().min(0).optional(),
   positionX: z.number().finite().optional(),

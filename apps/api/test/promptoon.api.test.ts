@@ -15,6 +15,18 @@ const PASSWORD = 'password123';
 maybeDescribe('promptoon api integration', () => {
   const app = createApp();
 
+  function assertSafeTestDatabaseUrl(): void {
+    const testDatabaseUrl = process.env.TEST_DATABASE_URL;
+    if (!testDatabaseUrl) {
+      return;
+    }
+
+    const databaseName = new URL(testDatabaseUrl).pathname.replace(/^\//, '');
+    if (!databaseName.includes('test')) {
+      throw new Error(`Refusing to run integration tests against non-test database: ${databaseName}`);
+    }
+  }
+
   async function registerUser(loginId = `author-${randomUUID()}`) {
     const response = await request(app)
       .post('/api/promptoon/auth/register')
@@ -41,6 +53,9 @@ maybeDescribe('promptoon api integration', () => {
     const episode = await withAuth(request(app).post(`/api/promptoon/projects/${project.body.id}/episodes`), auth.token).send({
       title: 'Episode 1',
       episodeNo: 1
+    });
+    await withAuth(request(app).patch(`/api/promptoon/episodes/${episode.body.id}`), auth.token).send({
+      coverImageUrl: 'https://cdn.example.com/episode-cover.jpg'
     });
     const startCut = await withAuth(request(app).post(`/api/promptoon/episodes/${episode.body.id}/cuts`), auth.token).send({
       title: 'Start',
@@ -93,6 +108,7 @@ maybeDescribe('promptoon api integration', () => {
   }
 
   beforeAll(async () => {
+    assertSafeTestDatabaseUrl();
     await runMigrations();
   });
 
@@ -174,12 +190,37 @@ maybeDescribe('promptoon api integration', () => {
     expect(response.body[0].title).toBe('Project A');
   });
 
-  it('creates a cut with default position and order index', async () => {
+  it('creates and updates an episode cover image', async () => {
     const auth = await registerUser();
     const project = await withAuth(request(app).post('/api/promptoon/projects'), auth.token).send({ title: 'Project A' });
     const episode = await withAuth(request(app).post(`/api/promptoon/projects/${project.body.id}/episodes`), auth.token).send({
       title: 'Episode 1',
       episodeNo: 1
+    });
+
+    expect(episode.status).toBe(201);
+    expect(episode.body.coverImageUrl).toBeNull();
+
+    const updated = await withAuth(request(app).patch(`/api/promptoon/episodes/${episode.body.id}`), auth.token).send({
+      coverImageUrl: 'https://cdn.example.com/cover.jpg'
+    });
+    expect(updated.status).toBe(200);
+    expect(updated.body.coverImageUrl).toBe('https://cdn.example.com/cover.jpg');
+
+    const dashboard = await withAuth(request(app).get('/api/promptoon/projects'), auth.token);
+    expect(dashboard.body[0].episodes[0].coverImageUrl).toBe('https://cdn.example.com/cover.jpg');
+
+    const draft = await withAuth(request(app).get(`/api/promptoon/episodes/${episode.body.id}/draft`), auth.token);
+    expect(draft.body.episode.coverImageUrl).toBe('https://cdn.example.com/cover.jpg');
+  });
+
+  it('creates a cut with default position and order index', async () => {
+    const auth = await registerUser();
+    const project = await withAuth(request(app).post('/api/promptoon/projects'), auth.token).send({ title: 'Project A' });
+    const episode = await withAuth(request(app).post(`/api/promptoon/projects/${project.body.id}/episodes`), auth.token).send({
+      title: 'Episode 1',
+      episodeNo: 1,
+      coverImageUrl: 'https://cdn.example.com/publish-cover.jpg'
     });
 
     const cut = await withAuth(request(app).post(`/api/promptoon/episodes/${episode.body.id}/cuts`), auth.token).send({
@@ -197,6 +238,7 @@ maybeDescribe('promptoon api integration', () => {
     expect(cut.body.endEffectDurationMs).toBe(DEFAULT_CUT_EFFECT_DURATION_MS);
     expect(cut.body.edgeFade).toBe('none');
     expect(cut.body.edgeFadeIntensity).toBe('normal');
+    expect(cut.body.edgeFadeColor).toBe('black');
     expect(cut.body.marginBottomToken).toBe('none');
     expect(cut.body.contentBlocks).toEqual([]);
   });
@@ -261,7 +303,8 @@ maybeDescribe('promptoon api integration', () => {
     );
 
     expect(response.status).toBe(201);
-    expect(response.body.assetUrl).toMatch(new RegExp(`^/uploads/\\d{4}/\\d{2}/\\d{2}/${project.body.id}/cover-\\d+\\.png$`));
+    expect(response.body.assetUrl).toMatch(/^\/uploads\/\d{4}\/\d{2}\/\d{2}\/[a-f0-9]{12}\/cover-\d+\.png$/);
+    expect(response.body.assetUrl).not.toContain(project.body.id);
   });
 
   it('rejects uploads to projects owned by another user', async () => {
@@ -432,6 +475,7 @@ maybeDescribe('promptoon api integration', () => {
       isStart: true,
       edgeFade: 'bottom',
       edgeFadeIntensity: 'strong',
+      edgeFadeColor: 'white',
       marginBottomToken: 'xl',
       contentBlocks: [
         {
@@ -474,10 +518,12 @@ maybeDescribe('promptoon api integration', () => {
     expect(publish.body.versionNo).toBe(1);
     expect(publish.body.manifest.project.status).toBe('published');
     expect(publish.body.manifest.episode.status).toBe('published');
+    expect(publish.body.manifest.episode.coverImageUrl).toBe('https://cdn.example.com/publish-cover.jpg');
     expect(publish.body.manifest.cuts).toHaveLength(2);
     expect(publish.body.manifest.cuts.find((cut: { id: string }) => cut.id === startCut.body.id)?.contentBlocks).toHaveLength(1);
     expect(publish.body.manifest.cuts.find((cut: { id: string }) => cut.id === startCut.body.id)?.edgeFade).toBe('bottom');
     expect(publish.body.manifest.cuts.find((cut: { id: string }) => cut.id === startCut.body.id)?.edgeFadeIntensity).toBe('strong');
+    expect(publish.body.manifest.cuts.find((cut: { id: string }) => cut.id === startCut.body.id)?.edgeFadeColor).toBe('white');
     expect(publish.body.manifest.cuts.find((cut: { id: string }) => cut.id === startCut.body.id)?.marginBottomToken).toBe('xl');
     expect(publish.body.manifest.cuts.find((cut: { id: string }) => cut.id === startCut.body.id)?.contentBlocks[0]).toMatchObject({
       lineHeightToken: 'loose',
@@ -559,6 +605,9 @@ maybeDescribe('promptoon api integration', () => {
 
     expect(response.status).toBe(200);
     expect(response.body.id).toBe(fixture.publish.body.id);
+    expect(response.body.projectId).toMatch(/^prj_[A-Za-z0-9_-]{10}$/);
+    expect(response.body.projectId).not.toBe(fixture.project.body.id);
+    expect(response.body.manifest.project.id).toBe(response.body.projectId);
     expect(response.body.manifest.episode.startCutId).toBe(fixture.startCut.body.id);
   });
 
@@ -569,7 +618,8 @@ maybeDescribe('promptoon api integration', () => {
     async function createEpisodeWithPublish(episodeNo: number, body: string, branchingChoiceCount = 2) {
       const episode = await withAuth(request(app).post(`/api/promptoon/projects/${project.body.id}/episodes`), auth.token).send({
         title: `Episode ${episodeNo}`,
-        episodeNo
+        episodeNo,
+        coverImageUrl: `https://cdn.example.com/cover-${episodeNo}.jpg`
       });
       const startCut = await withAuth(request(app).post(`/api/promptoon/episodes/${episode.body.id}/cuts`), auth.token).send({
         title: `Start ${episodeNo}`,
@@ -625,6 +675,7 @@ maybeDescribe('promptoon api integration', () => {
     expect(firstPage.status).toBe(200);
     expect(firstPage.body.items).toHaveLength(1);
     expect(firstPage.body.items[0].publishId).toBe(republish.body.id);
+    expect(firstPage.body.items[0].coverImageUrl).toBe('https://cdn.example.com/cover-1.jpg');
     expect(firstPage.body.items[0].startCut.body).toBe('첫 번째 에피소드 최신 버전');
     expect(firstPage.body.nextCursor).toEqual(expect.any(String));
 
@@ -737,7 +788,7 @@ maybeDescribe('promptoon api integration', () => {
     expect(response.text).toContain('Episode 1 - 인터랙티브 웹툰');
     expect(response.text).toContain('기본 프로젝트 설명입니다.');
     expect(response.text).not.toContain('Secret Ending');
-    expect(response.text).toContain('https://cdn.example.com/start.jpg');
+    expect(response.text).toContain('https://cdn.example.com/episode-cover.jpg');
   });
 
   it('accepts telemetry events without authentication and persists them', async () => {

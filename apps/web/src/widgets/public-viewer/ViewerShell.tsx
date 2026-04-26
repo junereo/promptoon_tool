@@ -1,5 +1,8 @@
 import type { PublishManifest } from '@promptoon/shared';
 import { AnimatePresence } from 'framer-motion';
+import type { TouchEvent, WheelEvent } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+
 import { ViewerContent } from './ViewerContent';
 import { ViewerControls } from './ViewerControls';
 
@@ -50,22 +53,100 @@ export function ViewerShell({
   terminalCut,
   userName
 }: ViewerShellProps) {
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const forwardedTouchYRef = useRef<number | null>(null);
+  const [isScrollBoundary, setIsScrollBoundary] = useState(true);
   const useCompactLayout = pathSteps.length > 1;
   const terminalStep = pathSteps[pathSteps.length - 1] ?? null;
   const leadingSteps = terminalStep ? pathSteps.slice(0, -1) : [];
+  const areControlsVisible = isChromeVisible && isScrollBoundary;
+
+  const updateScrollBoundary = useCallback(() => {
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) {
+      setIsScrollBoundary(true);
+      return true;
+    }
+
+    const boundaryThreshold = 2;
+    const isAtTop = scrollContainer.scrollTop <= boundaryThreshold;
+    const isAtBottom =
+      scrollContainer.scrollTop + scrollContainer.clientHeight >= scrollContainer.scrollHeight - boundaryThreshold;
+    const isAtBoundary = isAtTop || isAtBottom;
+
+    setIsScrollBoundary(isAtBoundary);
+    return isAtBoundary;
+  }, []);
+
+  useEffect(() => {
+    const animationFrameId = window.requestAnimationFrame(() => {
+      updateScrollBoundary();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(animationFrameId);
+    };
+  }, [pathSteps, updateScrollBoundary]);
+
+  function handleViewerScroll() {
+    if (updateScrollBoundary()) {
+      onInteraction();
+    }
+  }
+
+  function isInsideScrollContainer(target: EventTarget | null) {
+    const scrollContainer = scrollContainerRef.current;
+    return Boolean(scrollContainer && target instanceof Node && scrollContainer.contains(target));
+  }
+
+  function handleViewerSurfaceWheel(event: WheelEvent<HTMLElement>) {
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer || isInsideScrollContainer(event.target)) {
+      return;
+    }
+
+    scrollContainer.scrollTop += event.deltaY;
+    updateScrollBoundary();
+  }
+
+  function handleViewerSurfaceTouchStart(event: TouchEvent<HTMLElement>) {
+    if (isInsideScrollContainer(event.target)) {
+      forwardedTouchYRef.current = null;
+      return;
+    }
+
+    forwardedTouchYRef.current = event.touches[0]?.clientY ?? null;
+  }
+
+  function handleViewerSurfaceTouchMove(event: TouchEvent<HTMLElement>) {
+    const scrollContainer = scrollContainerRef.current;
+    const previousY = forwardedTouchYRef.current;
+    const nextY = event.touches[0]?.clientY ?? null;
+
+    if (!scrollContainer || previousY === null || nextY === null) {
+      return;
+    }
+
+    scrollContainer.scrollTop += previousY - nextY;
+    forwardedTouchYRef.current = nextY;
+    updateScrollBoundary();
+  }
+
+  function handleViewerSurfaceTouchEnd() {
+    forwardedTouchYRef.current = null;
+  }
 
   return (
     <section
       className="relative min-h-dvh overflow-hidden bg-black text-white"
       onClick={onInteraction}
-      onPointerMove={onInteraction}
     >
       <div className="absolute inset-0 bg-gradient-to-br from-[#18181d] via-[#111115] to-black" />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(122,48,64,0.18),transparent_42%)]" />
 
       <ViewerControls
         canGoBack={canGoBack}
-        isVisible={isChromeVisible}
+        isVisible={areControlsVisible}
         onBack={onBack}
         onClose={onClose}
         onReset={onReset}
@@ -90,11 +171,27 @@ export function ViewerShell({
         </div>
       ) : null}
 
-      <div className="relative flex min-h-dvh items-stretch justify-stretch sm:items-center sm:justify-center sm:px-[max(1rem,env(safe-area-inset-left))] sm:pb-[max(1rem,env(safe-area-inset-bottom))] sm:pr-[max(1rem,env(safe-area-inset-right))] sm:pt-[max(1rem,env(safe-area-inset-top))]">
-        <div className="flex min-h-dvh w-full items-stretch justify-stretch sm:min-h-0 sm:items-center sm:justify-center sm:py-24">
-          <div className="relative h-dvh w-full overflow-hidden bg-black sm:h-auto sm:max-w-[420px] sm:rounded-[34px] sm:border sm:border-white/10 sm:shadow-[0_32px_120px_rgba(0,0,0,0.55)]">
-            <div className="relative h-full w-full bg-[#101015] sm:aspect-[9/16] sm:h-auto">
-              <div className="scrollbar-hidden relative z-10 h-full overflow-x-hidden overflow-y-auto">
+      <div
+        className="relative flex h-dvh overflow-hidden items-stretch justify-stretch sm:items-center sm:justify-center"
+        data-testid="viewer-scroll-surface"
+        onTouchCancel={handleViewerSurfaceTouchEnd}
+        onTouchEnd={handleViewerSurfaceTouchEnd}
+        onTouchMove={handleViewerSurfaceTouchMove}
+        onTouchStart={handleViewerSurfaceTouchStart}
+        onWheel={handleViewerSurfaceWheel}
+      >
+        <div className="flex h-full w-full items-stretch justify-stretch overflow-hidden sm:items-center sm:justify-center">
+          <div
+            className="relative h-dvh w-full overflow-hidden bg-black sm:h-[min(100dvh,calc(100vw*16/9))] sm:w-[min(100vw,calc(100dvh*9/16))] sm:rounded-[34px] sm:border sm:border-white/10 sm:shadow-[0_32px_120px_rgba(0,0,0,0.55)]"
+            data-testid="viewer-frame"
+          >
+            <div className="relative h-full w-full bg-[#101015]">
+              <div
+                className="scrollbar-hidden relative z-10 h-full overflow-x-hidden overflow-y-auto"
+                data-testid="viewer-scroll-container"
+                onScroll={handleViewerScroll}
+                ref={scrollContainerRef}
+              >
                 {leadingSteps.map((step) => (
                   <ViewerContent
                     canGoBack={canGoBack}

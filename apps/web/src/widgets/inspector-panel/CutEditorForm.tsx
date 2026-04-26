@@ -9,6 +9,7 @@ import {
   CUT_EFFECT_OPTIONS,
   DEFAULT_CUT_EFFECT,
   DEFAULT_CUT_EFFECT_DURATION_MS,
+  EDGE_FADE_COLOR_OPTIONS,
   EDGE_FADE_INTENSITY_OPTIONS,
   EDGE_FADE_OPTIONS,
   MAX_CUT_EFFECT_DURATION_MS
@@ -41,6 +42,7 @@ interface CutFormState {
   assetUrl: string;
   edgeFade: NonNullable<Cut['edgeFade']>;
   edgeFadeIntensity: NonNullable<Cut['edgeFadeIntensity']>;
+  edgeFadeColor: NonNullable<Cut['edgeFadeColor']>;
   marginBottomToken: NonNullable<Cut['marginBottomToken']>;
   isStart: boolean;
   isEnding: boolean;
@@ -64,6 +66,7 @@ function toFormState(cut: Cut): CutFormState {
     assetUrl: cut.assetUrl ?? '',
     edgeFade: cut.edgeFade ?? 'none',
     edgeFadeIntensity: cut.edgeFadeIntensity ?? 'normal',
+    edgeFadeColor: cut.edgeFadeColor ?? 'black',
     marginBottomToken: cut.marginBottomToken ?? 'none',
     isStart: cut.isStart,
     isEnding: cut.isEnding
@@ -147,6 +150,10 @@ function buildCutPatch(cut: Cut, formState: CutFormState): PatchCutRequest | nul
     patch.edgeFadeIntensity = formState.edgeFadeIntensity;
   }
 
+  if (formState.edgeFadeColor !== (cut.edgeFadeColor ?? 'black')) {
+    patch.edgeFadeColor = formState.edgeFadeColor;
+  }
+
   if (formState.marginBottomToken !== (cut.marginBottomToken ?? 'none')) {
     patch.marginBottomToken = formState.marginBottomToken;
   }
@@ -216,6 +223,7 @@ export function CutEditorForm({
     cut.assetUrl,
     cut.edgeFade,
     cut.edgeFadeIntensity,
+    cut.edgeFadeColor,
     cut.marginBottomToken,
     cut.isStart,
     cut.isEnding,
@@ -332,6 +340,7 @@ export function CutEditorForm({
             value={formState.dialogAnchorX}
           >
             <option value="left">Left</option>
+            <option value="center">Center</option>
             <option value="right">Right</option>
           </select>
         </div>
@@ -350,6 +359,9 @@ export function CutEditorForm({
             value={formState.dialogAnchorY}
           >
             <option value="top">Top</option>
+            <option value="upper">Upper</option>
+            <option value="center">Center</option>
+            <option value="lower">Lower</option>
             <option value="bottom">Bottom</option>
           </select>
         </div>
@@ -599,6 +611,27 @@ export function CutEditorForm({
                   value={formState.edgeFadeIntensity}
                 >
                   {EDGE_FADE_INTENSITY_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <FieldLabel>Edge Fade Color</FieldLabel>
+                <select
+                  aria-label="Edge Fade Color"
+                  className={inputClassName()}
+                  onChange={(event) =>
+                    setFormState((current) => ({
+                      ...current,
+                      edgeFadeColor: event.target.value as NonNullable<Cut['edgeFadeColor']>
+                    }))
+                  }
+                  value={formState.edgeFadeColor}
+                >
+                  {EDGE_FADE_COLOR_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>

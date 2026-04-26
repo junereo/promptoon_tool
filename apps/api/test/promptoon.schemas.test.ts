@@ -1,8 +1,22 @@
 import { describe, expect, it } from 'vitest';
 
-import { createChoiceSchema, createCutSchema, patchCutSchema, telemetryEventSchema } from '../src/modules/promptoon-authoring/promptoon.schemas';
+import {
+  createChoiceSchema,
+  createCutSchema,
+  patchCutSchema,
+  patchEpisodeSchema,
+  telemetryEventSchema
+} from '../src/modules/promptoon-authoring/promptoon.schemas';
 
 describe('promptoon cut schemas', () => {
+  it('accepts episode cover image patches', () => {
+    const result = patchEpisodeSchema.safeParse({
+      coverImageUrl: '/uploads/2026/04/24/project/cover.png'
+    });
+
+    expect(result.success).toBe(true);
+  });
+
   it('accepts known cut effect values', () => {
     const result = createCutSchema.safeParse({
       kind: 'scene',
@@ -22,6 +36,19 @@ describe('promptoon cut schemas', () => {
     expect(result.success).toBe(false);
   });
 
+  it('accepts five dialogue vertical anchors', () => {
+    for (const dialogAnchorY of ['top', 'upper', 'center', 'lower', 'bottom']) {
+      const result = patchCutSchema.safeParse({ dialogAnchorY });
+      expect(result.success).toBe(true);
+    }
+  });
+
+  it('accepts center dialogue horizontal anchor', () => {
+    const result = patchCutSchema.safeParse({ dialogAnchorX: 'center' });
+
+    expect(result.success).toBe(true);
+  });
+
   it('accepts structured content blocks and effect durations', () => {
     const cutResult = createCutSchema.safeParse({
       kind: 'scene',
@@ -29,7 +56,8 @@ describe('promptoon cut schemas', () => {
       startEffectDurationMs: 500,
       endEffectDurationMs: 750,
       edgeFade: 'both',
-      edgeFadeIntensity: 'strong',
+      edgeFadeIntensity: 'minimal',
+      edgeFadeColor: 'white',
       marginBottomToken: '10xl',
       contentBlocks: [
         {
@@ -122,6 +150,7 @@ describe('promptoon cut schemas', () => {
     const cutResult = patchCutSchema.safeParse({
       edgeFade: 'middle',
       edgeFadeIntensity: 'extreme',
+      edgeFadeColor: 'gray',
       marginBottomToken: 'massive'
     });
     const blockResult = patchCutSchema.safeParse({

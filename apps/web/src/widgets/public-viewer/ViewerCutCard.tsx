@@ -1,6 +1,6 @@
 import type { PublishManifest } from '@promptoon/shared';
 import type { CSSProperties } from 'react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { getEdgeFadeOverlayClassNames, getEdgeFadeStyle } from '../../shared/lib/cut-effects';
 import { getContentSpacingClassName, getContentSpacingMinHeight, getCutContentBlocksByPlacement } from '../../shared/lib/cut-content';
@@ -28,12 +28,27 @@ interface ViewerCutCardProps {
 function getDialogPlacementClasses(cut: ViewerCut): string {
   const dialogAnchorX = cut.dialogAnchorX ?? 'left';
   const dialogAnchorY = cut.dialogAnchorY ?? 'bottom';
+  const horizontalClassName =
+    dialogAnchorX === 'left' ? 'justify-start' : dialogAnchorX === 'center' ? 'justify-center' : 'justify-end';
 
   return [
     'pointer-events-none absolute inset-0 z-10 flex p-4 sm:p-6',
-    dialogAnchorX === 'left' ? 'justify-start' : 'justify-end',
-    dialogAnchorY === 'top' ? 'items-start' : 'items-end'
+    horizontalClassName,
+    dialogAnchorY === 'bottom' ? 'items-end' : 'items-start'
   ].join(' ');
+}
+
+function getDialogAnchorTop(dialogAnchorY: ViewerCut['dialogAnchorY']): string | undefined {
+  switch (dialogAnchorY) {
+    case 'upper':
+      return '25%';
+    case 'center':
+      return '50%';
+    case 'lower':
+      return '75%';
+    default:
+      return undefined;
+  }
 }
 
 function getDialogPlacementStyle(cut: ViewerCut): CSSProperties {
@@ -42,6 +57,10 @@ function getDialogPlacementStyle(cut: ViewerCut): CSSProperties {
   const dialogOffsetX = Math.min(160, Math.max(0, cut.dialogOffsetX ?? 0));
   const dialogOffsetY = Math.min(160, Math.max(0, cut.dialogOffsetY ?? 0));
   const dialogTextAlign = cut.dialogTextAlign ?? 'left';
+  const anchorTop = getDialogAnchorTop(dialogAnchorY);
+  const translateX = dialogAnchorX === 'center' ? `translateX(${dialogOffsetX}px)` : undefined;
+  const translateY = anchorTop ? `translateY(calc(-50% + ${dialogOffsetY}px))` : undefined;
+  const transform = [translateX, translateY].filter(Boolean).join(' ') || undefined;
 
   return {
     marginBottom: dialogAnchorY === 'bottom' ? `${dialogOffsetY}px` : undefined,
@@ -49,7 +68,10 @@ function getDialogPlacementStyle(cut: ViewerCut): CSSProperties {
     marginRight: dialogAnchorX === 'right' ? `${dialogOffsetX}px` : undefined,
     marginTop: dialogAnchorY === 'top' ? `${dialogOffsetY}px` : undefined,
     maxWidth: 'min(22rem, calc(100% - 2rem))',
-    textAlign: dialogTextAlign
+    position: anchorTop ? 'relative' : undefined,
+    textAlign: dialogTextAlign,
+    top: anchorTop,
+    transform
   };
 }
 
@@ -57,6 +79,54 @@ function getContentPanelClassName(cut: ViewerCut): string {
   return (cut.contentViewMode ?? 'default') === 'inverse'
     ? 'rounded-[28px] border border-zinc-900/10 bg-white/88 px-5 py-4 text-zinc-950 shadow-[0_18px_48px_rgba(255,255,255,0.12)] backdrop-blur-sm'
     : 'rounded-[28px] border border-white/10 bg-black/20 px-5 py-4 backdrop-blur-sm';
+}
+
+function getRevealSyncedFrameClassName(className: string, isRevealed: boolean): string {
+  return [
+    className,
+    'transition-opacity duration-500 ease-out',
+    isRevealed ? 'opacity-100' : 'pointer-events-none opacity-0'
+  ].join(' ');
+}
+
+function ViewerContentPanel({
+  cut,
+  frameClassName,
+  frameStyle,
+  onUserNameChange,
+  placement,
+  userName
+}: {
+  cut: ViewerCut;
+  frameClassName: string;
+  frameStyle?: CSSProperties;
+  onUserNameChange?: (value: string) => void;
+  placement: 'overlay' | 'flow';
+  userName: string;
+}) {
+  const [isFrameRevealed, setIsFrameRevealed] = useState(false);
+  const handleContainerRevealSyncChange = useCallback((isRevealed: boolean) => {
+    setIsFrameRevealed(isRevealed);
+  }, []);
+
+  return (
+    <div
+      className={getRevealSyncedFrameClassName(frameClassName, isFrameRevealed)}
+      data-content-frame-revealed={isFrameRevealed ? 'true' : 'false'}
+      data-testid={`viewer-content-frame-${cut.id}:${placement}`}
+      style={frameStyle}
+    >
+      <CutContentBlocksView
+        bindings={{ userName }}
+        className="space-y-3"
+        cut={cut}
+        onBindingChange={(_bindingKey, value) => onUserNameChange?.(value)}
+        onContainerRevealSyncChange={handleContainerRevealSyncChange}
+        placement={placement}
+        syncContainerVisibilityWithReveal
+      />
+    </div>
+  );
 }
 
 export function ViewerCutCard({
@@ -74,17 +144,14 @@ export function ViewerCutCard({
   userName = '',
   visibleChoices
 }: ViewerCutCardProps) {
-  const [isImageLoaded, setIsImageLoaded] = useState(false);
   const [isImageFailed, setIsImageFailed] = useState(false);
   const hasImage = Boolean(cut.assetUrl) && !isImageFailed;
   const hasOverlayContent = getCutContentBlocksByPlacement(cut, 'overlay').length > 0;
   const hasFlowContent = getCutContentBlocksByPlacement(cut, 'flow').length > 0;
-  const showImageOverlay = cut.kind === 'choice';
   const cutBottomSpacingClassName = disableCutBottomSpacing || hasFlowContent ? '' : getContentSpacingClassName('mb', cut.marginBottomToken);
   const flowContentMinHeight = disableCutBottomSpacing ? undefined : getContentSpacingMinHeight(cut.marginBottomToken);
 
   useEffect(() => {
-    setIsImageLoaded(false);
     setIsImageFailed(false);
   }, [cut.assetUrl, cut.id]);
 
@@ -168,18 +235,14 @@ export function ViewerCutCard({
 
     return (
       <div className={getDialogPlacementClasses(cut)}>
-        <div
-          className={getContentPanelClassName(cut)}
-          style={getDialogPlacementStyle(cut)}
-        >
-          <CutContentBlocksView
-            bindings={{ userName }}
-            className="space-y-3"
-            cut={cut}
-            onBindingChange={(_bindingKey, value) => onUserNameChange?.(value)}
-            placement="overlay"
-          />
-        </div>
+        <ViewerContentPanel
+          cut={cut}
+          frameClassName={getContentPanelClassName(cut)}
+          frameStyle={getDialogPlacementStyle(cut)}
+          onUserNameChange={onUserNameChange}
+          placement="overlay"
+          userName={userName}
+        />
       </div>
     );
   }
@@ -191,15 +254,13 @@ export function ViewerCutCard({
 
     return (
       <div className={className} data-testid="viewer-flow-content" style={{ minHeight: flowContentMinHeight }}>
-        <div className={`${getContentPanelClassName(cut)} w-full`}>
-          <CutContentBlocksView
-            bindings={{ userName }}
-            className="space-y-3"
-            cut={cut}
-            onBindingChange={(_bindingKey, value) => onUserNameChange?.(value)}
-            placement="flow"
-          />
-        </div>
+        <ViewerContentPanel
+          cut={cut}
+          frameClassName={`${getContentPanelClassName(cut)} w-full`}
+          onUserNameChange={onUserNameChange}
+          placement="flow"
+          userName={userName}
+        />
       </div>
     );
   }
@@ -213,25 +274,12 @@ export function ViewerCutCard({
             alt={cut.title}
             className="relative z-0 block h-auto w-full"
             onError={() => setIsImageFailed(true)}
-            onLoad={() => setIsImageLoaded(true)}
             src={cut.assetUrl ?? undefined}
             style={getEdgeFadeStyle(cut.edgeFade, cut.edgeFadeIntensity)}
           />
-          {getEdgeFadeOverlayClassNames(cut.edgeFade, cut.edgeFadeIntensity).map((className) => (
+          {getEdgeFadeOverlayClassNames(cut.edgeFade, cut.edgeFadeIntensity, cut.edgeFadeColor).map((className) => (
             <div className={className} key={className} />
           ))}
-          {showImageOverlay ? (
-            <>
-              <div
-                className={[
-                  'pointer-events-none absolute inset-0 bg-gradient-to-t from-black via-black/18 to-black/8 transition-opacity duration-500',
-                  isImageLoaded ? 'opacity-100' : 'opacity-0'
-                ].join(' ')}
-              />
-              <div className="absolute inset-x-0 bottom-0 top-1/3 bg-gradient-to-t from-black via-black/70 to-transparent" />
-              <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/35 to-transparent" />
-            </>
-          ) : null}
 
           {renderOverlayContent()}
         </div>

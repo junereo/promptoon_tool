@@ -1,14 +1,19 @@
+import { Suspense, lazy } from 'react';
 import { Link, Outlet, createBrowserRouter, useNavigate } from 'react-router-dom';
 
 import { ProtectedRoute } from '../features/auth/components/ProtectedRoute';
 import { clearAuthSession } from '../features/auth/lib/auth-session';
 import { useAuthStore } from '../features/auth/store/use-auth-store';
+import { preloadPromptoonViewerPage } from '../features/viewer/lib/preload-viewer';
 import { LoginPage } from '../pages/LoginPage';
 import { MainFeedPage } from '../pages/MainFeedPage';
 import { PromptoonEpisodeEditorPage } from '../pages/promptoon-episode-editor-page';
 import { PromptoonProjectListPage } from '../pages/promptoon-project-list-page';
-import { PromptoonViewerPage } from '../pages/promptoon-viewer-page';
 import { RegisterPage } from '../pages/RegisterPage';
+
+const PromptoonViewerPage = lazy(() =>
+  preloadPromptoonViewerPage().then((module) => ({ default: module.PromptoonViewerPage }))
+);
 
 function AppShell() {
   const navigate = useNavigate();
@@ -55,7 +60,11 @@ type AppRouter = ReturnType<typeof createBrowserRouter>;
 export const router: AppRouter = createBrowserRouter([
   {
     path: '/v/:publishId',
-    element: <PromptoonViewerPage />
+    element: (
+      <Suspense fallback={<div className="min-h-dvh bg-black" />}>
+        <PromptoonViewerPage />
+      </Suspense>
+    )
   },
   {
     path: '/',

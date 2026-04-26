@@ -1,7 +1,7 @@
 import type { Choice, Cut } from '@promptoon/shared';
 import { DEFAULT_CUT_EFFECT_DURATION_MS } from '@promptoon/shared';
 import { act } from 'react';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { CutEditorForm } from '../src/widgets/inspector-panel/CutEditorForm';
@@ -516,7 +516,7 @@ describe('CutEditorForm', () => {
           type: 'dialogue',
           speaker: 'Hero',
           placement: 'overlay',
-          fontSizeToken: 'base'
+          fontSizeToken: 'lg'
         })
       ])
     });
@@ -607,6 +607,7 @@ describe('CutEditorForm', () => {
 
     fireEvent.change(screen.getByLabelText('Edge Fade'), { target: { value: 'both' } });
     fireEvent.change(screen.getByLabelText('Edge Fade Intensity'), { target: { value: 'strong' } });
+    fireEvent.change(screen.getByLabelText('Edge Fade Color'), { target: { value: 'white' } });
     fireEvent.change(screen.getByLabelText('Cut Bottom Spacing'), { target: { value: 'xl' } });
     fireEvent.change(screen.getByLabelText('Block Line Height'), { target: { value: 'loose' } });
     fireEvent.change(screen.getByLabelText('Block Top Spacing'), { target: { value: 'sm' } });
@@ -620,6 +621,7 @@ describe('CutEditorForm', () => {
       body: 'Narration',
       edgeFade: 'both',
       edgeFadeIntensity: 'strong',
+      edgeFadeColor: 'white',
       marginBottomToken: 'xl',
       contentBlocks: [
         {
@@ -661,8 +663,15 @@ describe('CutEditorForm', () => {
     const xInput = screen.getByRole('spinbutton', { name: 'X' });
     const yInput = screen.getByRole('spinbutton', { name: 'Y' });
 
-    fireEvent.change(horizontalSelect, { target: { value: 'right' } });
-    fireEvent.change(verticalSelect, { target: { value: 'top' } });
+    expect(within(horizontalSelect).getByRole('option', { name: 'Center' })).toBeTruthy();
+    expect(within(verticalSelect).getByRole('option', { name: 'Top' })).toBeTruthy();
+    expect(within(verticalSelect).getByRole('option', { name: 'Upper' })).toBeTruthy();
+    expect(within(verticalSelect).getByRole('option', { name: 'Center' })).toBeTruthy();
+    expect(within(verticalSelect).getByRole('option', { name: 'Lower' })).toBeTruthy();
+    expect(within(verticalSelect).getByRole('option', { name: 'Bottom' })).toBeTruthy();
+
+    fireEvent.change(horizontalSelect, { target: { value: 'center' } });
+    fireEvent.change(verticalSelect, { target: { value: 'lower' } });
     fireEvent.change(textAlignSelect, { target: { value: 'center' } });
     fireEvent.change(xInput, { target: { value: '24' } });
     fireEvent.change(yInput, { target: { value: '36' } });
@@ -672,8 +681,8 @@ describe('CutEditorForm', () => {
     });
 
     expect(onQueuePatch).toHaveBeenCalledWith('cut-1', {
-      dialogAnchorX: 'right',
-      dialogAnchorY: 'top',
+      dialogAnchorX: 'center',
+      dialogAnchorY: 'lower',
       dialogOffsetX: 24,
       dialogOffsetY: 36,
       dialogTextAlign: 'center'

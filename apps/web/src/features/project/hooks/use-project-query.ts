@@ -1,4 +1,4 @@
-import type { CreateEpisodeRequest, CreateProjectRequest } from '@promptoon/shared';
+import type { CreateEpisodeRequest, CreateProjectRequest, PatchEpisodeRequest } from '@promptoon/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { projectService } from '../../../shared/api/project.service';
@@ -34,3 +34,14 @@ export function useCreateEpisode() {
   });
 }
 
+export function useUpdateEpisode() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ episodeId, payload }: { episodeId: string; payload: PatchEpisodeRequest }) =>
+      projectService.patchEpisode(episodeId, payload),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: promptoonKeys.projects() });
+    }
+  });
+}

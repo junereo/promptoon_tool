@@ -11,6 +11,7 @@ function buildDraft(overrides?: Partial<EpisodeDraftResponse>): EpisodeDraftResp
       projectId: '22222222-2222-2222-2222-222222222222',
       title: 'Episode 1',
       episodeNo: 1,
+      coverImageUrl: '/uploads/cover.jpg',
       startCutId: '33333333-3333-3333-3333-333333333333',
       status: 'draft',
       createdAt: new Date().toISOString(),
@@ -86,6 +87,20 @@ describe('validateEpisodeGraph', () => {
     const result = validateEpisodeGraph(buildDraft());
     expect(result.isValid).toBe(true);
     expect(result.errors).toHaveLength(0);
+  });
+
+  it('warns when the episode cover image is missing without blocking validation', () => {
+    const result = validateEpisodeGraph(
+      buildDraft({
+        episode: {
+          ...buildDraft().episode,
+          coverImageUrl: null
+        }
+      })
+    );
+
+    expect(result.isValid).toBe(true);
+    expect(result.warnings.some((issue) => issue.code === 'missing_episode_cover')).toBe(true);
   });
 
   it('rejects multiple start cuts', () => {

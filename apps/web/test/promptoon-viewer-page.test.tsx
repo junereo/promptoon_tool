@@ -523,4 +523,94 @@ describe('PromptoonViewerPage', () => {
     expect(await screen.findByText('어디로 갈까요?')).toBeTruthy();
     expect(document.querySelector('[data-cut-id="cut-start"]')?.getAttribute('data-start-effect')).toBe('none');
   });
+
+  it('only shows viewer controls at the top or bottom of the scroll container', async () => {
+    renderPage();
+
+    expect(await screen.findByText('어디로 갈까요?')).toBeTruthy();
+
+    const controls = screen.getByTestId('viewer-controls');
+    const scrollContainer = screen.getByTestId('viewer-scroll-container');
+
+    Object.defineProperties(scrollContainer, {
+      clientHeight: {
+        configurable: true,
+        value: 500
+      },
+      scrollHeight: {
+        configurable: true,
+        value: 1200
+      }
+    });
+
+    expect(controls.className).toContain('opacity-100');
+
+    Object.defineProperty(scrollContainer, 'scrollTop', {
+      configurable: true,
+      value: 240
+    });
+    fireEvent.scroll(scrollContainer);
+
+    await waitFor(() => {
+      expect(controls.className).toContain('opacity-0');
+    });
+
+    fireEvent.pointerMove(screen.getByText('어디로 갈까요?'));
+    expect(controls.className).toContain('opacity-0');
+
+    Object.defineProperty(scrollContainer, 'scrollTop', {
+      configurable: true,
+      value: 700
+    });
+    fireEvent.scroll(scrollContainer);
+
+    await waitFor(() => {
+      expect(controls.className).toContain('opacity-100');
+    });
+  });
+
+  it('uses a single scroll container inside the responsive 9:16 viewer frame', async () => {
+    renderPage();
+
+    expect(await screen.findByText('어디로 갈까요?')).toBeTruthy();
+
+    const frame = screen.getByTestId('viewer-frame');
+    const scrollContainer = screen.getByTestId('viewer-scroll-container');
+
+    expect(frame.className).toContain('overflow-hidden');
+    expect(frame.className).toContain('sm:h-[min(100dvh,calc(100vw*16/9))]');
+    expect(frame.className).toContain('sm:w-[min(100vw,calc(100dvh*9/16))]');
+    expect(frame.className).not.toContain('sm:max-w-[420px]');
+    expect(scrollContainer.className).toContain('overflow-y-auto');
+    expect(scrollContainer.className).toContain('h-full');
+  });
+
+  it('forwards scroll gestures from the frame gutter into the viewer scroll container', async () => {
+    renderPage();
+
+    expect(await screen.findByText('어디로 갈까요?')).toBeTruthy();
+
+    const scrollSurface = screen.getByTestId('viewer-scroll-surface');
+    const scrollContainer = screen.getByTestId('viewer-scroll-container');
+
+    Object.defineProperty(scrollContainer, 'scrollTop', {
+      configurable: true,
+      writable: true,
+      value: 0
+    });
+    Object.defineProperties(scrollContainer, {
+      clientHeight: {
+        configurable: true,
+        value: 500
+      },
+      scrollHeight: {
+        configurable: true,
+        value: 1200
+      }
+    });
+
+    fireEvent.wheel(scrollSurface, { deltaY: 180 });
+
+    expect(scrollContainer.scrollTop).toBe(180);
+  });
 });

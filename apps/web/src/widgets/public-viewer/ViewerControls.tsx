@@ -15,6 +15,7 @@ export function ViewerControls({ canGoBack, isVisible, onBack, onClose, onReset 
         'pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between p-4 transition duration-300 sm:p-6',
         isVisible ? 'opacity-100' : 'opacity-0'
       ].join(' ')}
+      data-testid="viewer-controls"
     >
       <div className="pointer-events-auto flex items-center gap-2">
         <button

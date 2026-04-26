@@ -24,6 +24,8 @@ import {
   createContentBlock
 } from '../../shared/lib/cut-content';
 
+const DEFAULT_BLOCK_FONT_SIZE: PromptoonFontSizeToken = 'lg';
+
 function inputClassName() {
   return 'mt-2 w-full rounded-2xl border border-editor-border bg-black/20 px-4 py-3 text-center text-sm text-zinc-100 outline-none transition focus:border-editor-accentSoft';
 }
@@ -73,7 +75,7 @@ function convertBlockType(block: CutContentBlock, nextType: CutContentBlock['typ
         textAlign: block.textAlign,
         fontToken: block.fontToken,
         placement: block.placement ?? 'flow',
-        fontSizeToken: block.fontSizeToken ?? 'base',
+        fontSizeToken: block.fontSizeToken ?? DEFAULT_BLOCK_FONT_SIZE,
         lineHeightToken: block.lineHeightToken ?? 'normal',
         marginTopToken: block.marginTopToken ?? 'none',
         marginBottomToken: block.marginBottomToken ?? 'none',
@@ -89,7 +91,7 @@ function convertBlockType(block: CutContentBlock, nextType: CutContentBlock['typ
         textAlign: block.textAlign,
         fontToken: block.fontToken,
         placement: block.placement ?? 'overlay',
-        fontSizeToken: block.fontSizeToken ?? 'base',
+        fontSizeToken: block.fontSizeToken ?? DEFAULT_BLOCK_FONT_SIZE,
         lineHeightToken: block.lineHeightToken ?? 'normal',
         marginTopToken: block.marginTopToken ?? 'none',
         marginBottomToken: block.marginBottomToken ?? 'none',
@@ -104,7 +106,7 @@ function convertBlockType(block: CutContentBlock, nextType: CutContentBlock['typ
       textAlign: block.textAlign,
       fontToken: block.fontToken,
       placement: block.placement ?? 'flow',
-      fontSizeToken: block.fontSizeToken ?? 'base',
+      fontSizeToken: block.fontSizeToken ?? DEFAULT_BLOCK_FONT_SIZE,
       lineHeightToken: block.lineHeightToken ?? 'normal',
       marginTopToken: block.marginTopToken ?? 'none',
       marginBottomToken: block.marginBottomToken ?? 'none',
@@ -127,7 +129,7 @@ function convertBlockType(block: CutContentBlock, nextType: CutContentBlock['typ
         textAlign: defaultTextBlock.textAlign,
         fontToken: defaultTextBlock.fontToken,
         placement: defaultTextBlock.placement ?? 'flow',
-        fontSizeToken: defaultTextBlock.fontSizeToken ?? 'base',
+        fontSizeToken: defaultTextBlock.fontSizeToken ?? DEFAULT_BLOCK_FONT_SIZE,
         lineHeightToken: defaultTextBlock.lineHeightToken ?? 'normal',
         marginTopToken: defaultTextBlock.marginTopToken ?? 'none',
         marginBottomToken: defaultTextBlock.marginBottomToken ?? 'none',
@@ -143,7 +145,7 @@ function convertBlockType(block: CutContentBlock, nextType: CutContentBlock['typ
         textAlign: isTextBlock(block) ? block.textAlign : defaultTextBlock.textAlign,
         fontToken: isTextBlock(block) ? block.fontToken : defaultTextBlock.fontToken,
         placement: isTextBlock(block) ? (block.placement ?? 'overlay') : (defaultTextBlock.placement ?? 'overlay'),
-        fontSizeToken: isTextBlock(block) ? (block.fontSizeToken ?? 'base') : (defaultTextBlock.fontSizeToken ?? 'base'),
+        fontSizeToken: isTextBlock(block) ? (block.fontSizeToken ?? DEFAULT_BLOCK_FONT_SIZE) : (defaultTextBlock.fontSizeToken ?? DEFAULT_BLOCK_FONT_SIZE),
         lineHeightToken: isTextBlock(block) ? (block.lineHeightToken ?? 'normal') : (defaultTextBlock.lineHeightToken ?? 'normal'),
         marginTopToken: isTextBlock(block) ? (block.marginTopToken ?? 'none') : (defaultTextBlock.marginTopToken ?? 'none'),
         marginBottomToken: isTextBlock(block) ? (block.marginBottomToken ?? 'none') : (defaultTextBlock.marginBottomToken ?? 'none'),
@@ -158,7 +160,7 @@ function convertBlockType(block: CutContentBlock, nextType: CutContentBlock['typ
       textAlign: defaultTextBlock.textAlign,
       fontToken: defaultTextBlock.fontToken,
       placement: defaultTextBlock.placement ?? 'flow',
-      fontSizeToken: defaultTextBlock.fontSizeToken ?? 'base',
+      fontSizeToken: defaultTextBlock.fontSizeToken ?? DEFAULT_BLOCK_FONT_SIZE,
       lineHeightToken: defaultTextBlock.lineHeightToken ?? 'normal',
       marginTopToken: defaultTextBlock.marginTopToken ?? 'none',
       marginBottomToken: defaultTextBlock.marginBottomToken ?? 'none',
@@ -289,7 +291,7 @@ function TextStyleToolbar({
                   className={inputClassName()}
                   disabled={disabled}
                   onChange={(event) => onFontSizeChange(event.target.value as PromptoonFontSizeToken)}
-                  value={selectedBlock?.fontSizeToken ?? 'base'}
+                  value={selectedBlock?.fontSizeToken ?? DEFAULT_BLOCK_FONT_SIZE}
                 >
                   {CONTENT_FONT_SIZE_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>

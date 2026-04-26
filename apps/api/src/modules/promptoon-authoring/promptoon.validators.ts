@@ -65,6 +65,13 @@ export function validateEpisodeGraph(draft: EpisodeDraftResponse): ValidateEpiso
   const startCuts = draft.cuts.filter((cut) => cut.isStart);
   const endingCuts = draft.cuts.filter((cut) => cut.isEnding || cut.kind === 'ending');
 
+  if (!draft.episode.coverImageUrl) {
+    warnings.push({
+      code: 'missing_episode_cover',
+      message: 'Episode cover image is recommended for the published shorts feed.'
+    });
+  }
+
   if (startCuts.length === 0) {
     errors.push({
       code: 'missing_start_cut',
@@ -139,4 +146,3 @@ export function validateEpisodeGraph(draft: EpisodeDraftResponse): ValidateEpiso
     warnings
   };
 }
-

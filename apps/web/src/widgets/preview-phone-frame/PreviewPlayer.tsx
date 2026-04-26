@@ -14,12 +14,27 @@ const DEFAULT_PREVIEW_SCALE = 1;
 function getDialogPlacementClasses(cut: Cut): string {
   const dialogAnchorX = cut.dialogAnchorX ?? 'left';
   const dialogAnchorY = cut.dialogAnchorY ?? 'bottom';
+  const horizontalClassName =
+    dialogAnchorX === 'left' ? 'justify-start' : dialogAnchorX === 'center' ? 'justify-center' : 'justify-end';
 
   return [
     'pointer-events-none absolute inset-0 z-10 flex p-4',
-    dialogAnchorX === 'left' ? 'justify-start' : 'justify-end',
-    dialogAnchorY === 'top' ? 'items-start' : 'items-end'
+    horizontalClassName,
+    dialogAnchorY === 'bottom' ? 'items-end' : 'items-start'
   ].join(' ');
+}
+
+function getDialogAnchorTop(dialogAnchorY: Cut['dialogAnchorY']): string | undefined {
+  switch (dialogAnchorY) {
+    case 'upper':
+      return '25%';
+    case 'center':
+      return '50%';
+    case 'lower':
+      return '75%';
+    default:
+      return undefined;
+  }
 }
 
 function getDialogPlacementStyle(cut: Cut): CSSProperties {
@@ -28,6 +43,10 @@ function getDialogPlacementStyle(cut: Cut): CSSProperties {
   const dialogOffsetX = Math.min(160, Math.max(0, cut.dialogOffsetX ?? 0));
   const dialogOffsetY = Math.min(160, Math.max(0, cut.dialogOffsetY ?? 0));
   const dialogTextAlign = cut.dialogTextAlign ?? 'left';
+  const anchorTop = getDialogAnchorTop(dialogAnchorY);
+  const translateX = dialogAnchorX === 'center' ? `translateX(${dialogOffsetX}px)` : undefined;
+  const translateY = anchorTop ? `translateY(calc(-50% + ${dialogOffsetY}px))` : undefined;
+  const transform = [translateX, translateY].filter(Boolean).join(' ') || undefined;
 
   return {
     marginBottom: dialogAnchorY === 'bottom' ? `${dialogOffsetY}px` : undefined,
@@ -35,7 +54,10 @@ function getDialogPlacementStyle(cut: Cut): CSSProperties {
     marginRight: dialogAnchorX === 'right' ? `${dialogOffsetX}px` : undefined,
     marginTop: dialogAnchorY === 'top' ? `${dialogOffsetY}px` : undefined,
     maxWidth: 'min(20rem, calc(100% - 2rem))',
-    textAlign: dialogTextAlign
+    position: anchorTop ? 'relative' : undefined,
+    textAlign: dialogTextAlign,
+    top: anchorTop,
+    transform
   };
 }
 
@@ -174,7 +196,7 @@ export function PreviewPlayer({
                     />
                   ) : null}
                   {cut.assetUrl && !imageFailed
-                    ? getEdgeFadeOverlayClassNames(cut.edgeFade, cut.edgeFadeIntensity).map((className) => (
+                    ? getEdgeFadeOverlayClassNames(cut.edgeFade, cut.edgeFadeIntensity, cut.edgeFadeColor).map((className) => (
                         <div className={className} key={className} />
                       ))
                     : null}
