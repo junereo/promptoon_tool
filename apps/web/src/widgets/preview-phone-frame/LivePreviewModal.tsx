@@ -8,10 +8,50 @@ type ViewerCut = PublishManifest['cuts'][number];
 type DeviceOrientation = 'portrait' | 'landscape';
 
 const DEVICE_PRESETS = [
-  { borderRadius: 42, defaultOrientation: 'portrait', height: 852, id: 'iphone-15', label: 'iPhone 15', width: 393 },
-  { borderRadius: 38, defaultOrientation: 'portrait', height: 854, id: 'galaxy-s24', label: 'Galaxy S24', width: 384 },
-  { borderRadius: 30, defaultOrientation: 'portrait', height: 1180, id: 'ipad', label: 'iPad', width: 820 },
-  { borderRadius: 18, defaultOrientation: 'landscape', height: 1440, id: 'desktop', label: 'Desktop', width: 900 }
+  {
+    borderRadius: 42,
+    defaultOrientation: 'portrait',
+    dpr: 3,
+    id: 'iphone-15',
+    label: 'iPhone 15',
+    physicalHeight: 2556,
+    physicalWidth: 1179,
+    viewportHeight: 852,
+    viewportWidth: 393
+  },
+  {
+    borderRadius: 38,
+    defaultOrientation: 'portrait',
+    dpr: 3,
+    id: 'galaxy-s24',
+    label: 'Galaxy S24',
+    physicalHeight: 2340,
+    physicalWidth: 1080,
+    viewportHeight: 780,
+    viewportWidth: 360
+  },
+  {
+    borderRadius: 30,
+    defaultOrientation: 'portrait',
+    dpr: 2,
+    id: 'ipad',
+    label: 'iPad',
+    physicalHeight: 2360,
+    physicalWidth: 1640,
+    viewportHeight: 1180,
+    viewportWidth: 820
+  },
+  {
+    borderRadius: 18,
+    defaultOrientation: 'landscape',
+    dpr: 1,
+    id: 'desktop',
+    label: 'Desktop',
+    physicalHeight: 1440,
+    physicalWidth: 900,
+    viewportHeight: 1440,
+    viewportWidth: 900
+  }
 ] as const;
 
 type DevicePresetId = (typeof DEVICE_PRESETS)[number]['id'];
@@ -81,8 +121,10 @@ export function LivePreviewModal({
     () => DEVICE_PRESETS.find((device) => device.id === selectedDeviceId) ?? DEVICE_PRESETS[0],
     [selectedDeviceId]
   );
-  const deviceWidth = deviceOrientation === 'portrait' ? selectedDevice.width : selectedDevice.height;
-  const deviceHeight = deviceOrientation === 'portrait' ? selectedDevice.height : selectedDevice.width;
+  const deviceWidth = deviceOrientation === 'portrait' ? selectedDevice.viewportWidth : selectedDevice.viewportHeight;
+  const deviceHeight = deviceOrientation === 'portrait' ? selectedDevice.viewportHeight : selectedDevice.viewportWidth;
+  const physicalWidth = deviceOrientation === 'portrait' ? selectedDevice.physicalWidth : selectedDevice.physicalHeight;
+  const physicalHeight = deviceOrientation === 'portrait' ? selectedDevice.physicalHeight : selectedDevice.physicalWidth;
   const viewerCuts = [
     previousCut ? toViewerCut(previousCut, previousChoices) : null,
     currentCut ? toViewerCut(currentCut, currentChoices) : null,
@@ -133,7 +175,8 @@ export function LivePreviewModal({
         return;
       }
 
-      const nextScale = Math.min(1, Math.max(0.2, (stageRect.width - 24) / deviceWidth, (stageRect.height - 24) / deviceHeight));
+      const scaleToFit = Math.min((stageRect.width - 24) / deviceWidth, (stageRect.height - 24) / deviceHeight);
+      const nextScale = Math.min(1, Math.max(0.2, scaleToFit));
       setDeviceScale((current) => (Math.abs(current - nextScale) > 0.005 ? nextScale : current));
     };
 
@@ -182,7 +225,7 @@ export function LivePreviewModal({
               Live Preview
             </p>
             <p className="mt-0.5 text-xs text-white/45">
-              {selectedDevice.label} · {deviceWidth} x {deviceHeight} · {scalePercent}%
+              {selectedDevice.label} · {deviceWidth} x {deviceHeight} CSS px · DPR {selectedDevice.dpr} · {physicalWidth} x {physicalHeight} physical · {scalePercent}%
             </p>
           </div>
           <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">

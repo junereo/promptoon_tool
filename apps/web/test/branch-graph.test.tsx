@@ -374,6 +374,11 @@ describe('EpisodeEditorShell graph mode', () => {
     expect(deviceSelect.value).toBe('iphone-15');
     expect(within(modal).getByTestId('live-preview-viewer-frame')).toBeTruthy();
     expect(within(modal).getByTestId('live-preview-viewer-scroll').className).toContain('overflow-y-auto');
+    fireEvent.change(deviceSelect, { target: { value: 'galaxy-s24' } });
+    expect(deviceSelect.value).toBe('galaxy-s24');
+    expect(within(modal).getByText(/Galaxy S24 · 360 x 780 CSS px · DPR 3 · 1080 x 2340 physical/)).toBeTruthy();
+    expect(within(modal).getByTestId('live-preview-viewer-frame').getAttribute('style')).toContain('width: 360px');
+    expect(within(modal).getByTestId('live-preview-viewer-frame').getAttribute('style')).toContain('height: 780px');
     fireEvent.change(deviceSelect, { target: { value: 'desktop' } });
     expect(deviceSelect.value).toBe('desktop');
     expect(within(modal).getByTestId('live-preview-viewer-frame').getAttribute('style')).toContain('width: 1440px');
