@@ -45,7 +45,8 @@ export function InspectorPanel({
   onDeleteCut,
   onCreateChoice,
   onUpdateChoice,
-  onDeleteChoice
+  onDeleteChoice,
+  viewMode = 'list'
 }: {
   cuts: Cut[];
   choices: Choice[];
@@ -60,9 +61,11 @@ export function InspectorPanel({
   onCreateChoice: (cutId: string) => void;
   onUpdateChoice: (choiceId: string, patch: PatchChoiceRequest) => void;
   onDeleteChoice: (choiceId: string) => void;
+  viewMode?: 'list' | 'graph';
 }) {
   const [activeKind, setActiveKind] = useState<Cut['kind'] | null>(selectedCut?.kind ?? null);
   const [dialoguePositionPortalTarget, setDialoguePositionPortalTarget] = useState<HTMLDivElement | null>(null);
+  const isGraphMode = viewMode === 'graph';
 
   useEffect(() => {
     setActiveKind(selectedCut?.kind ?? null);
@@ -87,8 +90,16 @@ export function InspectorPanel({
   }
 
   return (
-    <section className="grid h-full min-h-0 gap-5 overflow-hidden rounded-[28px] border border-editor-border bg-editor-panel/85 p-5 xl:grid-cols-2">
-      <div className="min-h-0 overflow-y-auto pr-1">
+    <section
+      className={
+        isGraphMode
+          ? 'flex h-full min-h-0 flex-col gap-5 overflow-y-auto rounded-[28px] border border-editor-border bg-editor-panel/85 p-5'
+          : 'grid h-full min-h-0 gap-5 overflow-hidden rounded-[28px] border border-editor-border bg-editor-panel/85 p-5 xl:grid-cols-2'
+      }
+      data-inspector-layout={isGraphMode ? 'graph' : 'list'}
+      data-testid="inspector-panel"
+    >
+      <div className={isGraphMode ? 'min-h-0' : 'min-h-0 overflow-y-auto pr-1'}>
         <CutEditorForm
           cut={selectedCut}
           dialoguePositionPortalTarget={dialoguePositionPortalTarget}
@@ -101,8 +112,8 @@ export function InspectorPanel({
         />
       </div>
 
-      <div className="flex min-h-0 flex-col gap-5 overflow-y-auto pr-1">
-        <div ref={setDialoguePositionPortalTarget} />
+      <div className={isGraphMode ? 'flex flex-col gap-5' : 'flex min-h-0 flex-col gap-5 overflow-y-auto pr-1'}>
+        {!isGraphMode ? <div ref={setDialoguePositionPortalTarget} /> : null}
         {showChoiceEditor ? (
           <ChoiceEditorSection
             availableCuts={availableCuts}
@@ -117,6 +128,7 @@ export function InspectorPanel({
         ) : (
           <EmptyChoiceState />
         )}
+        {isGraphMode ? <div ref={setDialoguePositionPortalTarget} /> : null}
       </div>
     </section>
   );

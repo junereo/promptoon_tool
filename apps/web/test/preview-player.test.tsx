@@ -182,7 +182,12 @@ describe('PreviewPlayer', () => {
     render(
       <PreviewPlayer
         choices={[]}
-        cut={buildCut('cut-animated', { startEffect: 'fade', endEffect: 'slide-left' })}
+        cut={buildCut('cut-animated', {
+          startEffect: 'fade',
+          endEffect: 'slide-left',
+          startEffectDurationMs: 1000,
+          endEffectDurationMs: 450
+        })}
         onSelectChoice={vi.fn()}
         onSelectCut={vi.fn()}
         selectedChoiceId={null}
@@ -192,6 +197,8 @@ describe('PreviewPlayer', () => {
     const motionWrapper = screen.getByTestId('preview-cut-motion');
     expect(motionWrapper.getAttribute('data-start-effect')).toBe('fade');
     expect(motionWrapper.getAttribute('data-end-effect')).toBe('slide-left');
+    expect(motionWrapper.getAttribute('data-start-effect-duration-ms')).toBe('1000');
+    expect(motionWrapper.getAttribute('data-end-effect-duration-ms')).toBe('450');
   });
 
   it('renders inverse content view mode with dark text styling', () => {

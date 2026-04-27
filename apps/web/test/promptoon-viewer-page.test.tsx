@@ -451,6 +451,141 @@ describe('PromptoonViewerPage', () => {
     expect(payloads.some((payload) => payload.eventType === 'ending_reach' && payload.cutId === 'cut-end')).toBe(true);
   });
 
+  it('animates the immediate next cut when a choice enters an auto-expanded scene chain', async () => {
+    publishedEpisode = {
+      ...publishedEpisode,
+      manifest: {
+        ...publishedEpisode.manifest,
+        cuts: [
+          {
+            id: 'cut-start',
+            kind: 'choice',
+            title: '선택',
+            body: '어디로 갈까요?',
+            dialogAnchorX: 'left',
+            dialogAnchorY: 'bottom',
+            dialogOffsetX: 0,
+            dialogOffsetY: 0,
+            dialogTextAlign: 'left',
+            startEffect: 'fade',
+            endEffect: 'slide-left',
+            startEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            endEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            assetUrl: null,
+            positionX: 0,
+            positionY: 0,
+            orderIndex: 0,
+            isStart: true,
+            isEnding: false,
+            choices: [
+              {
+                id: 'choice-linked',
+                label: '다음으로',
+                orderIndex: 0,
+                nextCutId: 'cut-middle'
+              }
+            ]
+          },
+          {
+            id: 'cut-middle',
+            kind: 'scene',
+            title: '중간',
+            body: '줌인으로 들어옵니다.',
+            dialogAnchorX: 'left',
+            dialogAnchorY: 'bottom',
+            dialogOffsetX: 0,
+            dialogOffsetY: 0,
+            dialogTextAlign: 'left',
+            startEffect: 'zoom-in',
+            endEffect: 'fade',
+            startEffectDurationMs: 1000,
+            endEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            assetUrl: null,
+            positionX: 0,
+            positionY: 0,
+            orderIndex: 1,
+            isStart: false,
+            isEnding: false,
+            choices: [
+              {
+                id: 'choice-middle',
+                label: '갈림길로',
+                orderIndex: 0,
+                nextCutId: 'cut-branch'
+              }
+            ]
+          },
+          {
+            id: 'cut-branch',
+            kind: 'choice',
+            title: '분기',
+            body: '분기까지 이어집니다.',
+            dialogAnchorX: 'left',
+            dialogAnchorY: 'bottom',
+            dialogOffsetX: 0,
+            dialogOffsetY: 0,
+            dialogTextAlign: 'left',
+            startEffect: 'fade',
+            endEffect: 'slide-left',
+            startEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            endEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            assetUrl: null,
+            positionX: 0,
+            positionY: 0,
+            orderIndex: 2,
+            isStart: false,
+            isEnding: false,
+            choices: [
+              {
+                id: 'choice-branch-left',
+                label: '왼쪽으로',
+                orderIndex: 0,
+                nextCutId: 'cut-end'
+              }
+            ]
+          },
+          {
+            id: 'cut-end',
+            kind: 'ending',
+            title: '엔딩',
+            body: '마지막 컷입니다.',
+            dialogAnchorX: 'left',
+            dialogAnchorY: 'bottom',
+            dialogOffsetX: 0,
+            dialogOffsetY: 0,
+            dialogTextAlign: 'left',
+            startEffect: 'zoom-in',
+            endEffect: 'none',
+            startEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            endEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            assetUrl: null,
+            positionX: 0,
+            positionY: 0,
+            orderIndex: 3,
+            isStart: false,
+            isEnding: true,
+            choices: []
+          }
+        ]
+      }
+    };
+
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: '다음으로' }));
+
+    expect(await screen.findByText('줌인으로 들어옵니다.')).toBeTruthy();
+    const activePath = document.querySelector('[data-active-cut-id="cut-middle"]');
+    expect(activePath?.getAttribute('data-active-cut-start-effect')).toBe('zoom-in');
+    expect(activePath?.getAttribute('data-active-cut-start-duration-ms')).toBe('1000');
+    expect(screen.queryByText('분기까지 이어집니다.')).toBeNull();
+    expect(screen.queryByRole('button', { name: '갈림길로' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '왼쪽으로' })).toBeNull();
+
+    expect(await screen.findByText('분기까지 이어집니다.', {}, { timeout: 1600 })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '왼쪽으로' })).toBeTruthy();
+  });
+
   it('keeps a single linked choice clickable for non-scene cuts', async () => {
     publishedEpisode = {
       ...publishedEpisode,

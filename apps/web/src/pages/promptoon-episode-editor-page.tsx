@@ -1,5 +1,4 @@
 import type {
-  Choice,
   Cut,
   CreateChoiceRequest,
   CreateCutRequest,
@@ -68,36 +67,6 @@ function insertAfter(ids: string[], anchorId: string | null, insertedId: string)
   const anchorIndex = anchorId ? nextIds.indexOf(anchorId) : -1;
   nextIds.splice(anchorIndex === -1 ? nextIds.length : anchorIndex + 1, 0, insertedId);
   return nextIds;
-}
-
-function resolveLazyRouteCutId(startCutId: string, cuts: Cut[], choices: Choice[]): string {
-  const cutsById = new Map(cuts.map((cut) => [cut.id, cut]));
-  const visitedCutIds = new Set<string>();
-  let currentCut = cutsById.get(startCutId) ?? null;
-  let resolvedCutId = startCutId;
-
-  while (currentCut && !visitedCutIds.has(currentCut.id)) {
-    visitedCutIds.add(currentCut.id);
-    resolvedCutId = currentCut.id;
-
-    if (currentCut.isEnding || currentCut.kind === 'ending' || currentCut.kind !== 'scene') {
-      break;
-    }
-
-    const linkedChoices = getChoicesForCut(choices, currentCut.id).filter((choice) => choice.nextCutId && cutsById.has(choice.nextCutId));
-    if (linkedChoices.length !== 1) {
-      break;
-    }
-
-    const nextCut = cutsById.get(linkedChoices[0].nextCutId!);
-    if (!nextCut || visitedCutIds.has(nextCut.id)) {
-      break;
-    }
-
-    currentCut = nextCut;
-  }
-
-  return resolvedCutId;
 }
 
 export function PromptoonEpisodeEditorPage() {
@@ -588,7 +557,7 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
         onPublish={handlePublishRequest}
         onPreviewSelectChoice={(choiceId) => setPreviewSelectedChoiceId(choiceId)}
         onPreviewSelectCut={(cutId) => {
-          setPreviewCutId(resolveLazyRouteCutId(cutId, orderedCuts, draftQuery.data.choices));
+          setPreviewCutId(cutId);
           setPreviewSelectedChoiceId(null);
         }}
         onSaveOrder={handleSaveOrder}

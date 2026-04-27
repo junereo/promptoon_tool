@@ -5,6 +5,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { usePublishedEpisode } from '../features/viewer/hooks/use-published-episode';
 import { useViewerTelemetry } from '../features/viewer/hooks/use-viewer-telemetry';
 import { useViewerStore } from '../features/viewer/store/use-viewer-store';
+import { getCutEffectDurationMs } from '../shared/lib/cut-effects';
 import { ViewerShell } from '../widgets/public-viewer/ViewerShell';
 
 type ViewerCut = PublishManifest['cuts'][number];
@@ -125,6 +126,10 @@ export function PromptoonViewerPage() {
   const [shareNotice, setShareNotice] = useState<string | null>(null);
   const [userName, setUserName] = useState('');
   const [pendingChoice, setPendingChoice] = useState<{ cutId: string; choiceId: string; reactionText: string | null } | null>(null);
+  const [autoPathExpansion, setAutoPathExpansion] = useState<{ isExpanded: boolean; pathStartCutId: string | null }>({
+    isExpanded: true,
+    pathStartCutId: null
+  });
 
   const manifest = publishedEpisode.data?.manifest ?? null;
   const startCutId = useMemo(() => (manifest ? getStartCutId(manifest) : null), [manifest]);
@@ -141,7 +146,19 @@ export function PromptoonViewerPage() {
   );
   const resolvedCutId = currentCutId ?? startCutId;
   const activeCut = resolvedCutId ? cutsById.get(resolvedCutId) ?? null : null;
-  const pathSteps = useMemo(() => buildViewerPathSteps(activeCut, cutsById), [activeCut, cutsById]);
+  const fullPathSteps = useMemo(() => buildViewerPathSteps(activeCut, cutsById), [activeCut, cutsById]);
+  const pathStartCut = fullPathSteps[0]?.cut ?? null;
+  const pathStartEffectDurationMs = pathStartCut
+    ? getCutEffectDurationMs(pathStartCut.startEffect, pathStartCut.startEffectDurationMs)
+    : 0;
+  const shouldStageAutoPath = Boolean(pathStartCut && fullPathSteps.length > 1 && pathStartEffectDurationMs > 0);
+  const isAutoPathExpanded =
+    !shouldStageAutoPath || (autoPathExpansion.pathStartCutId === pathStartCut?.id && autoPathExpansion.isExpanded);
+  const pathSteps = useMemo(
+    () => (isAutoPathExpanded ? fullPathSteps : fullPathSteps.slice(0, 1)),
+    [fullPathSteps, isAutoPathExpanded]
+  );
+  const isPathCompact = fullPathSteps.length > 1;
   const visibleCuts = useMemo(() => pathSteps.map((step) => step.cut), [pathSteps]);
   const terminalCut = pathSteps[pathSteps.length - 1]?.cut ?? null;
   const { startNewSession, trackChoiceClick, trackEndingShare } = useViewerTelemetry({
@@ -175,6 +192,34 @@ export function PromptoonViewerPage() {
   useEffect(() => {
     preloadConnectedAssets(terminalCut, cutsById);
   }, [cutsById, terminalCut]);
+
+  useEffect(() => {
+    if (!pathStartCut || !shouldStageAutoPath) {
+      setAutoPathExpansion({
+        isExpanded: true,
+        pathStartCutId: pathStartCut?.id ?? null
+      });
+      return;
+    }
+
+    setAutoPathExpansion({
+      isExpanded: false,
+      pathStartCutId: pathStartCut.id
+    });
+  }, [pathStartCut?.id, shouldStageAutoPath]);
+
+  function handlePathEnterComplete(pathStartCutId: string) {
+    setAutoPathExpansion((current) => {
+      if (current.pathStartCutId !== pathStartCutId) {
+        return current;
+      }
+
+      return {
+        isExpanded: true,
+        pathStartCutId
+      };
+    });
+  }
 
   useEffect(() => {
     setPendingChoice(null);
@@ -313,6 +358,8 @@ export function PromptoonViewerPage() {
       canGoBack={historyStack.length > 0}
       episodeTitle={manifest.episode.title}
       isChromeVisible={isChromeVisible}
+      isPathCompact={isPathCompact}
+      onPathEnterComplete={handlePathEnterComplete}
       onBack={() => {
         clearPendingTransition();
         pop();

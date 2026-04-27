@@ -164,7 +164,9 @@ export function PreviewPlayer({
                 className="absolute inset-0 overflow-hidden"
                 custom={buildCutEffectMotionCustom(cut.startEffect, cut.endEffect, cut.startEffectDurationMs, cut.endEffectDurationMs)}
                 data-end-effect={cut.endEffect ?? 'none'}
+                data-end-effect-duration-ms={cut.endEffectDurationMs}
                 data-start-effect={cut.startEffect ?? 'none'}
+                data-start-effect-duration-ms={cut.startEffectDurationMs}
                 data-testid="preview-cut-motion"
                 exit="exit"
                 initial="initial"

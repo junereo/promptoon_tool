@@ -179,6 +179,7 @@ export function EpisodeEditorShell({
           pendingAutosaveCount={pendingAutosaveCount}
           selectedChoice={selectedChoice}
           selectedCut={selectedCut}
+          viewMode={viewMode}
         />
       </section>
     </main>

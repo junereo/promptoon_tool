@@ -41,7 +41,7 @@ export const EDGE_FADE_COLOR_OPTIONS: Array<{ label: string; value: PromptoonEdg
 ];
 
 export const CUT_EFFECT_TRANSITION = {
-  ease: [0.22, 1, 0.36, 1] as const
+  ease: [0.4, 0, 0.2, 1] as const
 };
 
 interface CutEffectMotionCustom {

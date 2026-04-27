@@ -1,8 +1,9 @@
 import type { PublishManifest } from '@promptoon/shared';
-import { AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import type { TouchEvent, WheelEvent } from 'react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
+import { buildCutEffectMotionCustom, cutEffectVariants } from '../../shared/lib/cut-effects';
 import { ViewerContent } from './ViewerContent';
 import { ViewerControls } from './ViewerControls';
 
@@ -18,11 +19,13 @@ interface ViewerShellProps {
   canGoBack: boolean;
   episodeTitle: string;
   isChromeVisible: boolean;
+  isPathCompact: boolean;
   onBack: () => void;
   onChoiceClick: (choice: ViewerChoice, cutId: string) => void;
   onClose: () => void;
   onDismissShareBanner: () => void;
   onInteraction: () => void;
+  onPathEnterComplete: (pathStartCutId: string) => void;
   onReset: () => void;
   onUserNameChange: (value: string) => void;
   onShare?: () => void;
@@ -38,11 +41,13 @@ export function ViewerShell({
   canGoBack,
   episodeTitle,
   isChromeVisible,
+  isPathCompact,
   onBack,
   onChoiceClick,
   onClose,
   onDismissShareBanner,
   onInteraction,
+  onPathEnterComplete,
   onReset,
   onUserNameChange,
   onShare,
@@ -56,11 +61,11 @@ export function ViewerShell({
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const forwardedTouchYRef = useRef<number | null>(null);
   const [isScrollBoundary, setIsScrollBoundary] = useState(true);
-  const useCompactLayout = pathSteps.length > 1;
   const terminalStep = pathSteps[pathSteps.length - 1] ?? null;
-  const leadingSteps = terminalStep ? pathSteps.slice(0, -1) : [];
+  const pathStartStep = pathSteps[0] ?? null;
   const areControlsVisible = isChromeVisible && isScrollBoundary;
   const pathStepKey = pathSteps.map((step) => step.cut.id).join('|');
+  const pathStartKey = pathStartStep?.cut.id ?? 'empty-path';
 
   const updateScrollBoundary = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;
@@ -97,7 +102,7 @@ export function ViewerShell({
 
     scrollContainer.scrollTop = 0;
     setIsScrollBoundary(true);
-  }, [pathStepKey]);
+  }, [pathStartKey]);
 
   function handleViewerScroll() {
     if (updateScrollBoundary()) {
@@ -203,39 +208,57 @@ export function ViewerShell({
                 onScroll={handleViewerScroll}
                 ref={scrollContainerRef}
               >
-                {leadingSteps.map((step) => (
-                  <ViewerContent
-                    canGoBack={canGoBack}
-                    compact={useCompactLayout}
-                    cut={step.cut}
-                    isTerminal={false}
-                    key={step.cut.id}
-                    onChoiceClick={(choice) => onChoiceClick(choice, step.cut.id)}
-                    onReset={onReset}
-                    onUserNameChange={onUserNameChange}
-                    pendingChoice={pendingChoice && pendingChoice.cutId === step.cut.id ? pendingChoice : null}
-                    userName={userName}
-                    visibleChoices={step.visibleChoices}
-                  />
-                ))}
-
                 <AnimatePresence mode="wait">
-                  {terminalStep ? (
-                    <ViewerContent
-                      animated
-                      canGoBack={canGoBack}
-                      compact={useCompactLayout}
-                      cut={terminalStep.cut}
-                      isTerminal
-                      key={terminalStep.cut.id}
-                      onChoiceClick={(choice) => onChoiceClick(choice, terminalStep.cut.id)}
-                      onReset={onReset}
-                      onUserNameChange={onUserNameChange}
-                      onShare={terminalCut.isEnding || terminalCut.kind === 'ending' ? onShare : undefined}
-                      pendingChoice={pendingChoice && pendingChoice.cutId === terminalStep.cut.id ? pendingChoice : null}
-                      userName={userName}
-                      visibleChoices={terminalStep.visibleChoices}
-                    />
+                  {pathStartStep && terminalStep ? (
+                    <motion.div
+                      animate="animate"
+                      className="w-full overflow-hidden will-change-transform"
+                      custom={buildCutEffectMotionCustom(
+                        pathStartStep.cut.startEffect,
+                        terminalStep.cut.endEffect,
+                        pathStartStep.cut.startEffectDurationMs,
+                        terminalStep.cut.endEffectDurationMs
+                      )}
+                      data-active-cut-end-effect={terminalStep.cut.endEffect ?? 'none'}
+                      data-active-cut-end-duration-ms={terminalStep.cut.endEffectDurationMs ?? ''}
+                      data-active-cut-id={pathStartStep.cut.id}
+                      data-active-cut-start-effect={pathStartStep.cut.startEffect ?? 'none'}
+                      data-active-cut-start-duration-ms={pathStartStep.cut.startEffectDurationMs ?? ''}
+                      data-cut-id={pathStartStep.cut.id}
+                      data-end-effect={terminalStep.cut.endEffect ?? 'none'}
+                      data-path-step-key={pathStepKey}
+                      data-start-effect={pathStartStep.cut.startEffect ?? 'none'}
+                      exit="exit"
+                      initial="initial"
+                      key={pathStartKey}
+                      onAnimationComplete={(definition) => {
+                        if (definition === 'animate') {
+                          onPathEnterComplete(pathStartStep.cut.id);
+                        }
+                      }}
+                      variants={cutEffectVariants}
+                    >
+                      {pathSteps.map((step, index) => {
+                        const isTerminalStep = index === pathSteps.length - 1;
+
+                        return (
+                          <ViewerContent
+                            canGoBack={canGoBack}
+                            compact={isPathCompact}
+                            cut={step.cut}
+                            isTerminal={isTerminalStep}
+                            key={step.cut.id}
+                            onChoiceClick={(choice) => onChoiceClick(choice, step.cut.id)}
+                            onReset={onReset}
+                            onUserNameChange={onUserNameChange}
+                            onShare={isTerminalStep && (terminalCut.isEnding || terminalCut.kind === 'ending') ? onShare : undefined}
+                            pendingChoice={pendingChoice && pendingChoice.cutId === step.cut.id ? pendingChoice : null}
+                            userName={userName}
+                            visibleChoices={step.visibleChoices}
+                          />
+                        );
+                      })}
+                    </motion.div>
                   ) : null}
                 </AnimatePresence>
               </div>

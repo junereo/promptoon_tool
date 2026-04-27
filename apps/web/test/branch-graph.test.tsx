@@ -4,7 +4,7 @@ import type {
   EditorSelection
 } from '@promptoon/shared';
 import { DEFAULT_CUT_EFFECT_DURATION_MS } from '@promptoon/shared';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -171,7 +171,7 @@ describe('BranchCanvas', () => {
 });
 
 describe('EpisodeEditorShell graph mode', () => {
-  it('hides list and preview when graph mode is active', () => {
+  it('hides list and preview, and stacks inspector controls when graph mode is active', async () => {
     const cut = buildCut('cut-1', { isStart: true, kind: 'choice', title: 'Branch Cut' });
     const choice = buildChoice('choice-1', cut.id, { nextCutId: 'cut-1' });
 
@@ -186,6 +186,7 @@ describe('EpisodeEditorShell graph mode', () => {
         onBack={vi.fn()}
         onCreateChoiceConnection={vi.fn()}
         onConnectChoice={vi.fn()}
+        onCommitCut={vi.fn().mockResolvedValue(undefined)}
         onCreateChoice={vi.fn()}
         onCreateCut={vi.fn()}
         onDeleteChoice={vi.fn()}
@@ -198,6 +199,7 @@ describe('EpisodeEditorShell graph mode', () => {
         onSelectChoice={vi.fn()}
         onSelectCut={vi.fn()}
         onToggleViewMode={vi.fn()}
+        onUploadAsset={vi.fn().mockResolvedValue('')}
         onUpdateChoice={vi.fn()}
         onUpdateCut={vi.fn()}
         onValidate={vi.fn()}
@@ -216,5 +218,15 @@ describe('EpisodeEditorShell graph mode', () => {
     expect(screen.queryByText('Cut List')).toBeNull();
     expect(screen.queryByText('Live Preview')).toBeNull();
     expect(screen.getByText('Branch Graph')).toBeTruthy();
+
+    const inspectorPanel = screen.getByTestId('inspector-panel');
+    expect(inspectorPanel.getAttribute('data-inspector-layout')).toBe('graph');
+    expect(inspectorPanel.className).not.toContain('xl:grid-cols-2');
+
+    await waitFor(() => {
+      const choicesTitle = screen.getByText('Choices');
+      const dialoguePositionTitle = screen.getByText('Dialogue Position');
+      expect(Boolean(choicesTitle.compareDocumentPosition(dialoguePositionTitle) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    });
   });
 });

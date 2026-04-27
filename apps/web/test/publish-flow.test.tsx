@@ -513,13 +513,15 @@ describe('publish flow', () => {
     });
   });
 
-  it('uses lazy routing when a preview choice points into a single-path scene chain', async () => {
+  it('shows the immediate next cut effect when a preview choice points into a single-path scene chain', async () => {
     const middleCut = {
       ...draftResponse.cuts[1],
       id: 'cut-middle',
       kind: 'scene' as const,
       title: 'Middle',
       body: 'Lazy middle body',
+      startEffect: 'zoom-in' as const,
+      startEffectDurationMs: 1000,
       orderIndex: 1,
       isEnding: false
     };
@@ -563,8 +565,10 @@ describe('publish flow', () => {
 
     await waitFor(() => {
       const preview = screen.getByTestId('preview-cut-motion');
-      expect(within(preview).getByText('Branch body')).toBeTruthy();
-      expect(within(preview).queryByText('Lazy middle body')).toBeNull();
+      expect(preview.getAttribute('data-start-effect')).toBe('zoom-in');
+      expect(preview.getAttribute('data-start-effect-duration-ms')).toBe('1000');
+      expect(within(preview).getByText('Lazy middle body')).toBeTruthy();
+      expect(within(preview).queryByText('Branch body')).toBeNull();
     });
   });
 
