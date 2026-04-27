@@ -124,6 +124,7 @@ function ViewerContentPanel({
         onContainerRevealSyncChange={handleContainerRevealSyncChange}
         placement={placement}
         syncContainerVisibilityWithReveal
+        textAlignOverride={placement === 'overlay' ? cut.dialogTextAlign ?? 'left' : undefined}
       />
     </div>
   );

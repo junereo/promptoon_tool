@@ -105,7 +105,7 @@ describe('PreviewPlayer', () => {
     vi.useRealTimers();
   });
 
-  it('does not auto-advance when the cut has a single linked choice', () => {
+  it('hides a single linked choice without auto-advancing', () => {
     vi.useFakeTimers();
     const onSelectCut = vi.fn();
     const cut = buildCut('cut-1', { kind: 'scene', title: 'Single path' });
@@ -125,10 +125,74 @@ describe('PreviewPlayer', () => {
       vi.runAllTimers();
     });
 
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull();
     expect(onSelectCut).not.toHaveBeenCalled();
 
     vi.useRealTimers();
+  });
+
+  it('does not render the cut title in the live preview footer', () => {
+    render(
+      <PreviewPlayer
+        choices={[]}
+        cut={buildCut('cut-title-hidden', { body: '', title: '프리뷰에서 숨길 제목' })}
+        onSelectChoice={vi.fn()}
+        onSelectCut={vi.fn()}
+        selectedChoiceId={null}
+      />
+    );
+
+    expect(screen.queryByText('프리뷰에서 숨길 제목')).toBeNull();
+    expect(screen.queryByTestId('preview-footer-panel')).toBeNull();
+  });
+
+  it('shows cut bottom spacing below the live preview image', () => {
+    render(
+      <PreviewPlayer
+        choices={[]}
+        cut={buildCut('cut-spaced', { assetUrl: '/scene.jpg', body: '', marginBottomToken: 'lg' })}
+        onSelectChoice={vi.fn()}
+        onSelectCut={vi.fn()}
+        selectedChoiceId={null}
+      />
+    );
+
+    expect(screen.getByTestId('preview-cut-bottom-spacing').getAttribute('style')).toContain('height: 64px');
+    expect(screen.getByTestId('preview-image-area').getAttribute('style')).toContain('height: 568.8888888888889px');
+    expect(screen.getByTestId('preview-cut-motion').getAttribute('style')).toContain('height: 632.8888888888889px');
+    expect(Boolean(screen.getByTestId('preview-image-area').compareDocumentPosition(screen.getByTestId('preview-cut-bottom-spacing')) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+  });
+
+  it('renders flow content in the live preview cut bottom spacing area', () => {
+    render(
+      <PreviewPlayer
+        choices={[]}
+        cut={buildCut('cut-flow-spaced', {
+          assetUrl: '/scene.jpg',
+          marginBottomToken: 'xl',
+          contentBlocks: [
+            {
+              id: 'flow-1',
+              type: 'narration',
+              text: 'Flow spacing',
+              textAlign: 'left',
+              fontToken: 'sans-kr',
+              placement: 'flow'
+            }
+          ]
+        })}
+        onSelectChoice={vi.fn()}
+        onSelectCut={vi.fn()}
+        selectedChoiceId={null}
+      />
+    );
+
+    expect(screen.getByTestId('preview-flow-content').getAttribute('style')).toContain('min-height: 128px');
+    expect(screen.getByText('Flow spacing')).toBeTruthy();
+    expect(screen.getByTestId('content-block-reveal-cut-flow-spaced:flow:flow-1').getAttribute('data-content-revealed')).toBe('true');
+    expect(screen.queryByTestId('preview-cut-bottom-spacing')).toBeNull();
+    expect(screen.getByTestId('preview-cut-motion').getAttribute('style')).toContain('height: 696.8888888888889px');
+    expect(Boolean(screen.getByTestId('preview-image-area').compareDocumentPosition(screen.getByTestId('preview-flow-content')) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
   });
 
   it('fades in loaded images and falls back on error', () => {

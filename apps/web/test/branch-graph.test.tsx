@@ -4,7 +4,7 @@ import type {
   EditorSelection
 } from '@promptoon/shared';
 import { DEFAULT_CUT_EFFECT_DURATION_MS } from '@promptoon/shared';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -271,7 +271,130 @@ describe('BranchCanvas', () => {
 });
 
 describe('EpisodeEditorShell graph mode', () => {
-  it('hides list and preview, and stacks inspector controls when graph mode is active', async () => {
+  it('renders previous, current, and linked next cut previews in list mode', () => {
+    const previousCut = buildCut('cut-0', {
+      contentBlocks: [
+        {
+          id: 'previous-flow',
+          type: 'narration',
+          text: 'Previous cut preview body',
+          textAlign: 'left',
+          fontToken: 'sans-kr',
+          placement: 'flow'
+        }
+      ]
+    });
+    const cut = buildCut('cut-1', { isStart: true, kind: 'choice', title: 'Branch Cut' });
+    const nextCut = buildCut('cut-2', {
+      orderIndex: 1,
+      contentBlocks: [
+        {
+          id: 'next-flow',
+          type: 'narration',
+          text: 'Next cut preview body',
+          textAlign: 'left',
+          fontToken: 'sans-kr',
+          placement: 'flow'
+        }
+      ]
+    });
+    const previousChoice = buildChoice('choice-0', previousCut.id, { nextCutId: cut.id });
+    const choice = buildChoice('choice-1', cut.id, { nextCutId: nextCut.id });
+    const onPreviewSelectCut = vi.fn();
+    const onSelectCut = vi.fn();
+
+    render(
+      <EpisodeEditorShell
+        activeTab="editor"
+        choices={[previousChoice, choice]}
+        episodeStatus="draft"
+        episodeTitle="Episode 1"
+        graphLayoutMode="custom"
+        highlightSaveOrder={false}
+        isDirty={false}
+        isPublishing={false}
+        isValidating={false}
+        lastPublishedVersion={null}
+        onApplyGraphLayout={vi.fn()}
+        onBack={vi.fn()}
+        onCreateChoiceConnection={vi.fn()}
+        onCreateLinkedCut={vi.fn()}
+        onConnectChoice={vi.fn()}
+        onCommitCut={vi.fn().mockResolvedValue(undefined)}
+        onCreateChoice={vi.fn()}
+        onCreateCut={vi.fn()}
+        onDeleteChoice={vi.fn()}
+        onDeleteCut={vi.fn()}
+        onDragEnd={vi.fn()}
+        onMoveCut={vi.fn()}
+        onOpenScriptEditor={vi.fn()}
+        onPreviewSelectChoice={vi.fn()}
+        onPreviewSelectCut={onPreviewSelectCut}
+        onPublish={vi.fn()}
+        onSaveOrder={vi.fn()}
+        onSelectChoice={vi.fn()}
+        onSelectCut={onSelectCut}
+        onTabChange={vi.fn()}
+        onToggleViewMode={vi.fn()}
+        onUploadAsset={vi.fn().mockResolvedValue('')}
+        onUpdateChoice={vi.fn()}
+        onUpdateCut={vi.fn()}
+        onValidate={vi.fn()}
+        orderedCuts={[previousCut, cut, nextCut]}
+        pendingAutosaveCount={0}
+        previewChoices={[choice]}
+        previewCut={cut}
+        previewSelectedChoiceId={null}
+        publishedViewerPath={null}
+        selected={{ type: 'cut', id: cut.id }}
+        selectedChoice={null}
+        selectedCut={cut}
+        toolbarNotice={null}
+        viewMode="list"
+      />
+    );
+
+    expect(screen.getByTestId('preview-pair').className).toContain('grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)]');
+    expect(screen.getByTestId('preview-pair').className).toContain('border-editor-border');
+    expect(screen.getByTestId('preview-pair').children[1]?.className).toContain('border-x');
+    expect(screen.getByText('Live Preview - privious cut')).toBeTruthy();
+    expect(screen.getByText('Live Preview')).toBeTruthy();
+    expect(screen.getByText('Live Preview - next cut')).toBeTruthy();
+    expect(screen.getByText('Previous cut preview body')).toBeTruthy();
+    expect(screen.getByText('Next cut preview body')).toBeTruthy();
+    expect(screen.queryByText('Dynamic phone-frame preview synced with the current editor selection.')).toBeNull();
+    expect(screen.queryByText('연결된 이전 컷이 없습니다.')).toBeNull();
+    expect(screen.queryByText('다음 컷 연결 프리뷰입니다.')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Live Preview' }));
+    const modal = screen.getByRole('dialog', { name: 'Live Preview' });
+    expect(modal.className).toContain('rounded-[28px]');
+    expect(modal.className).toContain('border');
+    const deviceSelect = within(modal).getByLabelText('디바이스 선택') as HTMLSelectElement;
+    expect(deviceSelect.value).toBe('iphone-15');
+    expect(within(modal).getByTestId('live-preview-viewer-frame')).toBeTruthy();
+    expect(within(modal).getByTestId('live-preview-viewer-scroll').className).toContain('overflow-y-auto');
+    fireEvent.change(deviceSelect, { target: { value: 'desktop' } });
+    expect(deviceSelect.value).toBe('desktop');
+    expect(within(modal).getByTestId('live-preview-viewer-frame').getAttribute('style')).toContain('width: 1440px');
+    expect(within(modal).getByTestId('live-preview-viewer-frame').getAttribute('style')).toContain('height: 900px');
+    expect(within(modal).queryByText('Live Preview - privious cut')).toBeNull();
+    expect(within(modal).queryByText('Live Preview - next cut')).toBeNull();
+    expect(within(modal).getAllByText('Previous cut preview body').length).toBeGreaterThan(0);
+    expect(within(modal).getAllByText('Next cut preview body').length).toBeGreaterThan(0);
+    fireEvent.click(within(modal).getByRole('button', { name: '닫기' }));
+    expect(screen.queryByTestId('live-preview-modal')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '이전 컷으로 이동' }));
+    expect(onPreviewSelectCut).toHaveBeenCalledWith(previousCut.id);
+    expect(onSelectCut).toHaveBeenCalledWith(previousCut.id);
+
+    fireEvent.click(screen.getByRole('button', { name: '다음 컷으로 이동' }));
+    expect(onPreviewSelectCut).toHaveBeenCalledWith(nextCut.id);
+    expect(onSelectCut).toHaveBeenCalledWith(nextCut.id);
+  });
+
+  it('hides the cut list and places live preview beside inspector controls when graph mode is active', async () => {
     const cut = buildCut('cut-1', { isStart: true, kind: 'choice', title: 'Branch Cut' });
     const choice = buildChoice('choice-1', cut.id, { nextCutId: 'cut-1' });
 
@@ -319,7 +442,7 @@ describe('EpisodeEditorShell graph mode', () => {
     );
 
     expect(screen.queryByText('Cut List')).toBeNull();
-    expect(screen.queryByText('Live Preview')).toBeNull();
+    expect(screen.getByText('Live Preview')).toBeTruthy();
     expect(screen.getByText('Branch Graph')).toBeTruthy();
 
     expect(screen.getByTestId('graph-split-frame').getAttribute('style')).toContain('70%');
@@ -337,8 +460,8 @@ describe('EpisodeEditorShell graph mode', () => {
     expect(inspectorPanel.className).not.toContain('xl:grid-cols-2');
 
     await waitFor(() => {
-      const choicesTitle = screen.getByText('Choices');
-      const dialoguePositionTitle = screen.getByText('Dialogue Position');
+      const choicesTitle = screen.getAllByText('선택지')[0];
+      const dialoguePositionTitle = screen.getByText('대사 위치');
       expect(Boolean(choicesTitle.compareDocumentPosition(dialoguePositionTitle) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
     });
   });

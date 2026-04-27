@@ -18,11 +18,15 @@ import { ApiError } from '../../shared/api/client';
 import { CutContentBlocksEditor } from './CutContentBlocksEditor';
 
 function FieldLabel({ children }: { children: string }) {
-  return <label className="text-xs font-medium uppercase tracking-[0.2em] text-zinc-500">{children}</label>;
+  return <label className="text-xs font-medium text-zinc-500">{children}</label>;
 }
 
 function inputClassName() {
-  return 'mt-2 w-full rounded-2xl border border-editor-border bg-black/20 px-4 py-3 text-sm text-zinc-100 outline-none transition focus:border-editor-accentSoft';
+  return 'mt-1.5 w-full rounded-xl border border-editor-border bg-black/20 px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-editor-accentSoft';
+}
+
+function GroupTitle({ children }: { children: string }) {
+  return <p className="text-xs font-semibold text-zinc-500">{children}</p>;
 }
 
 interface CutFormState {
@@ -171,6 +175,8 @@ function buildCutPatch(cut: Cut, formState: CutFormState): PatchCutRequest | nul
 
 export function CutEditorForm({
   cut,
+  contentBlocksPortalEnabled = false,
+  contentBlocksPortalTarget,
   dialoguePositionPortalTarget,
   pendingAutosaveCount,
   onQueuePatch,
@@ -180,6 +186,8 @@ export function CutEditorForm({
   onUploadAsset
 }: {
   cut: Cut;
+  contentBlocksPortalEnabled?: boolean;
+  contentBlocksPortalTarget?: HTMLElement | null;
   dialoguePositionPortalTarget?: HTMLElement | null;
   pendingAutosaveCount: number;
   onQueuePatch: (cutId: string, patch: PatchCutRequest) => void;
@@ -323,134 +331,199 @@ export function CutEditorForm({
   }
 
   const dialoguePositionEditor = (
-    <div className="inspector-card rounded-2xl border border-editor-border bg-black/10 p-4">
-      <p className="text-xs font-medium uppercase tracking-[0.2em] text-zinc-500">Dialogue Position</p>
-      <div className="inspector-field-grid mt-4 grid gap-4">
-        <div>
-          <FieldLabel>Horizontal</FieldLabel>
-          <select
-            aria-label="Horizontal"
-            className={inputClassName()}
-            onChange={(event) =>
-              setFormState((current) => ({
-                ...current,
-                dialogAnchorX: event.target.value as Cut['dialogAnchorX']
-              }))
-            }
-            value={formState.dialogAnchorX}
-          >
-            <option value="left">Left</option>
-            <option value="center">Center</option>
-            <option value="right">Right</option>
-          </select>
+    <div className="inspector-card ml-auto w-[26rem] max-w-full min-w-0 rounded-2xl border border-editor-border bg-black/10 p-3">
+      <GroupTitle>대사 위치</GroupTitle>
+      <div className="mt-2 space-y-2">
+        <div className="grid grid-cols-[repeat(3,minmax(0,1fr))] gap-2">
+          <div className="min-w-0">
+            <FieldLabel>가로 기준</FieldLabel>
+            <select
+              aria-label="Horizontal"
+              className={inputClassName()}
+              onChange={(event) =>
+                setFormState((current) => ({
+                  ...current,
+                  dialogAnchorX: event.target.value as Cut['dialogAnchorX']
+                }))
+              }
+              value={formState.dialogAnchorX}
+            >
+              <option value="left">왼쪽</option>
+              <option value="center">가운데</option>
+              <option value="right">오른쪽</option>
+            </select>
+          </div>
+
+          <div className="min-w-0">
+            <FieldLabel>세로 기준</FieldLabel>
+            <select
+              aria-label="Vertical"
+              className={inputClassName()}
+              onChange={(event) =>
+                setFormState((current) => ({
+                  ...current,
+                  dialogAnchorY: event.target.value as Cut['dialogAnchorY']
+                }))
+              }
+              value={formState.dialogAnchorY}
+            >
+              <option value="top">맨 위</option>
+              <option value="upper">위쪽</option>
+              <option value="center">가운데</option>
+              <option value="lower">아래쪽</option>
+              <option value="bottom">맨 아래</option>
+            </select>
+          </div>
+
+          <div className="min-w-0">
+            <FieldLabel>텍스트 정렬</FieldLabel>
+            <select
+              aria-label="Text Align"
+              className={inputClassName()}
+              onChange={(event) =>
+                setFormState((current) => ({
+                  ...current,
+                  dialogTextAlign: event.target.value as Cut['dialogTextAlign']
+                }))
+              }
+              value={formState.dialogTextAlign}
+            >
+              <option value="left">왼쪽</option>
+              <option value="center">가운데</option>
+              <option value="right">오른쪽</option>
+            </select>
+          </div>
         </div>
 
-        <div>
-          <FieldLabel>Vertical</FieldLabel>
-          <select
-            aria-label="Vertical"
-            className={inputClassName()}
-            onChange={(event) =>
-              setFormState((current) => ({
-                ...current,
-                dialogAnchorY: event.target.value as Cut['dialogAnchorY']
-              }))
-            }
-            value={formState.dialogAnchorY}
-          >
-            <option value="top">Top</option>
-            <option value="upper">Upper</option>
-            <option value="center">Center</option>
-            <option value="lower">Lower</option>
-            <option value="bottom">Bottom</option>
-          </select>
-        </div>
+        <div className="grid grid-cols-[repeat(2,minmax(0,1fr))] gap-2">
+          <div className="min-w-0">
+            <FieldLabel>가로 이동</FieldLabel>
+            <input
+              aria-label="X"
+              className={inputClassName()}
+              max={160}
+              min={0}
+              onChange={(event) =>
+                setFormState((current) => ({
+                  ...current,
+                  dialogOffsetX: clampDialogOffset(Number(event.target.value) || 0)
+                }))
+              }
+              step={1}
+              type="number"
+              value={formState.dialogOffsetX}
+            />
+          </div>
 
-        <div>
-          <FieldLabel>Text Align</FieldLabel>
-          <select
-            aria-label="Text Align"
-            className={inputClassName()}
-            onChange={(event) =>
-              setFormState((current) => ({
-                ...current,
-                dialogTextAlign: event.target.value as Cut['dialogTextAlign']
-              }))
-            }
-            value={formState.dialogTextAlign}
-          >
-            <option value="left">Left</option>
-            <option value="center">Center</option>
-            <option value="right">Right</option>
-          </select>
+          <div className="min-w-0">
+            <FieldLabel>세로 이동</FieldLabel>
+            <input
+              aria-label="Y"
+              className={inputClassName()}
+              max={160}
+              min={0}
+              onChange={(event) =>
+                setFormState((current) => ({
+                  ...current,
+                  dialogOffsetY: clampDialogOffset(Number(event.target.value) || 0)
+                }))
+              }
+              step={1}
+              type="number"
+              value={formState.dialogOffsetY}
+            />
+          </div>
         </div>
       </div>
+    </div>
+  );
+  const contentBlocksEditor = (
+    <CutContentBlocksEditor
+      blocks={formState.contentBlocks}
+      onChange={(contentBlocks) => setFormState((current) => ({ ...current, contentBlocks }))}
+      onUploadAsset={onUploadAsset}
+      onViewModeChange={(contentViewMode) => setFormState((current) => ({ ...current, contentViewMode }))}
+      viewMode={formState.contentViewMode}
+    />
+  );
+  const assetEditor = (
+    <div>
+      <FieldLabel>이미지</FieldLabel>
+      <div className="mt-1.5 rounded-2xl border border-editor-border bg-black/10 p-3">
+        {displayAssetUrl ? (
+          <div className="mb-3 flex h-36 items-center justify-center overflow-hidden rounded-2xl border border-editor-border bg-black/20">
+            <img
+              alt={cut.title}
+              className="max-h-full max-w-full object-contain"
+              src={displayAssetUrl}
+            />
+          </div>
+        ) : (
+          <div className="mb-3 flex h-28 items-center justify-center rounded-2xl border border-dashed border-editor-border bg-black/10 text-sm text-zinc-500">
+            {isUploadingAsset ? '이미지를 업로드하는 중입니다...' : '업로드된 이미지가 없습니다.'}
+          </div>
+        )}
 
-      <div className="inspector-field-grid mt-4 grid gap-4">
-        <div>
-          <FieldLabel>X</FieldLabel>
+        <div className="flex flex-wrap items-center gap-2">
           <input
-            aria-label="X"
-            className={inputClassName()}
-            max={160}
-            min={0}
-            onChange={(event) =>
-              setFormState((current) => ({
-                ...current,
-                dialogOffsetX: clampDialogOffset(Number(event.target.value) || 0)
-              }))
-            }
-            step={1}
-            type="number"
-            value={formState.dialogOffsetX}
+            accept="image/*"
+            hidden
+            id={fileInputId}
+            onChange={handleAssetFileChange}
+            type="file"
           />
+          <label
+            className="inline-flex cursor-pointer items-center rounded-full border border-editor-border bg-black/20 px-3 py-1.5 text-sm text-zinc-100 transition hover:border-editor-accentSoft"
+            htmlFor={fileInputId}
+          >
+            {isUploadingAsset ? '업로드 중...' : '이미지 업로드'}
+          </label>
+
+          {displayAssetUrl ? (
+            <button
+              className="rounded-full border border-editor-border px-3 py-1.5 text-sm text-zinc-300 transition hover:border-zinc-500"
+              onClick={() => {
+                void handleRemoveAsset();
+              }}
+              type="button"
+            >
+              이미지 제거
+            </button>
+          ) : null}
         </div>
 
-        <div>
-          <FieldLabel>Y</FieldLabel>
-          <input
-            aria-label="Y"
-            className={inputClassName()}
-            max={160}
-            min={0}
-            onChange={(event) =>
-              setFormState((current) => ({
-                ...current,
-                dialogOffsetY: clampDialogOffset(Number(event.target.value) || 0)
-              }))
-            }
-            step={1}
-            type="number"
-            value={formState.dialogOffsetY}
-          />
-        </div>
+        <p className="mt-2 break-all text-xs text-zinc-500">
+          {displayAssetUrl || '업로드한 이미지는 자동 저장 후 프리뷰와 뷰어에 반영됩니다.'}
+        </p>
+        {uploadError ? <p className="mt-2 text-xs text-red-300">{uploadError}</p> : null}
       </div>
-
     </div>
   );
 
   return (
     <>
-      <section className="inspector-card rounded-[24px] border border-editor-border bg-black/10 p-4">
+      <section className="inspector-card ml-auto w-[26rem] max-w-full min-w-0 rounded-[18px] border border-editor-border bg-black/10 p-3">
         <div className="flex items-center justify-between gap-2">
           <div>
-            <p className="font-display text-lg font-semibold text-zinc-50">Inspector</p>
+            <p className="font-display text-base font-semibold text-zinc-50">컷 설정</p>
             <p className="mt-0.5 text-xs text-zinc-400">
-              {pendingAutosaveCount > 0 ? `Saving ${pendingAutosaveCount} change(s)...` : 'Autosaves after 500ms idle.'}
+              {pendingAutosaveCount > 0 ? `${pendingAutosaveCount}개 변경 저장 중...` : '입력 후 0.5초 뒤 자동 저장됩니다.'}
             </p>
           </div>
           <button
-            className="rounded-full border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-200 transition hover:bg-red-500/20"
+            className="rounded-full border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-200 transition hover:bg-red-500/20"
             onClick={() => onDeleteCut(cut.id)}
             type="button"
           >
-            Delete Cut
+            컷 삭제
           </button>
         </div>
 
-        <div className="mt-4 space-y-4">
+        <div className="mt-3 space-y-3">
+          {assetEditor}
+
           <div>
-            <FieldLabel>Title</FieldLabel>
+            <FieldLabel>제목</FieldLabel>
             <input
               aria-label="Title"
               className={inputClassName()}
@@ -460,20 +533,18 @@ export function CutEditorForm({
             />
           </div>
 
-          <CutContentBlocksEditor
-            blocks={formState.contentBlocks}
-            onChange={(contentBlocks) => setFormState((current) => ({ ...current, contentBlocks }))}
-            onUploadAsset={onUploadAsset}
-            onViewModeChange={(contentViewMode) => setFormState((current) => ({ ...current, contentViewMode }))}
-            viewMode={formState.contentViewMode}
-          />
+          {!contentBlocksPortalEnabled ? contentBlocksEditor : null}
 
           {!dialoguePositionPortalTarget ? dialoguePositionEditor : null}
 
-          <div className="inspector-form-grid grid gap-4">
-            <div className="inspector-field-grid grid gap-4">
+          <div className="inspector-form-grid grid gap-3">
+            <div className="inspector-field-grid grid gap-3">
+              <div className="col-span-full">
+                <GroupTitle>기본</GroupTitle>
+              </div>
+
               <div>
-                <FieldLabel>Kind</FieldLabel>
+                <FieldLabel>컷 종류</FieldLabel>
                 <select
                   aria-label="Kind"
                   className={inputClassName()}
@@ -488,15 +559,19 @@ export function CutEditorForm({
                   }}
                   value={formState.kind}
                 >
-                  <option value="scene">Scene</option>
-                  <option value="choice">Choice</option>
-                  <option value="transition">Transition</option>
-                  <option value="ending">Ending</option>
+                  <option value="scene">장면</option>
+                  <option value="choice">선택</option>
+                  <option value="transition">전환</option>
+                  <option value="ending">엔딩</option>
                 </select>
               </div>
 
+              <div className="col-span-full mt-1">
+                <GroupTitle>전환 효과</GroupTitle>
+              </div>
+
               <div>
-                <FieldLabel>Start Effect</FieldLabel>
+                <FieldLabel>시작 효과</FieldLabel>
                 <select
                   aria-label="Start Effect"
                   className={inputClassName()}
@@ -517,7 +592,7 @@ export function CutEditorForm({
               </div>
 
               <div>
-                <FieldLabel>Start Duration (ms)</FieldLabel>
+                <FieldLabel>시작 시간(밀리초)</FieldLabel>
                 <input
                   aria-label="Start Duration"
                   className={inputClassName()}
@@ -535,7 +610,7 @@ export function CutEditorForm({
               </div>
 
               <div>
-                <FieldLabel>End Effect</FieldLabel>
+                <FieldLabel>종료 효과</FieldLabel>
                 <select
                   aria-label="End Effect"
                   className={inputClassName()}
@@ -556,7 +631,7 @@ export function CutEditorForm({
               </div>
 
               <div>
-                <FieldLabel>End Duration (ms)</FieldLabel>
+                <FieldLabel>종료 시간(밀리초)</FieldLabel>
                 <input
                   aria-label="End Duration"
                   className={inputClassName()}
@@ -573,8 +648,12 @@ export function CutEditorForm({
                 />
               </div>
 
+              <div className="col-span-full mt-1">
+                <GroupTitle>화면 마감</GroupTitle>
+              </div>
+
               <div>
-                <FieldLabel>Edge Fade</FieldLabel>
+                <FieldLabel>가장자리 페이드</FieldLabel>
                 <select
                   aria-label="Edge Fade"
                   className={inputClassName()}
@@ -595,7 +674,7 @@ export function CutEditorForm({
               </div>
 
               <div>
-                <FieldLabel>Edge Fade Intensity</FieldLabel>
+                <FieldLabel>페이드 강도</FieldLabel>
                 <select
                   aria-label="Edge Fade Intensity"
                   className={inputClassName()}
@@ -616,7 +695,7 @@ export function CutEditorForm({
               </div>
 
               <div>
-                <FieldLabel>Edge Fade Color</FieldLabel>
+                <FieldLabel>페이드 색상</FieldLabel>
                 <select
                   aria-label="Edge Fade Color"
                   className={inputClassName()}
@@ -637,7 +716,7 @@ export function CutEditorForm({
               </div>
 
               <div>
-                <FieldLabel>Cut Bottom Spacing</FieldLabel>
+                <FieldLabel>컷 아래 여백</FieldLabel>
                 <select
                   aria-label="Cut Bottom Spacing"
                   className={inputClassName()}
@@ -656,84 +735,35 @@ export function CutEditorForm({
                   ))}
                 </select>
               </div>
-            </div>
 
-            <div>
-              <FieldLabel>Image Asset</FieldLabel>
-              <div className="mt-2 rounded-2xl border border-editor-border bg-black/10 p-4">
-                {displayAssetUrl ? (
-                  <div className="mb-4 overflow-hidden rounded-2xl border border-editor-border bg-black/20">
-                    <img
-                      alt={cut.title}
-                      className="h-40 w-full object-cover"
-                      src={displayAssetUrl}
-                    />
-                  </div>
-                ) : (
-                  <div className="mb-4 flex h-32 items-center justify-center rounded-2xl border border-dashed border-editor-border bg-black/10 text-sm text-zinc-500">
-                    {isUploadingAsset ? '이미지를 업로드하는 중입니다...' : '업로드된 이미지가 없습니다.'}
-                  </div>
-                )}
-
-                <div className="flex flex-wrap items-center gap-3">
-                  <input
-                    accept="image/*"
-                    hidden
-                    id={fileInputId}
-                    onChange={handleAssetFileChange}
-                    type="file"
-                  />
-                  <label
-                    className="inline-flex cursor-pointer items-center rounded-full border border-editor-border bg-black/20 px-4 py-2 text-sm text-zinc-100 transition hover:border-editor-accentSoft"
-                    htmlFor={fileInputId}
-                  >
-                    {isUploadingAsset ? '업로드 중...' : '이미지 업로드'}
-                  </label>
-
-                  {displayAssetUrl ? (
-                    <button
-                      className="rounded-full border border-editor-border px-4 py-2 text-sm text-zinc-300 transition hover:border-zinc-500"
-                      onClick={() => {
-                        void handleRemoveAsset();
-                      }}
-                      type="button"
-                    >
-                      이미지 제거
-                    </button>
-                  ) : null}
-                </div>
-
-                <p className="mt-3 break-all text-xs text-zinc-500">
-                  {displayAssetUrl || '업로드한 이미지는 자동 저장 후 프리뷰와 뷰어에 반영됩니다.'}
-                </p>
-                {uploadError ? <p className="mt-2 text-xs text-red-300">{uploadError}</p> : null}
+              <div className="col-span-full mt-1">
+                <GroupTitle>상태</GroupTitle>
               </div>
+
+              <label className="flex min-w-0 items-center gap-2 rounded-xl border border-editor-border bg-black/10 px-3 py-2 text-sm text-zinc-300">
+                <input
+                  checked={formState.isStart}
+                  className="h-4 w-4 shrink-0 accent-editor-accentSoft"
+                  onChange={(event) => setFormState((current) => ({ ...current, isStart: event.target.checked }))}
+                  type="checkbox"
+                />
+                <span className="min-w-0 truncate">시작 컷으로 지정</span>
+              </label>
+
+              <label className="flex min-w-0 items-center gap-2 rounded-xl border border-editor-border bg-black/10 px-3 py-2 text-sm text-zinc-300">
+                <input
+                  checked={formState.isEnding}
+                  className="h-4 w-4 shrink-0 accent-editor-accentSoft"
+                  onChange={(event) => setFormState((current) => ({ ...current, isEnding: event.target.checked }))}
+                  type="checkbox"
+                />
+                <span className="min-w-0 truncate">엔딩 컷으로 지정</span>
+              </label>
             </div>
-          </div>
-
-          <div className="inspector-field-grid grid gap-4">
-            <label className="flex items-center gap-3 rounded-2xl border border-editor-border bg-black/10 px-4 py-3 text-sm text-zinc-300">
-              <input
-                checked={formState.isStart}
-                className="h-4 w-4 accent-editor-accentSoft"
-                onChange={(event) => setFormState((current) => ({ ...current, isStart: event.target.checked }))}
-                type="checkbox"
-              />
-              Mark as start cut
-            </label>
-
-            <label className="flex items-center gap-3 rounded-2xl border border-editor-border bg-black/10 px-4 py-3 text-sm text-zinc-300">
-              <input
-                checked={formState.isEnding}
-                className="h-4 w-4 accent-editor-accentSoft"
-                onChange={(event) => setFormState((current) => ({ ...current, isEnding: event.target.checked }))}
-                type="checkbox"
-              />
-              Mark as ending cut
-            </label>
           </div>
         </div>
       </section>
+      {contentBlocksPortalEnabled && contentBlocksPortalTarget ? createPortal(contentBlocksEditor, contentBlocksPortalTarget) : null}
       {dialoguePositionPortalTarget ? createPortal(dialoguePositionEditor, dialoguePositionPortalTarget) : null}
     </>
   );

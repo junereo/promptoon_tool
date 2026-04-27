@@ -189,6 +189,42 @@ describe('ViewerCutCard', () => {
     expect(screen.queryByTestId('viewer-flow-content')).toBeNull();
   });
 
+  it('applies dialog text align to overlay content without changing flow block align', () => {
+    const cut = buildViewerCut({
+      dialogTextAlign: 'right',
+      contentBlocks: [
+        {
+          id: 'overlay-1',
+          type: 'narration',
+          text: 'Aligned overlay',
+          textAlign: 'left',
+          fontToken: 'sans-kr',
+          placement: 'overlay'
+        },
+        {
+          id: 'flow-1',
+          type: 'narration',
+          text: 'Aligned flow',
+          textAlign: 'center',
+          fontToken: 'sans-kr',
+          placement: 'flow'
+        }
+      ]
+    });
+
+    render(
+      <ViewerCutCard
+        cut={cut}
+        showChoices={false}
+        showEndingActions={false}
+        visibleChoices={[]}
+      />
+    );
+
+    expect(screen.getByText('Aligned overlay').getAttribute('style')).toContain('text-align: right');
+    expect(screen.getByText('Aligned flow').getAttribute('style')).toContain('text-align: center');
+  });
+
   it('places overlay dialogue at intermediate vertical anchors', () => {
     const cut = buildViewerCut({
       dialogAnchorY: 'center',

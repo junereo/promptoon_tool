@@ -1,7 +1,7 @@
 import type { Choice, Cut } from '@promptoon/shared';
 import { DEFAULT_CUT_EFFECT_DURATION_MS } from '@promptoon/shared';
 import { act } from 'react';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { CutEditorForm } from '../src/widgets/inspector-panel/CutEditorForm';
@@ -74,11 +74,11 @@ describe('InspectorPanel', () => {
       />
     );
 
-    expect(screen.getByText('Inspector Ready')).toBeTruthy();
+    expect(screen.getByText('인스펙터 준비됨')).toBeTruthy();
     expect(screen.getByText(/좌측 리스트에서 컷을 선택하여 편집하세요/)).toBeTruthy();
   });
 
-  it('renders the choice editor section for scene and choice cuts, but not transition cuts', () => {
+  it('renders the choice editor section only when the active cut kind is choice', async () => {
     const cut = buildCut('cut-1', { kind: 'choice' });
     const nextCut = buildCut('cut-2', { title: 'Next scene' });
     const choice = buildChoice('choice-1', cut.id);
@@ -101,9 +101,19 @@ describe('InspectorPanel', () => {
       />
     );
 
-    expect(screen.getByText('Choices')).toBeTruthy();
+    expect(screen.getAllByText('선택지').length).toBeGreaterThan(0);
     expect(screen.getByRole('option', { name: 'Next scene' })).toBeTruthy();
     expect(screen.queryByRole('option', { name: cut.title })).toBeNull();
+
+    await waitFor(() => {
+      const cutSettingsTitle = screen.getByText('컷 설정');
+      const choicesTitle = screen.getAllByText('선택지')[0];
+      const contentBlocksTitle = screen.getByText('콘텐츠 블록');
+      const dialoguePositionTitle = screen.getByText('대사 위치');
+
+      expect(Boolean(cutSettingsTitle.compareDocumentPosition(choicesTitle) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+      expect(Boolean(contentBlocksTitle.compareDocumentPosition(dialoguePositionTitle) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    });
 
     rerender(
       <InspectorPanel
@@ -123,7 +133,7 @@ describe('InspectorPanel', () => {
       />
     );
 
-    expect(screen.getByText('Choices')).toBeTruthy();
+    expect(screen.queryByText('선택지')).toBeNull();
 
     rerender(
       <InspectorPanel
@@ -143,7 +153,15 @@ describe('InspectorPanel', () => {
       />
     );
 
-    expect(screen.getByText('Choices')).toBeTruthy();
+    expect(screen.queryByText('선택지')).toBeNull();
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Kind' }), {
+      target: {
+        value: 'choice'
+      }
+    });
+
+    expect(screen.getAllByText('선택지').length).toBeGreaterThan(0);
 
     rerender(
       <InspectorPanel
@@ -163,7 +181,7 @@ describe('InspectorPanel', () => {
       />
     );
 
-    expect(screen.queryByText('Choices')).toBeNull();
+    expect(screen.queryByText('선택지')).toBeNull();
   });
 });
 
@@ -393,7 +411,7 @@ describe('CutEditorForm', () => {
     );
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Insert block' })[1]);
-    fireEvent.click(screen.getByRole('button', { name: 'Heading' }));
+    fireEvent.click(screen.getByRole('button', { name: '제목' }));
 
     act(() => {
       vi.advanceTimersByTime(500);
@@ -493,7 +511,7 @@ describe('CutEditorForm', () => {
     );
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Insert block' })[1]);
-    fireEvent.click(screen.getByRole('button', { name: 'Dialogue' }));
+    fireEvent.click(screen.getByRole('button', { name: '대사' }));
 
     fireEvent.change(screen.getByLabelText('Dialogue Speaker'), { target: { value: 'Hero' } });
 
@@ -663,12 +681,12 @@ describe('CutEditorForm', () => {
     const xInput = screen.getByRole('spinbutton', { name: 'X' });
     const yInput = screen.getByRole('spinbutton', { name: 'Y' });
 
-    expect(within(horizontalSelect).getByRole('option', { name: 'Center' })).toBeTruthy();
-    expect(within(verticalSelect).getByRole('option', { name: 'Top' })).toBeTruthy();
-    expect(within(verticalSelect).getByRole('option', { name: 'Upper' })).toBeTruthy();
-    expect(within(verticalSelect).getByRole('option', { name: 'Center' })).toBeTruthy();
-    expect(within(verticalSelect).getByRole('option', { name: 'Lower' })).toBeTruthy();
-    expect(within(verticalSelect).getByRole('option', { name: 'Bottom' })).toBeTruthy();
+    expect(within(horizontalSelect).getByRole('option', { name: '가운데' })).toBeTruthy();
+    expect(within(verticalSelect).getByRole('option', { name: '맨 위' })).toBeTruthy();
+    expect(within(verticalSelect).getByRole('option', { name: '위쪽' })).toBeTruthy();
+    expect(within(verticalSelect).getByRole('option', { name: '가운데' })).toBeTruthy();
+    expect(within(verticalSelect).getByRole('option', { name: '아래쪽' })).toBeTruthy();
+    expect(within(verticalSelect).getByRole('option', { name: '맨 아래' })).toBeTruthy();
 
     fireEvent.change(horizontalSelect, { target: { value: 'center' } });
     fireEvent.change(verticalSelect, { target: { value: 'lower' } });

@@ -26,8 +26,8 @@ import {
 
 const DEFAULT_BLOCK_FONT_SIZE: PromptoonFontSizeToken = 'lg';
 
-function inputClassName() {
-  return 'mt-2 w-full rounded-2xl border border-editor-border bg-black/20 px-4 py-3 text-center text-sm text-zinc-100 outline-none transition focus:border-editor-accentSoft';
+function textStyleSelectClassName() {
+  return 'w-full min-w-0 max-w-full rounded-lg border border-editor-border bg-black/20 px-2 py-1.5 text-xs text-zinc-100 outline-none transition focus:border-editor-accentSoft disabled:cursor-not-allowed disabled:opacity-60';
 }
 
 function inlineInputClassName() {
@@ -36,9 +36,9 @@ function inlineInputClassName() {
 
 function ToolbarGroup({ children, title }: { children: ReactNode; title: string }) {
   return (
-    <div className="rounded-2xl border border-editor-border bg-black/10 p-2.5">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">{title}</p>
-      <div className="mt-2 grid gap-2">{children}</div>
+    <div className="w-full min-w-0 max-w-full rounded-xl border border-editor-border bg-black/10 p-2">
+      <p className="text-[10px] font-semibold text-zinc-500">{title}</p>
+      <div className="mt-1.5 grid gap-1.5">{children}</div>
     </div>
   );
 }
@@ -193,6 +193,46 @@ function updateBlockAt(blocks: CutContentBlock[], blockId: string, updater: (blo
   return blocks.map((block) => (block.id === blockId ? updater(block) : block));
 }
 
+function InlineSelectField<TValue extends string>({
+  ariaLabel,
+  disabled,
+  id,
+  label,
+  onChange,
+  options,
+  value
+}: {
+  ariaLabel: string;
+  disabled: boolean;
+  id: string;
+  label: string;
+  onChange: (value: TValue) => void;
+  options: Array<{ label: string; value: TValue }>;
+  value: TValue;
+}) {
+  return (
+    <div className="grid w-full max-w-full min-w-0 grid-cols-[3.25rem_minmax(0,1fr)] items-center gap-1.5">
+      <label className="whitespace-nowrap text-right text-[11px] font-medium text-zinc-500" htmlFor={id}>
+        {label} :
+      </label>
+      <select
+        aria-label={ariaLabel}
+        className={textStyleSelectClassName()}
+        disabled={disabled}
+        id={id}
+        onChange={(event) => onChange(event.target.value as TValue)}
+        value={value}
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 function TextStyleToolbar({
   selectedBlock,
   onAlignChange,
@@ -215,146 +255,97 @@ function TextStyleToolbar({
   const disabled = selectedBlock === null;
 
   return (
-    <div className="rounded-2xl border border-editor-border bg-black/10 p-3">
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-xs font-medium uppercase tracking-[0.2em] text-zinc-500">Text Style</p>
-          <p className="truncate text-xs text-zinc-400">
+    <div className="w-full min-w-0 max-w-full rounded-xl border border-editor-border bg-black/10 p-2">
+      <div className="flex min-w-0 max-w-full flex-col gap-2">
+        <div className="flex min-w-0 max-w-full flex-wrap items-center justify-between gap-2">
+          <p className="text-xs font-medium text-zinc-500">텍스트 스타일</p>
+          <p className="min-w-0 truncate text-[11px] text-zinc-400">
             {selectedBlock
-              ? `${blockTitle(selectedBlock.type)} block selected`
-              : 'No text block selected'}
+              ? `${blockTitle(selectedBlock.type)} 블록 선택됨`
+              : '텍스트 블록 없음'}
           </p>
         </div>
 
-        <div className="inspector-style-grid grid w-full gap-2">
-          <ToolbarGroup title="Layout">
-            <div className="inspector-field-grid grid gap-2">
-              <div className="min-w-0">
-                <label className="block text-center text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Align</label>
-                <select
-                  aria-label="Block Align"
-                  className={inputClassName()}
-                  disabled={disabled}
-                  onChange={(event) => onAlignChange(event.target.value as PromptoonContentTextAlign)}
-                  value={selectedBlock?.textAlign ?? 'left'}
-                >
-                  {CONTENT_ALIGN_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+        <div className="inspector-style-grid grid w-full min-w-0 max-w-full gap-1.5">
+          <ToolbarGroup title="배치">
+            <div className="grid gap-1.5">
+              <InlineSelectField
+                ariaLabel="Block Align"
+                disabled={disabled}
+                id="text-style-align"
+                label="정렬"
+                onChange={onAlignChange}
+                options={CONTENT_ALIGN_OPTIONS}
+                value={selectedBlock?.textAlign ?? 'left'}
+              />
 
-              <div className="min-w-0">
-                <label className="block text-center text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Placement</label>
-                <select
-                  aria-label="Block Placement"
-                  className={inputClassName()}
-                  disabled={disabled}
-                  onChange={(event) => onPlacementChange(event.target.value as PromptoonContentPlacement)}
-                  value={selectedBlock?.placement ?? 'flow'}
-                >
-                  {CONTENT_PLACEMENT_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <InlineSelectField
+                ariaLabel="Block Placement"
+                disabled={disabled}
+                id="text-style-placement"
+                label="위치"
+                onChange={onPlacementChange}
+                options={CONTENT_PLACEMENT_OPTIONS}
+                value={selectedBlock?.placement ?? 'flow'}
+              />
             </div>
           </ToolbarGroup>
 
-          <ToolbarGroup title="Typography">
-            <div className="inspector-field-grid grid gap-2">
-              <div className="min-w-0">
-                <label className="block text-center text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Font</label>
-                <select
-                  aria-label="Block Font"
-                  className={inputClassName()}
-                  disabled={disabled}
-                  onChange={(event) => onFontChange(event.target.value as PromptoonFontToken)}
-                  value={selectedBlock?.fontToken ?? 'sans-kr'}
-                >
-                  {CONTENT_FONT_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+          <ToolbarGroup title="글자">
+            <div className="grid gap-1.5">
+              <InlineSelectField
+                ariaLabel="Block Font"
+                disabled={disabled}
+                id="text-style-font"
+                label="서체"
+                onChange={onFontChange}
+                options={CONTENT_FONT_OPTIONS}
+                value={selectedBlock?.fontToken ?? 'sans-kr'}
+              />
 
-              <div className="min-w-0">
-                <label className="block text-center text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Size</label>
-                <select
-                  aria-label="Block Font Size"
-                  className={inputClassName()}
-                  disabled={disabled}
-                  onChange={(event) => onFontSizeChange(event.target.value as PromptoonFontSizeToken)}
-                  value={selectedBlock?.fontSizeToken ?? DEFAULT_BLOCK_FONT_SIZE}
-                >
-                  {CONTENT_FONT_SIZE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <InlineSelectField
+                ariaLabel="Block Font Size"
+                disabled={disabled}
+                id="text-style-font-size"
+                label="크기"
+                onChange={onFontSizeChange}
+                options={CONTENT_FONT_SIZE_OPTIONS}
+                value={selectedBlock?.fontSizeToken ?? DEFAULT_BLOCK_FONT_SIZE}
+              />
 
-              <div className="min-w-0">
-                <label className="block text-center text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Line</label>
-                <select
-                  aria-label="Block Line Height"
-                  className={inputClassName()}
-                  disabled={disabled}
-                  onChange={(event) => onLineHeightChange(event.target.value as PromptoonLineHeightToken)}
-                  value={selectedBlock?.lineHeightToken ?? 'normal'}
-                >
-                  {CONTENT_LINE_HEIGHT_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <InlineSelectField
+                ariaLabel="Block Line Height"
+                disabled={disabled}
+                id="text-style-line-height"
+                label="줄간격"
+                onChange={onLineHeightChange}
+                options={CONTENT_LINE_HEIGHT_OPTIONS}
+                value={selectedBlock?.lineHeightToken ?? 'normal'}
+              />
             </div>
           </ToolbarGroup>
 
-          <ToolbarGroup title="Rhythm">
-            <div className="inspector-field-grid grid gap-2">
-              <div className="min-w-0">
-                <label className="block text-center text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Top</label>
-                <select
-                  aria-label="Block Top Spacing"
-                  className={inputClassName()}
-                  disabled={disabled}
-                  onChange={(event) => onMarginTopChange(event.target.value as PromptoonSpacingToken)}
-                  value={selectedBlock?.marginTopToken ?? 'none'}
-                >
-                  {CONTENT_SPACING_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+          <ToolbarGroup title="간격">
+            <div className="grid gap-1.5">
+              <InlineSelectField
+                ariaLabel="Block Top Spacing"
+                disabled={disabled}
+                id="text-style-margin-top"
+                label="위 여백"
+                onChange={onMarginTopChange}
+                options={CONTENT_SPACING_OPTIONS}
+                value={selectedBlock?.marginTopToken ?? 'none'}
+              />
 
-              <div className="min-w-0">
-                <label className="block text-center text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Bottom</label>
-                <select
-                  aria-label="Block Bottom Spacing"
-                  className={inputClassName()}
-                  disabled={disabled}
-                  onChange={(event) => onMarginBottomChange(event.target.value as PromptoonSpacingToken)}
-                  value={selectedBlock?.marginBottomToken ?? 'none'}
-                >
-                  {CONTENT_SPACING_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <InlineSelectField
+                ariaLabel="Block Bottom Spacing"
+                disabled={disabled}
+                id="text-style-margin-bottom"
+                label="아래 여백"
+                onChange={onMarginBottomChange}
+                options={CONTENT_SPACING_OPTIONS}
+                value={selectedBlock?.marginBottomToken ?? 'none'}
+              />
             </div>
           </ToolbarGroup>
         </div>
@@ -382,7 +373,7 @@ function InsertBlockLine({
           onClick={onToggle}
           type="button"
         >
-          + Block
+          + 블록
         </button>
         <div className="h-px flex-1 bg-editor-border" />
       </div>
@@ -477,7 +468,7 @@ function SortableBlockRow({
             <div className="flex min-w-0 items-center gap-2">
               <select
                 aria-label={`Block Type ${block.id}`}
-                className="rounded-full border border-editor-border bg-black/20 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-zinc-200 outline-none transition focus:border-editor-accentSoft"
+                className="rounded-full border border-editor-border bg-black/20 px-3 py-1.5 text-xs text-zinc-200 outline-none transition focus:border-editor-accentSoft"
                 onChange={(event) => onTypeChange(event.target.value as CutContentBlock['type'])}
                 onFocus={onFocusBlock}
                 value={block.type}
@@ -499,7 +490,7 @@ function SortableBlockRow({
               }}
               type="button"
             >
-              Delete
+              삭제
             </button>
           </div>
 
@@ -511,7 +502,7 @@ function SortableBlockRow({
                   className={inlineInputClassName()}
                   onChange={(event) => onUpdateBlock((current) => (current.type === 'dialogue' ? { ...current, speaker: event.target.value } : current))}
                   onFocus={onFocusBlock}
-                  placeholder="Speaker"
+                  placeholder="화자"
                   type="text"
                   value={block.speaker ?? ''}
                 />
@@ -523,7 +514,7 @@ function SortableBlockRow({
                   className={inlineInputClassName()}
                   onChange={(event) => onUpdateBlock((current) => (current.type === 'quote' ? { ...current, title: event.target.value } : current))}
                   onFocus={onFocusBlock}
-                  placeholder="Quote title"
+                  placeholder="인용 제목"
                   type="text"
                   value={block.title ?? ''}
                 />
@@ -534,7 +525,7 @@ function SortableBlockRow({
                 className={`${inlineInputClassName()} min-h-[72px] resize-y whitespace-pre-wrap`}
                 onChange={(event) => onUpdateBlock((current) => ('text' in current ? { ...current, text: event.target.value } : current))}
                 onFocus={onFocusBlock}
-                placeholder={block.type === 'heading' ? 'Heading text' : block.type === 'dialogue' ? 'Dialogue text' : 'Write a block...'}
+                placeholder={block.type === 'heading' ? '제목 문구' : block.type === 'dialogue' ? '대사 문구' : '블록 내용을 입력하세요'}
                 value={block.text}
               />
             </div>
@@ -544,7 +535,7 @@ function SortableBlockRow({
             <div className="mt-2 space-y-2">
               {block.assetUrl ? (
                 <div className="overflow-hidden rounded-2xl border border-editor-border bg-black/20">
-                  <img alt={block.alt || 'Block image'} className="h-44 w-full object-cover" src={block.assetUrl} />
+                  <img alt={block.alt || '블록 이미지'} className="h-44 w-full object-cover" src={block.assetUrl} />
                 </div>
               ) : (
                 <div className="flex h-36 items-center justify-center rounded-2xl border border-dashed border-editor-border bg-black/10 text-sm text-zinc-500">
@@ -558,7 +549,7 @@ function SortableBlockRow({
                   className={inlineInputClassName()}
                   onChange={(event) => onUpdateBlock((current) => (current.type === 'image' ? { ...current, alt: event.target.value } : current))}
                   onFocus={onFocusBlock}
-                  placeholder="Alternative text"
+                  placeholder="대체 텍스트"
                   type="text"
                   value={block.alt}
                 />
@@ -598,7 +589,7 @@ function SortableBlockRow({
                   onUpdateBlock((current) => (current.type === 'nameInput' ? { ...current, placeholder: event.target.value } : current))
                 }
                 onFocus={onFocusBlock}
-                placeholder="Placeholder"
+                placeholder="입력 안내문"
                 type="text"
                 value={block.placeholder}
               />
@@ -628,7 +619,7 @@ function SortableBlockRow({
                   onFocus={onFocusBlock}
                   type="checkbox"
                 />
-                Required
+                필수 입력
               </label>
             </div>
           ) : null}
@@ -778,22 +769,22 @@ export function CutContentBlocksEditor({
   }
 
   return (
-    <div className="inspector-card rounded-2xl border border-editor-border bg-black/10 p-4">
+    <div className="inspector-card ml-auto w-[26rem] max-w-full min-w-0 rounded-2xl border border-editor-border bg-black/10 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <p className="text-xs font-medium uppercase tracking-[0.2em] text-zinc-500">Content Blocks</p>
+          <p className="text-xs font-medium text-zinc-500">콘텐츠 블록</p>
         </div>
 
-        <div className="min-w-[150px]">
-          <label className="text-xs font-medium uppercase tracking-[0.2em] text-zinc-500">View Style</label>
+        <div className="grid w-full min-w-0 max-w-[9.5rem] grid-cols-[3.25rem_minmax(0,1fr)] items-center gap-1.5">
+          <label className="text-right text-xs font-medium text-zinc-500">보기 :</label>
           <select
             aria-label="View Style"
-            className={inputClassName()}
+            className={textStyleSelectClassName()}
             onChange={(event) => onViewModeChange(event.target.value as 'default' | 'inverse')}
             value={viewMode}
           >
-            <option value="default">Default</option>
-            <option value="inverse">Inverse</option>
+            <option value="default">기본</option>
+            <option value="inverse">반전</option>
           </select>
         </div>
       </div>

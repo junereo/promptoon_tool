@@ -8,6 +8,27 @@ const KIND_STYLES: Record<Cut['kind'], string> = {
   transition: 'border-sky-500/40 bg-sky-500/10 text-sky-200'
 };
 
+function TrashIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-3.5 w-3.5"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.8"
+      viewBox="0 0 24 24"
+    >
+      <path d="M3 6h18" />
+      <path d="M8 6V4h8v2" />
+      <path d="M6 6l1 15h10l1-15" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+    </svg>
+  );
+}
+
 export function CutItem({
   cut,
   indentLevel = 0,
@@ -93,11 +114,11 @@ export function CutItem({
 
       <button
         aria-label={`Delete ${cut.title}`}
-        className="absolute right-1.5 top-2 rounded-md px-2 py-1 text-xs text-zinc-500 opacity-0 transition hover:bg-red-500/10 hover:text-red-200 group-hover:opacity-100 focus:opacity-100"
+        className="absolute right-1.5 top-2 flex h-7 w-7 items-center justify-center rounded-md border border-transparent text-zinc-500 opacity-0 transition hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-200 group-hover:opacity-100 focus:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/40"
         onClick={onDelete}
         type="button"
       >
-        Delete
+        <TrashIcon />
       </button>
     </div>
   );

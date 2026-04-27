@@ -1,4 +1,4 @@
-import type { Cut, PromptoonContentPlacement, PublishManifest } from '@promptoon/shared';
+import type { Cut, PromptoonContentPlacement, PromptoonContentTextAlign, PublishManifest } from '@promptoon/shared';
 import type { CSSProperties, ReactNode } from 'react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
@@ -26,7 +26,9 @@ interface CutContentBlocksViewProps {
   onContainerRevealSyncChange?: (isRevealed: boolean) => void;
   onBindingChange?: (bindingKey: 'userName', value: string) => void;
   placement?: PromptoonContentPlacement;
+  revealImmediately?: boolean;
   syncContainerVisibilityWithReveal?: boolean;
+  textAlignOverride?: PromptoonContentTextAlign;
 }
 
 const DIALOGUE_TYPEWRITER_INTERVAL_MS = 28;
@@ -137,32 +139,39 @@ function RevealBlock({
   children,
   className,
   onRevealChange,
+  revealImmediately = false,
   revealKey
 }: {
   children: (isRevealed: boolean) => ReactNode;
   className?: string;
   onRevealChange?: (revealKey: string, isRevealed: boolean) => void;
+  revealImmediately?: boolean;
   revealKey: string;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const canAnimate = !playedContentRevealKeys.has(revealKey);
-  const [isRevealed, setIsRevealed] = useState(() => !canAnimate);
+  const canAnimate = !revealImmediately && !playedContentRevealKeys.has(revealKey);
+  const [isRevealed, setIsRevealed] = useState(() => revealImmediately || !canAnimate);
 
   useEffect(() => {
+    if (revealImmediately) {
+      setIsRevealed(true);
+      return;
+    }
+
     if (!canAnimate) {
       setIsRevealed(true);
       return;
     }
 
     setIsRevealed(false);
-  }, [canAnimate, revealKey]);
+  }, [canAnimate, revealImmediately, revealKey]);
 
   useEffect(() => {
     onRevealChange?.(revealKey, isRevealed);
   }, [isRevealed, onRevealChange, revealKey]);
 
   useEffect(() => {
-    if (!canAnimate || isRevealed) {
+    if (revealImmediately || !canAnimate || isRevealed) {
       return;
     }
 
@@ -229,7 +238,7 @@ function RevealBlock({
       scrollTarget.removeEventListener('scroll', scheduleRevealCheck);
       observer.disconnect();
     };
-  }, [canAnimate, isRevealed, revealKey]);
+  }, [canAnimate, isRevealed, revealImmediately, revealKey]);
 
   return (
     <div
@@ -258,7 +267,9 @@ export function CutContentBlocksView({
   onContainerRevealSyncChange,
   onBindingChange,
   placement,
-  syncContainerVisibilityWithReveal = false
+  revealImmediately = false,
+  syncContainerVisibilityWithReveal = false,
+  textAlignOverride
 }: CutContentBlocksViewProps) {
   const blocks = placement ? getCutContentBlocksByPlacement(cut, placement) : normalizeCutContentBlocks(cut);
   const isInverse = (cut.contentViewMode ?? 'default') === 'inverse';
@@ -315,7 +326,7 @@ export function CutContentBlocksView({
 
         if (block.type === 'image') {
           return (
-            <RevealBlock key={block.id} onRevealChange={handleRevealChange} revealKey={revealKey}>
+            <RevealBlock key={block.id} onRevealChange={handleRevealChange} revealImmediately={revealImmediately} revealKey={revealKey}>
               {() =>
                 block.assetUrl ? (
                   <div
@@ -341,7 +352,7 @@ export function CutContentBlocksView({
 
         if (block.type === 'nameInput') {
           return (
-            <RevealBlock key={block.id} onRevealChange={handleRevealChange} revealKey={revealKey}>
+            <RevealBlock key={block.id} onRevealChange={handleRevealChange} revealImmediately={revealImmediately} revealKey={revealKey}>
               {() => (
                 <input
                   className={
@@ -363,7 +374,7 @@ export function CutContentBlocksView({
         }
 
         const textStyle: CSSProperties = {
-          ...getTextAlignStyle(block.textAlign),
+          ...getTextAlignStyle(textAlignOverride ?? block.textAlign),
           fontFamily: getContentFontFamily(block.fontToken)
         };
         const textSizeClassName = getContentFontSizeClassName(block.fontSizeToken);
@@ -376,7 +387,7 @@ export function CutContentBlocksView({
           .join(' ');
         if (block.type === 'heading') {
           return (
-            <RevealBlock className={spacingClassName} key={block.id} onRevealChange={handleRevealChange} revealKey={revealKey}>
+            <RevealBlock className={spacingClassName} key={block.id} onRevealChange={handleRevealChange} revealImmediately={revealImmediately} revealKey={revealKey}>
               {() => (
                 <p className={isInverse ? `${textSizeClassName} whitespace-pre-wrap ${lineHeightClassName} text-zinc-950` : `${textSizeClassName} whitespace-pre-wrap ${lineHeightClassName} text-white`} style={textStyle}>
                   {replaceContentBindings(block.text, bindings)}
@@ -388,7 +399,7 @@ export function CutContentBlocksView({
 
         if (block.type === 'quote') {
           return (
-            <RevealBlock className={spacingClassName} key={block.id} onRevealChange={handleRevealChange} revealKey={revealKey}>
+            <RevealBlock className={spacingClassName} key={block.id} onRevealChange={handleRevealChange} revealImmediately={revealImmediately} revealKey={revealKey}>
               {() => (
                 <div
                   className={
@@ -417,7 +428,7 @@ export function CutContentBlocksView({
           const typewriterAnimationKey = [dialogueAnimationScope ?? cut.id, placement ?? 'all', block.id, dialogueText].join(':');
 
           return (
-            <RevealBlock className={spacingClassName} key={block.id} onRevealChange={handleRevealChange} revealKey={revealKey}>
+            <RevealBlock className={spacingClassName} key={block.id} onRevealChange={handleRevealChange} revealImmediately={revealImmediately} revealKey={revealKey}>
               {(isRevealed) => (
                 <div
                   className={
@@ -446,7 +457,7 @@ export function CutContentBlocksView({
 
         if (block.type === 'emphasis') {
           return (
-            <RevealBlock className={spacingClassName} key={block.id} onRevealChange={handleRevealChange} revealKey={revealKey}>
+            <RevealBlock className={spacingClassName} key={block.id} onRevealChange={handleRevealChange} revealImmediately={revealImmediately} revealKey={revealKey}>
               {() => (
                 <p className={isInverse ? `${textSizeClassName} whitespace-pre-wrap ${lineHeightClassName} font-semibold text-zinc-950` : `${textSizeClassName} whitespace-pre-wrap ${lineHeightClassName} font-semibold text-white`} style={textStyle}>
                   {replaceContentBindings(block.text, bindings)}
@@ -457,7 +468,7 @@ export function CutContentBlocksView({
         }
 
         return (
-          <RevealBlock className={spacingClassName} key={block.id} onRevealChange={handleRevealChange} revealKey={revealKey}>
+          <RevealBlock className={spacingClassName} key={block.id} onRevealChange={handleRevealChange} revealImmediately={revealImmediately} revealKey={revealKey}>
             {() => (
               <p className={isInverse ? `${textSizeClassName} whitespace-pre-wrap ${lineHeightClassName} text-zinc-900/88` : `${textSizeClassName} whitespace-pre-wrap ${lineHeightClassName} text-white/88`} style={textStyle}>
                 {replaceContentBindings(block.text, bindings)}

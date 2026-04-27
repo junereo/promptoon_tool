@@ -7,37 +7,37 @@ export const DEFAULT_CUT_EFFECT_DURATION_MS = 320;
 export const MAX_CUT_EFFECT_DURATION_MS = 10000;
 
 export const CUT_EFFECT_OPTIONS: Array<{ label: string; value: PromptoonCutEffect }> = [
-  { label: 'None', value: 'none' },
-  { label: 'Fade', value: 'fade' },
-  { label: 'Slide Left', value: 'slide-left' },
-  { label: 'Slide Right', value: 'slide-right' },
-  { label: 'Slide Up', value: 'slide-up' },
-  { label: 'Slide Down', value: 'slide-down' },
-  { label: 'Zoom In', value: 'zoom-in' },
-  { label: 'Zoom Out', value: 'zoom-out' }
+  { label: '없음', value: 'none' },
+  { label: '페이드', value: 'fade' },
+  { label: '왼쪽 슬라이드', value: 'slide-left' },
+  { label: '오른쪽 슬라이드', value: 'slide-right' },
+  { label: '위로 슬라이드', value: 'slide-up' },
+  { label: '아래로 슬라이드', value: 'slide-down' },
+  { label: '확대', value: 'zoom-in' },
+  { label: '축소', value: 'zoom-out' }
 ];
 
 export const EDGE_FADE_OPTIONS: Array<{ label: string; value: PromptoonEdgeFade }> = [
-  { label: 'None', value: 'none' },
-  { label: 'Top', value: 'top' },
-  { label: 'Bottom', value: 'bottom' },
-  { label: 'Both', value: 'both' }
+  { label: '없음', value: 'none' },
+  { label: '상단', value: 'top' },
+  { label: '하단', value: 'bottom' },
+  { label: '상하단', value: 'both' }
 ];
 
 export const EDGE_FADE_INTENSITY_OPTIONS: Array<{ label: string; value: PromptoonEdgeFadeIntensity }> = [
-  { label: 'Minimal', value: 'minimal' },
-  { label: 'Barely Soft', value: 'barely-soft' },
-  { label: 'Ultra Soft', value: 'ultra-soft' },
-  { label: 'Very Soft', value: 'very-soft' },
-  { label: 'Soft', value: 'soft' },
-  { label: 'Semi Soft', value: 'semi-soft' },
-  { label: 'Normal', value: 'normal' },
-  { label: 'Strong', value: 'strong' }
+  { label: '최소', value: 'minimal' },
+  { label: '아주 약하게', value: 'barely-soft' },
+  { label: '매우 약하게', value: 'ultra-soft' },
+  { label: '약하게', value: 'very-soft' },
+  { label: '부드럽게', value: 'soft' },
+  { label: '중간 약하게', value: 'semi-soft' },
+  { label: '보통', value: 'normal' },
+  { label: '강하게', value: 'strong' }
 ];
 
 export const EDGE_FADE_COLOR_OPTIONS: Array<{ label: string; value: PromptoonEdgeFadeColor }> = [
-  { label: 'Black', value: 'black' },
-  { label: 'White', value: 'white' }
+  { label: '검정', value: 'black' },
+  { label: '흰색', value: 'white' }
 ];
 
 export const CUT_EFFECT_TRANSITION = {
