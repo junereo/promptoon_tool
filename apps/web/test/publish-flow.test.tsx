@@ -30,6 +30,7 @@ const uploadMutate = vi.fn<(_: { projectId: string; file: File }) => Promise<{ a
 const createCutMutate = vi.fn();
 const createChoiceMutate = vi.fn();
 const reorderCutsMutate = vi.fn();
+const saveCutLayoutMutate = vi.fn();
 const updateCutMutate = vi.fn();
 const updateChoiceMutate = vi.fn();
 const queueCutPatch = vi.fn();
@@ -93,6 +94,10 @@ vi.mock('../src/features/editor/hooks/use-episode-query', () => ({
     isPending: false,
     mutateAsync: reorderCutsMutate
   }),
+  useSaveCutLayout: () => ({
+    isPending: false,
+    mutateAsync: saveCutLayoutMutate
+  }),
   useValidateEpisode: () => ({
     isPending: false,
     mutateAsync: validateMutate
@@ -125,6 +130,7 @@ beforeEach(() => {
   createCutMutate.mockReset();
   createChoiceMutate.mockReset();
   reorderCutsMutate.mockReset();
+  saveCutLayoutMutate.mockReset();
   updateCutMutate.mockReset();
   updateChoiceMutate.mockReset();
   queueCutPatch.mockReset();
@@ -276,6 +282,9 @@ beforeEach(() => {
         updatedAt: new Date().toISOString()
       }
     ]
+  });
+  saveCutLayoutMutate.mockResolvedValue({
+    cuts: []
   });
   analyticsData = {
     totalViews: 1250,
@@ -470,7 +479,9 @@ describe('publish flow', () => {
         startEffect: 'none',
         endEffect: 'none',
         edgeFade: 'both',
-        edgeFadeIntensity: 'minimal'
+        edgeFadeIntensity: 'minimal',
+        positionX: 210,
+        positionY: 110
       });
     });
 
@@ -498,7 +509,9 @@ describe('publish flow', () => {
         startEffect: 'none',
         endEffect: 'none',
         edgeFade: 'both',
-        edgeFadeIntensity: 'minimal'
+        edgeFadeIntensity: 'minimal',
+        positionX: 200,
+        positionY: 360
       });
     });
 
@@ -507,8 +520,8 @@ describe('publish flow', () => {
     expect(reorderCutsMutate).toHaveBeenCalledWith({
       cuts: [
         { cutId: 'cut-1', orderIndex: 0 },
-        { cutId: 'cut-new', orderIndex: 1 },
-        { cutId: 'cut-2', orderIndex: 2 }
+        { cutId: 'cut-2', orderIndex: 1 },
+        { cutId: 'cut-new', orderIndex: 2 }
       ]
     });
   });
@@ -570,6 +583,77 @@ describe('publish flow', () => {
       expect(within(preview).getByText('Lazy middle body')).toBeTruthy();
       expect(within(preview).queryByText('Branch body')).toBeNull();
     });
+  });
+
+  it('creates and links a graph placeholder cut under the selected branch end', async () => {
+    draftResponse = {
+      ...draftResponse,
+      cuts: [
+        draftResponse.cuts[0],
+        {
+          ...draftResponse.cuts[1],
+          kind: 'scene',
+          isEnding: false
+        }
+      ]
+    };
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Graph' }));
+    fireEvent.click(await screen.findByTestId('graph-add-placeholder-button-cut-2'));
+
+    await waitFor(() => {
+      expect(createCutMutate).toHaveBeenCalledWith({
+        kind: 'scene',
+        title: 'Cut 3',
+        body: '',
+        startEffect: 'none',
+        endEffect: 'none',
+        edgeFade: 'both',
+        edgeFadeIntensity: 'minimal',
+        positionX: 200,
+        positionY: 360
+      });
+    });
+
+    expect(reorderCutsMutate).toHaveBeenCalledWith({
+      cuts: [
+        { cutId: 'cut-1', orderIndex: 0 },
+        { cutId: 'cut-2', orderIndex: 1 },
+        { cutId: 'cut-new', orderIndex: 2 }
+      ]
+    });
+    expect(createChoiceMutate).toHaveBeenCalledWith({
+      cutId: 'cut-2',
+      payload: {
+        label: 'Choice 1',
+        nextCutId: 'cut-new'
+      }
+    });
+  });
+
+  it('saves graph alignment through the layout endpoint instead of immediate cut patches', async () => {
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Graph' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Vertical' }));
+
+    await waitFor(() => {
+      expect((screen.getByRole('button', { name: 'Save Layout' }) as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save Layout' }));
+
+    await waitFor(() => {
+      expect(saveCutLayoutMutate).toHaveBeenCalledWith({
+        cuts: [
+          { cutId: 'cut-1', positionX: 0, positionY: 0 },
+          { cutId: 'cut-2', positionX: 0, positionY: 260 }
+        ]
+      });
+    });
+    expect(updateCutMutate).not.toHaveBeenCalled();
+    expect(reorderCutsMutate).not.toHaveBeenCalled();
   });
 
   it('renders validation issues in the modal', async () => {

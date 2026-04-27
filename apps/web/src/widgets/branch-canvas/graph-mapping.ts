@@ -9,7 +9,16 @@ export interface CutNodeData {
   selectedChoiceId: string | null;
 }
 
+export interface AddCutPlaceholderNodeData {
+  [key: string]: unknown;
+  sourceCutId: string;
+  position: { x: number; y: number };
+  onCreate: (sourceCutId: string, position: { x: number; y: number }) => void;
+}
+
 export type CutFlowNode = Node<CutNodeData, 'cutNode'>;
+export type AddCutPlaceholderFlowNode = Node<AddCutPlaceholderNodeData, 'addCutPlaceholderNode'>;
+export type BranchFlowNode = CutFlowNode | AddCutPlaceholderFlowNode;
 
 export function getChoiceSourceHandleId(choiceId: string): string {
   return `source:${choiceId}`;

@@ -6,6 +6,8 @@ import type {
   Cut,
   DeleteCutRequest,
   EpisodeDraftResponse,
+  PatchEpisodeCutLayoutRequest,
+  PatchEpisodeCutLayoutResponse,
   PatchChoiceRequest,
   PatchCutRequest,
   Publish,
@@ -99,6 +101,19 @@ function replaceCuts(draft: EpisodeDraftResponse | undefined, cuts: Cut[]): Epis
   return {
     ...draft,
     cuts
+  };
+}
+
+function replaceUpdatedCuts(draft: EpisodeDraftResponse | undefined, cuts: Cut[]): EpisodeDraftResponse | undefined {
+  if (!draft) {
+    return draft;
+  }
+
+  const updatedCutById = new Map(cuts.map((cut) => [cut.id, cut]));
+
+  return {
+    ...draft,
+    cuts: draft.cuts.map((cut) => updatedCutById.get(cut.id) ?? cut)
   };
 }
 
@@ -272,6 +287,49 @@ export function useReorderCuts(episodeId: string) {
     },
     onSuccess: (response: ReorderEpisodeCutsResponse) => {
       queryClient.setQueryData<EpisodeDraftResponse | undefined>(queryKey, (draft) => replaceCuts(draft, response.cuts));
+    }
+  });
+}
+
+export function useSaveCutLayout(episodeId: string) {
+  const queryClient = useQueryClient();
+  const queryKey = promptoonKeys.episodeDraft(episodeId);
+
+  return useMutation<PatchEpisodeCutLayoutResponse, Error, PatchEpisodeCutLayoutRequest, { previousDraft?: EpisodeDraftResponse }>({
+    mutationFn: (payload) => promptoonService.patchCutLayout(episodeId, payload),
+    onMutate: async (payload) => {
+      await queryClient.cancelQueries({ queryKey });
+      const previousDraft = queryClient.getQueryData<EpisodeDraftResponse>(queryKey);
+      queryClient.setQueryData<EpisodeDraftResponse | undefined>(queryKey, (draft) => {
+        if (!draft) {
+          return draft;
+        }
+
+        const positionById = new Map(payload.cuts.map((cut) => [cut.cutId, cut]));
+        return {
+          ...draft,
+          cuts: draft.cuts.map((cut) => {
+            const position = positionById.get(cut.id);
+            return position
+              ? {
+                  ...cut,
+                  positionX: position.positionX,
+                  positionY: position.positionY
+                }
+              : cut;
+          })
+        };
+      });
+
+      return { previousDraft };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previousDraft) {
+        queryClient.setQueryData(queryKey, context.previousDraft);
+      }
+    },
+    onSuccess: (response) => {
+      queryClient.setQueryData<EpisodeDraftResponse | undefined>(queryKey, (draft) => replaceUpdatedCuts(draft, response.cuts));
     }
   });
 }

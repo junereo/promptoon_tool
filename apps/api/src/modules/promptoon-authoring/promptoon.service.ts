@@ -16,6 +16,8 @@ import type {
   FeedItem,
   FeedResponse,
   PatchEpisodeRequest,
+  PatchEpisodeCutLayoutRequest,
+  PatchEpisodeCutLayoutResponse,
   PatchChoiceRequest,
   PatchCutRequest,
   Project,
@@ -748,6 +750,45 @@ export async function updateCut(cutId: string, request: PatchCutRequest, userId:
 
     return assertExists(await repository.updateCut(db, cutId, normalizedRequest), 'Cut not found.');
   } catch (error) {
+    throw mapDatabaseError(error);
+  }
+}
+
+export async function updateEpisodeCutLayout(
+  episodeId: string,
+  request: PatchEpisodeCutLayoutRequest,
+  userId: string
+): Promise<PatchEpisodeCutLayoutResponse> {
+  await ensureEpisodeOwnedByUser(episodeId, userId);
+
+  const duplicateIds = new Set<string>();
+  const seenIds = new Set<string>();
+  for (const cut of request.cuts) {
+    if (seenIds.has(cut.cutId)) {
+      duplicateIds.add(cut.cutId);
+    }
+    seenIds.add(cut.cutId);
+  }
+
+  if (duplicateIds.size > 0) {
+    throw new HttpError(400, 'Cut layout payload contains duplicate cut IDs.', {
+      cutIds: Array.from(duplicateIds)
+    });
+  }
+
+  try {
+    const updatedCuts = await repository.updateEpisodeCutLayout(db, episodeId, request);
+    if (updatedCuts.length !== request.cuts.length) {
+      throw new HttpError(400, 'Cut layout payload must reference cuts in the episode.');
+    }
+
+    return {
+      cuts: updatedCuts
+    };
+  } catch (error) {
+    if (error instanceof HttpError) {
+      throw error;
+    }
     throw mapDatabaseError(error);
   }
 }

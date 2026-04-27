@@ -534,6 +534,51 @@ maybeDescribe('promptoon api integration', () => {
     expect(reorder.status).toBe(400);
   });
 
+  it('updates cut graph layout positions with a batch endpoint', async () => {
+    const auth = await registerUser();
+    const project = await withAuth(request(app).post('/api/promptoon/projects'), auth.token).send({ title: 'Project A' });
+    const episode = await withAuth(request(app).post(`/api/promptoon/projects/${project.body.id}/episodes`), auth.token).send({
+      title: 'Episode 1',
+      episodeNo: 1
+    });
+
+    const firstCut = await withAuth(request(app).post(`/api/promptoon/episodes/${episode.body.id}/cuts`), auth.token).send({
+      title: 'First',
+      kind: 'scene',
+      positionX: 0,
+      positionY: 100
+    });
+    const secondCut = await withAuth(request(app).post(`/api/promptoon/episodes/${episode.body.id}/cuts`), auth.token).send({
+      title: 'Second',
+      kind: 'scene',
+      positionX: 200,
+      positionY: 100
+    });
+
+    const layout = await withAuth(request(app).patch(`/api/promptoon/episodes/${episode.body.id}/cuts/layout`), auth.token).send({
+      cuts: [
+        { cutId: firstCut.body.id, positionX: 10, positionY: 20 },
+        { cutId: secondCut.body.id, positionX: 1010, positionY: 2010 }
+      ]
+    });
+
+    expect(layout.status).toBe(200);
+    expect(layout.body.cuts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: firstCut.body.id, positionX: 10, positionY: 20 }),
+        expect.objectContaining({ id: secondCut.body.id, positionX: 1010, positionY: 2010 })
+      ])
+    );
+
+    const draft = await withAuth(request(app).get(`/api/promptoon/episodes/${episode.body.id}/draft`), auth.token);
+    expect(draft.body.cuts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: firstCut.body.id, positionX: 10, positionY: 20 }),
+        expect.objectContaining({ id: secondCut.body.id, positionX: 1010, positionY: 2010 })
+      ])
+    );
+  });
+
   it('publishes a valid episode', async () => {
     const auth = await registerUser();
     const project = await withAuth(request(app).post('/api/promptoon/projects'), auth.token).send({ title: 'Project A' });

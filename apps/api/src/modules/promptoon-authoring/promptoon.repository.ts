@@ -12,6 +12,7 @@ import type {
   ProjectWithEpisodes,
   Publish,
   PublishManifest,
+  PatchEpisodeCutLayoutRequest,
   ReorderEpisodeCutsRequest,
   TelemetryEventType
 } from '@promptoon/shared';
@@ -780,6 +781,39 @@ export async function reorderEpisodeCuts(
   const result = await db.query<CutRow>(
     `UPDATE promptoon_cut
      SET order_index = CASE id ${caseClauses.join(' ')} END,
+         updated_at = NOW()
+     WHERE episode_id = $1
+       AND id = ANY($${idsParamIndex}::uuid[])
+     RETURNING *`,
+    values
+  );
+
+  return result.rows.map(mapCut).sort((left, right) => left.orderIndex - right.orderIndex);
+}
+
+export async function updateEpisodeCutLayout(
+  db: DbExecutor,
+  episodeId: string,
+  input: PatchEpisodeCutLayoutRequest
+): Promise<Cut[]> {
+  const cutIds = input.cuts.map((cut) => cut.cutId);
+  const caseXClauses: string[] = [];
+  const caseYClauses: string[] = [];
+  const values: unknown[] = [episodeId];
+
+  for (const cut of input.cuts) {
+    values.push(cut.cutId, cut.positionX, cut.positionY);
+    caseXClauses.push(`WHEN $${values.length - 2}::uuid THEN $${values.length - 1}::double precision`);
+    caseYClauses.push(`WHEN $${values.length - 2}::uuid THEN $${values.length}::double precision`);
+  }
+
+  values.push(cutIds);
+  const idsParamIndex = values.length;
+
+  const result = await db.query<CutRow>(
+    `UPDATE promptoon_cut
+     SET position_x = CASE id ${caseXClauses.join(' ')} END,
+         position_y = CASE id ${caseYClauses.join(' ')} END,
          updated_at = NOW()
      WHERE episode_id = $1
        AND id = ANY($${idsParamIndex}::uuid[])

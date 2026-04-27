@@ -10,6 +10,7 @@ import type {
 import { CutListPanel, type CutListDragPayload } from '../cut-list-panel/CutListPanel';
 import { InspectorPanel } from '../inspector-panel/InspectorPanel';
 import { BranchCanvas } from '../branch-canvas/BranchCanvas';
+import type { GraphLayoutMode } from '../branch-canvas/graph-layout';
 import { PreviewPlayer } from '../preview-phone-frame/PreviewPlayer';
 import { EditorToolbar } from './EditorToolbar';
 
@@ -25,6 +26,7 @@ export function EpisodeEditorShell({
   previewChoices,
   previewSelectedChoiceId,
   viewMode,
+  graphLayoutMode,
   isDirty,
   pendingAutosaveCount,
   lastPublishedVersion,
@@ -44,6 +46,8 @@ export function EpisodeEditorShell({
   onUpdateCut,
   onCommitCut,
   onUploadAsset,
+  onApplyGraphLayout,
+  onCreateLinkedCut,
   onMoveCut,
   onDeleteCut,
   onCreateChoice,
@@ -69,6 +73,7 @@ export function EpisodeEditorShell({
   previewChoices: Choice[];
   previewSelectedChoiceId: string | null;
   viewMode: 'list' | 'graph';
+  graphLayoutMode: GraphLayoutMode;
   isDirty: boolean;
   pendingAutosaveCount: number;
   lastPublishedVersion: number | null;
@@ -88,6 +93,8 @@ export function EpisodeEditorShell({
   onUpdateCut: (cutId: string, patch: PatchCutRequest) => void;
   onCommitCut: (cutId: string, patch: PatchCutRequest) => Promise<void>;
   onUploadAsset: (file: File) => Promise<string>;
+  onApplyGraphLayout: (mode: GraphLayoutMode) => void;
+  onCreateLinkedCut: (cutId: string, position: { x: number; y: number }) => void;
   onMoveCut: (cutId: string, position: { x: number; y: number }) => void;
   onDeleteCut: (cutId: string, payload?: DeleteCutRequest) => Promise<void> | void;
   onCreateChoice: (cutId: string) => void;
@@ -147,7 +154,10 @@ export function EpisodeEditorShell({
           <BranchCanvas
             choices={choices}
             cuts={orderedCuts}
+            layoutMode={graphLayoutMode}
+            onApplyLayout={onApplyGraphLayout}
             onCreateChoiceConnection={onCreateChoiceConnection}
+            onCreateLinkedCut={onCreateLinkedCut}
             onConnectChoice={onConnectChoice}
             onDeleteChoice={onDeleteChoice}
             onMoveCut={onMoveCut}

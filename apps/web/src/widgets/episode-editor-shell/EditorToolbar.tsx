@@ -45,6 +45,7 @@ export function EditorToolbar({
         ? 'published'
         : 'idle';
   const publishActionLabel = episodeStatus === 'published' ? (isPublishing ? 'Updating...' : 'Update Publish') : isPublishing ? 'Publishing...' : 'Publish';
+  const saveActionLabel = viewMode === 'graph' ? 'Save Layout' : 'Save Order';
 
   return (
     <section className="rounded-[32px] border border-editor-border bg-editor-panel/80 p-6">
@@ -151,7 +152,7 @@ export function EditorToolbar({
             onClick={onSaveOrder}
             type="button"
           >
-            Save Order
+            {saveActionLabel}
           </button>
           <button
             className="rounded-full bg-editor-accent px-4 py-2 text-sm font-medium text-white transition hover:bg-editor-accentSoft disabled:cursor-not-allowed disabled:opacity-60"

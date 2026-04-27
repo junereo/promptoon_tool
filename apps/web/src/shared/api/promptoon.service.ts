@@ -9,6 +9,8 @@ import type {
   EpisodeDraftResponse,
   FeedResponse,
   PatchChoiceRequest,
+  PatchEpisodeCutLayoutRequest,
+  PatchEpisodeCutLayoutResponse,
   PatchCutRequest,
   Publish,
   ReorderEpisodeCutsRequest,
@@ -62,6 +64,11 @@ export const promptoonService = {
 
   async reorderCuts(episodeId: string, payload: ReorderEpisodeCutsRequest): Promise<ReorderEpisodeCutsResponse> {
     const { data } = await apiClient.patch(`/episodes/${episodeId}/cuts/reorder`, payload);
+    return data;
+  },
+
+  async patchCutLayout(episodeId: string, payload: PatchEpisodeCutLayoutRequest): Promise<PatchEpisodeCutLayoutResponse> {
+    const { data } = await apiClient.patch(`/episodes/${episodeId}/cuts/layout`, payload);
     return data;
   },
 

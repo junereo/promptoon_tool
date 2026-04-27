@@ -4,6 +4,7 @@ import {
   createChoiceSchema,
   createCutSchema,
   patchCutSchema,
+  patchEpisodeCutLayoutSchema,
   patchEpisodeSchema,
   telemetryEventSchema
 } from '../src/modules/promptoon-authoring/promptoon.schemas';
@@ -90,6 +91,20 @@ describe('promptoon cut schemas', () => {
 
     expect(cutResult.success).toBe(true);
     expect(choiceResult.success).toBe(true);
+  });
+
+  it('accepts batch cut layout updates', () => {
+    const result = patchEpisodeCutLayoutSchema.safeParse({
+      cuts: [
+        {
+          cutId: '00000000-0000-4000-8000-000000000001',
+          positionX: 1010,
+          positionY: 2010
+        }
+      ]
+    });
+
+    expect(result.success).toBe(true);
   });
 
   it('rejects invalid font tokens and out-of-range effect durations', () => {

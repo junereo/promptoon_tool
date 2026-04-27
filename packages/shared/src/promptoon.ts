@@ -360,6 +360,18 @@ export interface ReorderEpisodeCutsResponse {
   cuts: Cut[];
 }
 
+export interface PatchEpisodeCutLayoutRequest {
+  cuts: Array<{
+    cutId: string;
+    positionX: number;
+    positionY: number;
+  }>;
+}
+
+export interface PatchEpisodeCutLayoutResponse {
+  cuts: Cut[];
+}
+
 export interface AnalyticsFunnelStep {
   key: 'start_view' | 'choice_engaged' | 'ending_reached';
   label: string;

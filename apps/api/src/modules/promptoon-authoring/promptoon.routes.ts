@@ -15,6 +15,7 @@ import {
   patchChoiceSchema,
   patchEpisodeSchema,
   patchCutSchema,
+  patchEpisodeCutLayoutSchema,
   reorderEpisodeCutsSchema,
   publishSchema,
   telemetryEventSchema
@@ -135,6 +136,13 @@ export function createPromptoonRouter(): Router {
     const body = reorderEpisodeCutsSchema.parse(request.body);
     response.json(
       await service.reorderEpisodeCuts(getParam(request.params.episodeId, 'episodeId'), body, getRequiredAuthUser(request).sub)
+    );
+  }));
+
+  protectedRouter.patch('/episodes/:episodeId/cuts/layout', asyncHandler(async (request, response) => {
+    const body = patchEpisodeCutLayoutSchema.parse(request.body);
+    response.json(
+      await service.updateEpisodeCutLayout(getParam(request.params.episodeId, 'episodeId'), body, getRequiredAuthUser(request).sub)
     );
   }));
 

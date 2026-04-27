@@ -142,6 +142,18 @@ export const reorderEpisodeCutsSchema = z.object({
     .min(1)
 });
 
+export const patchEpisodeCutLayoutSchema = z.object({
+  cuts: z
+    .array(
+      z.object({
+        cutId: uuidSchema,
+        positionX: z.number().finite(),
+        positionY: z.number().finite()
+      })
+    )
+    .min(1)
+});
+
 export const publishSchema = z.object({
   episodeId: uuidSchema
 });
