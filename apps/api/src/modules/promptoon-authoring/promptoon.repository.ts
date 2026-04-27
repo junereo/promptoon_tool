@@ -657,6 +657,22 @@ export async function deleteCut(db: DbExecutor, cutId: string): Promise<boolean>
   return true;
 }
 
+export async function reconnectChoicesTargetingCut(
+  db: DbExecutor,
+  input: {
+    cutId: string;
+    reconnectToCutId: string | null;
+  }
+): Promise<void> {
+  await db.query(
+    `UPDATE promptoon_choice
+     SET next_cut_id = $2,
+         updated_at = NOW()
+     WHERE next_cut_id = $1`,
+    [input.cutId, input.reconnectToCutId]
+  );
+}
+
 export async function createChoice(
   db: DbExecutor,
   input: {

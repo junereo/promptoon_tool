@@ -6,12 +6,18 @@ import { CutItem } from './CutItem';
 
 export function SortableCutItem({
   cut,
+  indentLevel,
+  rank,
   selected,
+  onCreateAfter,
   onDelete,
   onSelect
 }: {
   cut: Cut;
+  indentLevel?: number;
+  rank: string;
   selected: boolean;
+  onCreateAfter: () => void;
   onDelete: () => void;
   onSelect: () => void;
 }) {
@@ -31,8 +37,11 @@ export function SortableCutItem({
       <CutItem
         cut={cut}
         dragHandleProps={{ ...attributes, ...listeners }}
+        indentLevel={indentLevel}
+        onCreateAfter={onCreateAfter}
         onDelete={onDelete}
         onSelect={onSelect}
+        rank={rank}
         selected={selected}
       />
     </div>

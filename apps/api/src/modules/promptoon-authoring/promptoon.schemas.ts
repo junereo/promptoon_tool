@@ -116,6 +116,10 @@ export const patchCutSchema = createCutSchema.partial().refine((value) => Object
   message: 'At least one cut field is required.'
 });
 
+export const deleteCutSchema = z.object({
+  reconnectToCutId: uuidSchema.nullable().optional()
+});
+
 export const createChoiceSchema = z.object({
   label: z.string().trim().min(1),
   orderIndex: z.number().int().min(0).optional(),

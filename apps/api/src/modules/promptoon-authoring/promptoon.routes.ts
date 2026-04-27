@@ -8,6 +8,7 @@ import { HttpError } from '../../lib/http-error';
 import {
   createChoiceSchema,
   createCutSchema,
+  deleteCutSchema,
   createEpisodeSchema,
   createProjectSchema,
   feedQuerySchema,
@@ -143,7 +144,8 @@ export function createPromptoonRouter(): Router {
   }));
 
   protectedRouter.delete('/cuts/:cutId', asyncHandler(async (request, response) => {
-    await service.deleteCut(getParam(request.params.cutId, 'cutId'), getRequiredAuthUser(request).sub);
+    const body = deleteCutSchema.parse(request.body ?? {});
+    await service.deleteCut(getParam(request.params.cutId, 'cutId'), getRequiredAuthUser(request).sub, body);
     response.status(204).send();
   }));
 

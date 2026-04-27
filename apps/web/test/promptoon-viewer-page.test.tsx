@@ -200,6 +200,12 @@ describe('PromptoonViewerPage', () => {
 
     expect(document.querySelector('[data-active-cut-end-effect="slide-left"]')).toBeTruthy();
     expect(document.querySelector('[data-cut-id="cut-start"]')?.getAttribute('data-start-effect')).toBe('fade');
+    const scrollContainer = screen.getByTestId('viewer-scroll-container');
+    Object.defineProperty(scrollContainer, 'scrollTop', {
+      configurable: true,
+      writable: true,
+      value: 0
+    });
 
     fireEvent.click(await screen.findByRole('button', { name: '앞으로' }));
     expect(await screen.findByText('여기가 끝입니다.')).toBeTruthy();
@@ -211,11 +217,18 @@ describe('PromptoonViewerPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '앞으로' }));
     expect(await screen.findByText('여기가 끝입니다.')).toBeTruthy();
+    scrollContainer.scrollTop = 640;
     fireEvent.click(screen.getByRole('button', { name: '다시 보기' }));
 
     await waitFor(() => {
       expect(screen.getByText('어디로 갈까요?')).toBeTruthy();
     });
+    expect(scrollContainer.scrollTop).toBe(0);
+
+    scrollContainer.scrollTop = 520;
+    fireEvent.click(screen.getByRole('button', { name: '앞으로' }));
+    expect(await screen.findByText('여기가 끝입니다.')).toBeTruthy();
+    expect(scrollContainer.scrollTop).toBe(0);
 
     const payloads = await getTelemetryPayloads();
     expect(payloads.some((payload) => payload.eventType === 'choice_click' && payload.choiceId === 'choice-linked')).toBe(true);

@@ -7,6 +7,7 @@ import type {
   CutContentBlock,
   CreateChoiceRequest,
   CreateCutRequest,
+  DeleteCutRequest,
   CreateEpisodeRequest,
   CreateProjectRequest,
   Cut,
@@ -751,12 +752,36 @@ export async function updateCut(cutId: string, request: PatchCutRequest, userId:
   }
 }
 
-export async function deleteCut(cutId: string, userId: string): Promise<void> {
+export async function deleteCut(cutId: string, userId: string, request: DeleteCutRequest = {}): Promise<void> {
   await ensureCutOwnedByUser(cutId, userId);
-  const deleted = await repository.deleteCut(db, cutId);
-  if (!deleted) {
-    throw new HttpError(404, 'Cut not found.');
+
+  const cut = assertExists(await repository.getCutById(db, cutId), 'Cut not found.');
+  const reconnectToCutId = Object.prototype.hasOwnProperty.call(request, 'reconnectToCutId')
+    ? request.reconnectToCutId ?? null
+    : null;
+
+  if (reconnectToCutId) {
+    if (reconnectToCutId === cutId) {
+      throw new HttpError(400, 'Reconnect target cannot be the deleted cut.');
+    }
+
+    const reconnectTarget = await repository.getCutById(db, reconnectToCutId);
+    if (!reconnectTarget || reconnectTarget.episodeId !== cut.episodeId) {
+      throw new HttpError(400, 'Reconnect target must reference a cut in the same episode.');
+    }
   }
+
+  await withTransaction(async (client) => {
+    await repository.reconnectChoicesTargetingCut(client, {
+      cutId,
+      reconnectToCutId
+    });
+
+    const deleted = await repository.deleteCut(client, cutId);
+    if (!deleted) {
+      throw new HttpError(404, 'Cut not found.');
+    }
+  });
 }
 
 export async function createChoice(cutId: string, request: CreateChoiceRequest, userId: string): Promise<Choice> {

@@ -331,6 +331,10 @@ export interface PatchCutRequest {
   isEnding?: boolean;
 }
 
+export interface DeleteCutRequest {
+  reconnectToCutId?: string | null;
+}
+
 export interface CreateChoiceRequest {
   label: string;
   orderIndex?: number;

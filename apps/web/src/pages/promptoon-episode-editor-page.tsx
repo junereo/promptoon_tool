@@ -1,7 +1,9 @@
 import type {
   Choice,
+  Cut,
   CreateChoiceRequest,
   CreateCutRequest,
+  DeleteCutRequest,
   PatchChoiceRequest,
   PatchCutRequest,
   Publish,
@@ -10,7 +12,14 @@ import type {
 import { startTransition, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
-import { getChoicesForCut, getPreviewCut, getSelectedChoice, getSelectedCut, sortCutsByLocalOrder } from '../entities/promptoon/selectors';
+import {
+  buildCutHierarchy,
+  getChoicesForCut,
+  getPreviewCut,
+  getSelectedChoice,
+  getSelectedCut,
+  sortCutsByLocalOrder
+} from '../entities/promptoon/selectors';
 import { useEpisodeAnalytics } from '../features/analytics/hooks/use-episode-analytics';
 import { useChoiceAutosave } from '../features/editor/hooks/use-choice-autosave';
 import { useCutAutosave } from '../features/editor/hooks/use-cut-autosave';
@@ -38,6 +47,58 @@ import type { ScriptCutPatch } from '../shared/lib/script-sync';
 import { PublishSuccessToast } from '../widgets/publish-flow/PublishSuccessToast';
 import { ToolbarNoticeToast } from '../widgets/publish-flow/ToolbarNoticeToast';
 import { ValidationModal } from '../widgets/publish-flow/ValidationModal';
+import type { CutListDragPayload } from '../widgets/cut-list-panel/CutListPanel';
+
+function moveId(ids: string[], activeId: string, overId: string): string[] {
+  const activeIndex = ids.indexOf(activeId);
+  const overIndex = ids.indexOf(overId);
+
+  if (activeIndex === -1 || overIndex === -1 || activeIndex === overIndex) {
+    return ids;
+  }
+
+  const nextIds = [...ids];
+  const [active] = nextIds.splice(activeIndex, 1);
+  nextIds.splice(overIndex, 0, active);
+  return nextIds;
+}
+
+function insertAfter(ids: string[], anchorId: string | null, insertedId: string): string[] {
+  const nextIds = ids.filter((id) => id !== insertedId);
+  const anchorIndex = anchorId ? nextIds.indexOf(anchorId) : -1;
+  nextIds.splice(anchorIndex === -1 ? nextIds.length : anchorIndex + 1, 0, insertedId);
+  return nextIds;
+}
+
+function resolveLazyRouteCutId(startCutId: string, cuts: Cut[], choices: Choice[]): string {
+  const cutsById = new Map(cuts.map((cut) => [cut.id, cut]));
+  const visitedCutIds = new Set<string>();
+  let currentCut = cutsById.get(startCutId) ?? null;
+  let resolvedCutId = startCutId;
+
+  while (currentCut && !visitedCutIds.has(currentCut.id)) {
+    visitedCutIds.add(currentCut.id);
+    resolvedCutId = currentCut.id;
+
+    if (currentCut.isEnding || currentCut.kind === 'ending' || currentCut.kind !== 'scene') {
+      break;
+    }
+
+    const linkedChoices = getChoicesForCut(choices, currentCut.id).filter((choice) => choice.nextCutId && cutsById.has(choice.nextCutId));
+    if (linkedChoices.length !== 1) {
+      break;
+    }
+
+    const nextCut = cutsById.get(linkedChoices[0].nextCutId!);
+    if (!nextCut || visitedCutIds.has(nextCut.id)) {
+      break;
+    }
+
+    currentCut = nextCut;
+  }
+
+  return resolvedCutId;
+}
 
 export function PromptoonEpisodeEditorPage() {
   const { projectId, episodeId } = useParams();
@@ -181,6 +242,7 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
   }, [draftQuery.data, hydrateFromDraft, selected, setSelected]);
 
   const orderedCuts = draftQuery.data ? sortCutsByLocalOrder(draftQuery.data.cuts, localCutOrder) : [];
+  const cutHierarchy = draftQuery.data ? buildCutHierarchy(orderedCuts, draftQuery.data.choices) : null;
   const selectedCut = draftQuery.data ? getSelectedCut(draftQuery.data.cuts, draftQuery.data.choices, selected) : null;
   const selectedChoice = draftQuery.data ? getSelectedChoice(draftQuery.data.choices, selected) : null;
   const selectionPreviewCut = draftQuery.data ? getPreviewCut(orderedCuts, draftQuery.data.choices, selected) : null;
@@ -189,7 +251,6 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
       ? orderedCuts.find((cut) => cut.id === previewCutId) ?? selectionPreviewCut
       : selectionPreviewCut;
   const previewChoices = draftQuery.data && previewCut ? getChoicesForCut(draftQuery.data.choices, previewCut.id) : [];
-  const selectedCutChoices = draftQuery.data && selectedCut ? getChoicesForCut(draftQuery.data.choices, selectedCut.id) : [];
   const pendingAutosaveCount = pendingAutosaveIds.cuts.length + pendingAutosaveIds.choices.length;
   const latestPublishedEpisode = latestPublishedEpisodeQuery.data;
 
@@ -209,20 +270,39 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
     }
   }, [previewChoices, previewCut, previewSelectedChoiceId]);
 
-  async function handleCreateCut() {
+  async function handleCreateCut(anchorCutId?: string) {
     const payload: CreateCutRequest = {
       kind: 'scene',
       title: `Cut ${orderedCuts.length + 1}`,
       body: '',
       startEffect: 'none',
-      endEffect: 'none'
+      endEffect: 'none',
+      edgeFade: 'both',
+      edgeFadeIntensity: 'minimal'
     };
 
     const cut = await createCut.mutateAsync(payload);
+
+    if (draftQuery.data) {
+      const displayOrder = insertAfter(
+        cutHierarchy?.flatNodes.map((node) => node.cut.id) ?? orderedCuts.map((orderedCut) => orderedCut.id),
+        anchorCutId ?? selectedCut?.id ?? null,
+        cut.id
+      );
+      const response = await reorderCuts.mutateAsync({
+        cuts: displayOrder.map((cutId, index) => ({
+          cutId,
+          orderIndex: index
+        }))
+      });
+      hydrateFromDraft({ cuts: response.cuts });
+      clearDirty();
+    }
+
     setSelected({ type: 'cut', id: cut.id });
   }
 
-  async function handleDeleteCut(cutId: string) {
+  async function handleDeleteCut(cutId: string, payload?: DeleteCutRequest) {
     const deletedIndex = orderedCuts.findIndex((cut) => cut.id === cutId);
     const nextCut =
       orderedCuts[deletedIndex + 1] ??
@@ -230,7 +310,7 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
       orderedCuts.find((cut) => cut.id !== cutId) ??
       null;
 
-    await deleteCut.mutateAsync(cutId);
+    await deleteCut.mutateAsync({ cutId, payload });
 
     if (selectedCut?.id === cutId) {
       setSelected(nextCut ? { type: 'cut', id: nextCut.id } : { type: 'none' });
@@ -312,8 +392,26 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
     setSelected({ type: 'choice', id: choice.id });
   }
 
-  function handleDragEnd(activeId: string, overId: string) {
-    reorderLocalCuts(activeId, overId);
+  function handleDragEnd(payload: CutListDragPayload) {
+    reorderLocalCuts(payload.activeId, payload.overId);
+
+    if (!payload.parentCutId || payload.siblingChoiceIds.length === 0) {
+      return;
+    }
+
+    const reorderedSiblingCutIds = moveId(payload.siblingCutIds, payload.activeId, payload.overId);
+    for (const cutId of reorderedSiblingCutIds) {
+      const previousIndex = payload.siblingCutIds.indexOf(cutId);
+      const choiceId = payload.siblingChoiceIds[previousIndex];
+      if (choiceId) {
+        updateChoice.mutate({
+          choiceId,
+          payload: {
+            orderIndex: reorderedSiblingCutIds.indexOf(cutId)
+          }
+        });
+      }
+    }
   }
 
   function triggerDirtyGuard() {
@@ -327,8 +425,9 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
     }
 
     const previousOrder = [...localCutOrder];
+    const hierarchyOrder = draftQuery.data ? buildCutHierarchy(orderedCuts, draftQuery.data.choices).flatNodes.map((node) => node.cut.id) : [];
     const payload = {
-      cuts: localCutOrder.map((cutId, index) => ({
+      cuts: hierarchyOrder.map((cutId, index) => ({
         cutId,
         orderIndex: index
       }))
@@ -489,7 +588,7 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
         onPublish={handlePublishRequest}
         onPreviewSelectChoice={(choiceId) => setPreviewSelectedChoiceId(choiceId)}
         onPreviewSelectCut={(cutId) => {
-          setPreviewCutId(cutId);
+          setPreviewCutId(resolveLazyRouteCutId(cutId, orderedCuts, draftQuery.data.choices));
           setPreviewSelectedChoiceId(null);
         }}
         onSaveOrder={handleSaveOrder}

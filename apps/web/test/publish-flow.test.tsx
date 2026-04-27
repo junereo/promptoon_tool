@@ -1,7 +1,7 @@
 import type { EpisodeDraftResponse, Publish, ValidateEpisodeResponse } from '@promptoon/shared';
 import { DEFAULT_CUT_EFFECT_DURATION_MS } from '@promptoon/shared';
 import { act } from 'react';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -27,6 +27,9 @@ const publishMutate = vi.fn<(_: { projectId: string; episodeId: string }) => Pro
 const updatePublishMutate = vi.fn<(_: { projectId: string; episodeId: string }) => Promise<Publish>>();
 const unpublishMutate = vi.fn<(_: { projectId: string; episodeId: string }) => Promise<void>>();
 const uploadMutate = vi.fn<(_: { projectId: string; file: File }) => Promise<{ assetUrl: string }>>();
+const createCutMutate = vi.fn();
+const createChoiceMutate = vi.fn();
+const reorderCutsMutate = vi.fn();
 const updateCutMutate = vi.fn();
 const updateChoiceMutate = vi.fn();
 const queueCutPatch = vi.fn();
@@ -63,10 +66,10 @@ vi.mock('../src/features/editor/hooks/use-episode-query', () => ({
     data: null
   }),
   useCreateChoice: () => ({
-    mutateAsync: vi.fn()
+    mutateAsync: createChoiceMutate
   }),
   useCreateCut: () => ({
-    mutateAsync: vi.fn()
+    mutateAsync: createCutMutate
   }),
   useDeleteChoice: () => ({
     mutateAsync: vi.fn()
@@ -79,7 +82,8 @@ vi.mock('../src/features/editor/hooks/use-episode-query', () => ({
   }),
   useUpdateCut: () => ({
     isPending: false,
-    mutate: updateCutMutate
+    mutate: updateCutMutate,
+    mutateAsync: updateCutMutate
   }),
   useUpdateChoice: () => ({
     isPending: false,
@@ -87,7 +91,7 @@ vi.mock('../src/features/editor/hooks/use-episode-query', () => ({
   }),
   useReorderCuts: () => ({
     isPending: false,
-    mutateAsync: vi.fn()
+    mutateAsync: reorderCutsMutate
   }),
   useValidateEpisode: () => ({
     isPending: false,
@@ -118,6 +122,9 @@ beforeEach(() => {
   updatePublishMutate.mockReset();
   unpublishMutate.mockReset();
   uploadMutate.mockReset();
+  createCutMutate.mockReset();
+  createChoiceMutate.mockReset();
+  reorderCutsMutate.mockReset();
   updateCutMutate.mockReset();
   updateChoiceMutate.mockReset();
   queueCutPatch.mockReset();
@@ -196,6 +203,80 @@ beforeEach(() => {
       }
     ]
   };
+  createCutMutate.mockResolvedValue({
+    id: 'cut-new',
+    episodeId: 'episode-1',
+    kind: 'scene',
+    title: 'Cut 3',
+    body: '',
+    contentBlocks: [],
+    dialogAnchorX: 'left',
+    dialogAnchorY: 'bottom',
+    dialogOffsetX: 0,
+    dialogOffsetY: 0,
+    dialogTextAlign: 'left',
+    startEffect: 'none',
+    endEffect: 'none',
+    startEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+    endEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+    assetUrl: null,
+    edgeFade: 'both',
+    edgeFadeIntensity: 'minimal',
+    positionX: 400,
+    positionY: 100,
+    orderIndex: 2,
+    isStart: false,
+    isEnding: false,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
+  updateCutMutate.mockResolvedValue({
+    ...draftResponse.cuts[1],
+    kind: 'scene',
+    isEnding: false
+  });
+  createChoiceMutate.mockResolvedValue({
+    id: 'choice-new',
+    cutId: 'cut-2',
+    label: 'Choice 1',
+    orderIndex: 0,
+    nextCutId: 'cut-new',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
+  reorderCutsMutate.mockResolvedValue({
+    cuts: [
+      draftResponse.cuts[0],
+      draftResponse.cuts[1],
+      {
+        id: 'cut-new',
+        episodeId: 'episode-1',
+        kind: 'scene',
+        title: 'Cut 3',
+        body: '',
+        contentBlocks: [],
+        dialogAnchorX: 'left',
+        dialogAnchorY: 'bottom',
+        dialogOffsetX: 0,
+        dialogOffsetY: 0,
+        dialogTextAlign: 'left',
+        startEffect: 'none',
+        endEffect: 'none',
+        startEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+        endEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+        assetUrl: null,
+        edgeFade: 'both',
+        edgeFadeIntensity: 'minimal',
+        positionX: 400,
+        positionY: 100,
+        orderIndex: 2,
+        isStart: false,
+        isEnding: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }
+    ]
+  });
   analyticsData = {
     totalViews: 1250,
     uniqueViewers: 840,
@@ -372,6 +453,118 @@ describe('publish flow', () => {
           }
         ]
       });
+    });
+  });
+
+  it('creates a new cut after the selected cut without linking it automatically', async () => {
+    renderPage();
+
+    fireEvent.click(screen.getAllByText('Ending')[0]);
+    fireEvent.click(screen.getByRole('button', { name: '+ Cut' }));
+
+    await waitFor(() => {
+      expect(createCutMutate).toHaveBeenCalledWith({
+        kind: 'scene',
+        title: 'Cut 3',
+        body: '',
+        startEffect: 'none',
+        endEffect: 'none',
+        edgeFade: 'both',
+        edgeFadeIntensity: 'minimal'
+      });
+    });
+
+    expect(updateCutMutate).not.toHaveBeenCalled();
+    expect(createChoiceMutate).not.toHaveBeenCalled();
+    expect(reorderCutsMutate).toHaveBeenCalledWith({
+      cuts: [
+        { cutId: 'cut-1', orderIndex: 0 },
+        { cutId: 'cut-2', orderIndex: 1 },
+        { cutId: 'cut-new', orderIndex: 2 }
+      ]
+    });
+  });
+
+  it('creates a new cut directly below the cut card add button anchor', async () => {
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add cut after Opening' }));
+
+    await waitFor(() => {
+      expect(createCutMutate).toHaveBeenCalledWith({
+        kind: 'scene',
+        title: 'Cut 3',
+        body: '',
+        startEffect: 'none',
+        endEffect: 'none',
+        edgeFade: 'both',
+        edgeFadeIntensity: 'minimal'
+      });
+    });
+
+    expect(updateCutMutate).not.toHaveBeenCalled();
+    expect(createChoiceMutate).not.toHaveBeenCalled();
+    expect(reorderCutsMutate).toHaveBeenCalledWith({
+      cuts: [
+        { cutId: 'cut-1', orderIndex: 0 },
+        { cutId: 'cut-new', orderIndex: 1 },
+        { cutId: 'cut-2', orderIndex: 2 }
+      ]
+    });
+  });
+
+  it('uses lazy routing when a preview choice points into a single-path scene chain', async () => {
+    const middleCut = {
+      ...draftResponse.cuts[1],
+      id: 'cut-middle',
+      kind: 'scene' as const,
+      title: 'Middle',
+      body: 'Lazy middle body',
+      orderIndex: 1,
+      isEnding: false
+    };
+    const branchCut = {
+      ...draftResponse.cuts[1],
+      id: 'cut-branch',
+      kind: 'choice' as const,
+      title: 'Branch',
+      body: 'Branch body',
+      orderIndex: 2,
+      isEnding: false
+    };
+    const endingCut = {
+      ...draftResponse.cuts[1],
+      orderIndex: 3
+    };
+
+    draftResponse = {
+      ...draftResponse,
+      cuts: [draftResponse.cuts[0], middleCut, branchCut, endingCut],
+      choices: [
+        {
+          ...draftResponse.choices[0],
+          nextCutId: 'cut-middle'
+        },
+        {
+          id: 'choice-middle',
+          cutId: 'cut-middle',
+          label: 'Continue',
+          orderIndex: 0,
+          nextCutId: 'cut-branch',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }
+      ]
+    };
+
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Go' }));
+
+    await waitFor(() => {
+      const preview = screen.getByTestId('preview-cut-motion');
+      expect(within(preview).getByText('Branch body')).toBeTruthy();
+      expect(within(preview).queryByText('Lazy middle body')).toBeNull();
     });
   });
 

@@ -4,6 +4,7 @@ import type {
   CreateChoiceRequest,
   CreateCutRequest,
   Cut,
+  DeleteCutRequest,
   EpisodeDraftResponse,
   PatchChoiceRequest,
   PatchCutRequest,
@@ -136,7 +137,7 @@ export function useDeleteCut(episodeId: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (cutId: string) => promptoonService.deleteCut(cutId),
+    mutationFn: ({ cutId, payload }: { cutId: string; payload?: DeleteCutRequest }) => promptoonService.deleteCut(cutId, payload),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: promptoonKeys.episodeDraft(episodeId) });
     }

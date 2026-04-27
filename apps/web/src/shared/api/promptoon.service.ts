@@ -5,6 +5,7 @@ import type {
   CreateChoiceRequest,
   CreateCutRequest,
   Cut,
+  DeleteCutRequest,
   EpisodeDraftResponse,
   FeedResponse,
   PatchChoiceRequest,
@@ -41,8 +42,8 @@ export const promptoonService = {
     return data;
   },
 
-  async deleteCut(cutId: string): Promise<void> {
-    await apiClient.delete(`/cuts/${cutId}`);
+  async deleteCut(cutId: string, payload?: DeleteCutRequest): Promise<void> {
+    await apiClient.delete(`/cuts/${cutId}`, payload ? { data: payload } : undefined);
   },
 
   async createChoice(cutId: string, payload: CreateChoiceRequest): Promise<Choice> {

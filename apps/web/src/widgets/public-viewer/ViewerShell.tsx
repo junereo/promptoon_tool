@@ -1,7 +1,7 @@
 import type { PublishManifest } from '@promptoon/shared';
 import { AnimatePresence } from 'framer-motion';
 import type { TouchEvent, WheelEvent } from 'react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { ViewerContent } from './ViewerContent';
 import { ViewerControls } from './ViewerControls';
@@ -60,6 +60,7 @@ export function ViewerShell({
   const terminalStep = pathSteps[pathSteps.length - 1] ?? null;
   const leadingSteps = terminalStep ? pathSteps.slice(0, -1) : [];
   const areControlsVisible = isChromeVisible && isScrollBoundary;
+  const pathStepKey = pathSteps.map((step) => step.cut.id).join('|');
 
   const updateScrollBoundary = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;
@@ -87,6 +88,16 @@ export function ViewerShell({
       window.cancelAnimationFrame(animationFrameId);
     };
   }, [pathSteps, updateScrollBoundary]);
+
+  useLayoutEffect(() => {
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) {
+      return;
+    }
+
+    scrollContainer.scrollTop = 0;
+    setIsScrollBoundary(true);
+  }, [pathStepKey]);
 
   function handleViewerScroll() {
     if (updateScrollBoundary()) {

@@ -1,12 +1,13 @@
 import type {
   Choice,
   Cut,
+  DeleteCutRequest,
   EditorSelection,
   PatchChoiceRequest,
   PatchCutRequest
 } from '@promptoon/shared';
 
-import { CutListPanel } from '../cut-list-panel/CutListPanel';
+import { CutListPanel, type CutListDragPayload } from '../cut-list-panel/CutListPanel';
 import { InspectorPanel } from '../inspector-panel/InspectorPanel';
 import { BranchCanvas } from '../branch-canvas/BranchCanvas';
 import { PreviewPlayer } from '../preview-phone-frame/PreviewPlayer';
@@ -83,18 +84,18 @@ export function EpisodeEditorShell({
   onSelectChoice: (choiceId: string) => void;
   onPreviewSelectCut: (cutId: string) => void;
   onPreviewSelectChoice: (choiceId: string) => void;
-  onCreateCut: () => void;
+  onCreateCut: (anchorCutId?: string) => void;
   onUpdateCut: (cutId: string, patch: PatchCutRequest) => void;
   onCommitCut: (cutId: string, patch: PatchCutRequest) => Promise<void>;
   onUploadAsset: (file: File) => Promise<string>;
   onMoveCut: (cutId: string, position: { x: number; y: number }) => void;
-  onDeleteCut: (cutId: string) => Promise<void> | void;
+  onDeleteCut: (cutId: string, payload?: DeleteCutRequest) => Promise<void> | void;
   onCreateChoice: (cutId: string) => void;
   onCreateChoiceConnection: (cutId: string, targetCutId: string) => void;
   onUpdateChoice: (choiceId: string, patch: PatchChoiceRequest) => void;
   onConnectChoice: (choiceId: string, targetCutId: string) => void;
   onDeleteChoice: (choiceId: string) => void;
-  onDragEnd: (activeId: string, overId: string) => void;
+  onDragEnd: (payload: CutListDragPayload) => void;
   onSaveOrder: () => void;
   onValidate: () => void;
   onPublish: () => void;
@@ -134,6 +135,7 @@ export function EpisodeEditorShell({
       >
         {viewMode === 'list' ? (
           <CutListPanel
+            choices={choices}
             cuts={orderedCuts}
             onCreateCut={onCreateCut}
             onDeleteCut={onDeleteCut}

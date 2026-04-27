@@ -385,6 +385,78 @@ maybeDescribe('promptoon api integration', () => {
     expect(draft.body.choices[0].nextCutId).toBeNull();
   });
 
+  it('deletes a cut and reconnects incoming choices to the requested target cut', async () => {
+    const auth = await registerUser();
+    const project = await withAuth(request(app).post('/api/promptoon/projects'), auth.token).send({ title: 'Project A' });
+    const episode = await withAuth(request(app).post(`/api/promptoon/projects/${project.body.id}/episodes`), auth.token).send({
+      title: 'Episode 1',
+      episodeNo: 1
+    });
+    const startCut = await withAuth(request(app).post(`/api/promptoon/episodes/${episode.body.id}/cuts`), auth.token).send({
+      title: 'Start',
+      kind: 'scene',
+      isStart: true
+    });
+    const middleCut = await withAuth(request(app).post(`/api/promptoon/episodes/${episode.body.id}/cuts`), auth.token).send({
+      title: 'Middle',
+      kind: 'scene'
+    });
+    const endingCut = await withAuth(request(app).post(`/api/promptoon/episodes/${episode.body.id}/cuts`), auth.token).send({
+      title: 'End',
+      kind: 'ending',
+      isEnding: true
+    });
+    const incomingChoice = await withAuth(request(app).post(`/api/promptoon/cuts/${startCut.body.id}/choices`), auth.token).send({
+      label: 'Go',
+      nextCutId: middleCut.body.id
+    });
+
+    const deleteResponse = await withAuth(request(app).delete(`/api/promptoon/cuts/${middleCut.body.id}`), auth.token).send({
+      reconnectToCutId: endingCut.body.id
+    });
+    expect(deleteResponse.status).toBe(204);
+
+    const draft = await withAuth(request(app).get(`/api/promptoon/episodes/${episode.body.id}/draft`), auth.token);
+    expect(draft.body.cuts.some((cut: { id: string }) => cut.id === middleCut.body.id)).toBe(false);
+    expect(draft.body.choices.find((choice: { id: string }) => choice.id === incomingChoice.body.id).nextCutId).toBe(endingCut.body.id);
+  });
+
+  it('rejects invalid cut delete reconnect targets', async () => {
+    const auth = await registerUser();
+    const project = await withAuth(request(app).post('/api/promptoon/projects'), auth.token).send({ title: 'Project A' });
+    const episodeOne = await withAuth(request(app).post(`/api/promptoon/projects/${project.body.id}/episodes`), auth.token).send({
+      title: 'Episode 1',
+      episodeNo: 1
+    });
+    const episodeTwo = await withAuth(request(app).post(`/api/promptoon/projects/${project.body.id}/episodes`), auth.token).send({
+      title: 'Episode 2',
+      episodeNo: 2
+    });
+    const cut = await withAuth(request(app).post(`/api/promptoon/episodes/${episodeOne.body.id}/cuts`), auth.token).send({
+      title: 'Middle',
+      kind: 'scene'
+    });
+    const foreignCut = await withAuth(request(app).post(`/api/promptoon/episodes/${episodeTwo.body.id}/cuts`), auth.token).send({
+      title: 'Foreign',
+      kind: 'scene'
+    });
+
+    const selfReconnect = await withAuth(request(app).delete(`/api/promptoon/cuts/${cut.body.id}`), auth.token).send({
+      reconnectToCutId: cut.body.id
+    });
+    expect(selfReconnect.status).toBe(400);
+
+    const foreignReconnect = await withAuth(request(app).delete(`/api/promptoon/cuts/${cut.body.id}`), auth.token).send({
+      reconnectToCutId: foreignCut.body.id
+    });
+    expect(foreignReconnect.status).toBe(400);
+
+    const missingReconnect = await withAuth(request(app).delete(`/api/promptoon/cuts/${cut.body.id}`), auth.token).send({
+      reconnectToCutId: randomUUID()
+    });
+    expect(missingReconnect.status).toBe(400);
+  });
+
   it('reorders cuts with a batch endpoint', async () => {
     const auth = await registerUser();
     const project = await withAuth(request(app).post('/api/promptoon/projects'), auth.token).send({ title: 'Project A' });
