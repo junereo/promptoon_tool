@@ -323,9 +323,9 @@ export function CutEditorForm({
   }
 
   const dialoguePositionEditor = (
-    <div className="rounded-2xl border border-editor-border bg-black/10 p-4">
+    <div className="inspector-card rounded-2xl border border-editor-border bg-black/10 p-4">
       <p className="text-xs font-medium uppercase tracking-[0.2em] text-zinc-500">Dialogue Position</p>
-      <div className="mt-4 grid gap-4 md:grid-cols-3">
+      <div className="inspector-field-grid mt-4 grid gap-4">
         <div>
           <FieldLabel>Horizontal</FieldLabel>
           <select
@@ -386,7 +386,7 @@ export function CutEditorForm({
         </div>
       </div>
 
-      <div className="mt-4 grid gap-4 md:grid-cols-2">
+      <div className="inspector-field-grid mt-4 grid gap-4">
         <div>
           <FieldLabel>X</FieldLabel>
           <input
@@ -426,19 +426,16 @@ export function CutEditorForm({
         </div>
       </div>
 
-      <p className="mt-3 text-xs text-zinc-500">
-        위치 기준은 선택한 화면 가장자리이며, X/Y 값은 화면 밖으로 나가지 않도록 안전 범위 안에서만 적용됩니다.
-      </p>
     </div>
   );
 
   return (
     <>
-      <section className="rounded-[24px] border border-editor-border bg-black/10 p-4">
-        <div className="flex items-start justify-between gap-3">
+      <section className="inspector-card rounded-[24px] border border-editor-border bg-black/10 p-4">
+        <div className="flex items-center justify-between gap-2">
           <div>
-            <p className="font-display text-xl font-semibold text-zinc-50">Inspector</p>
-            <p className="mt-1 text-sm text-zinc-400">
+            <p className="font-display text-lg font-semibold text-zinc-50">Inspector</p>
+            <p className="mt-0.5 text-xs text-zinc-400">
               {pendingAutosaveCount > 0 ? `Saving ${pendingAutosaveCount} change(s)...` : 'Autosaves after 500ms idle.'}
             </p>
           </div>
@@ -451,7 +448,7 @@ export function CutEditorForm({
           </button>
         </div>
 
-        <div className="mt-5 space-y-5">
+        <div className="mt-4 space-y-4">
           <div>
             <FieldLabel>Title</FieldLabel>
             <input
@@ -473,8 +470,8 @@ export function CutEditorForm({
 
           {!dialoguePositionPortalTarget ? dialoguePositionEditor : null}
 
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-            <div className="space-y-4">
+          <div className="inspector-form-grid grid gap-4">
+            <div className="inspector-field-grid grid gap-4">
               <div>
                 <FieldLabel>Kind</FieldLabel>
                 <select
@@ -714,11 +711,7 @@ export function CutEditorForm({
             </div>
           </div>
 
-          <p className="rounded-2xl border border-editor-border bg-black/10 px-4 py-3 text-xs leading-6 text-zinc-400">
-            Start Effect는 이 컷이 나타날 때, End Effect는 다음 컷으로 넘어가며 이 컷이 사라질 때 적용됩니다. 각 Duration은 해당 효과의 지속 시간입니다.
-          </p>
-
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="inspector-field-grid grid gap-4">
             <label className="flex items-center gap-3 rounded-2xl border border-editor-border bg-black/10 px-4 py-3 text-sm text-zinc-300">
               <input
                 checked={formState.isStart}

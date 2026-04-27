@@ -142,21 +142,21 @@ export function PreviewPlayer({
   }
 
   return (
-    <section className="flex h-full min-h-0 flex-col rounded-[32px] border border-editor-border bg-editor-panel/80 p-5">
+    <section className="flex h-full min-h-0 flex-col rounded-[24px] border border-editor-border bg-editor-panel/80 p-3">
       <div>
         <p className="font-display text-xl font-semibold text-zinc-50">Live Preview</p>
-        <p className="text-sm text-zinc-400">Dynamic phone-frame preview synced with the current editor selection.</p>
+        <p className="text-xs text-zinc-400">Dynamic phone-frame preview synced with the current editor selection.</p>
       </div>
 
-      <div className="mt-6 flex min-h-0 flex-1 items-start justify-center">
+      <div className="mt-3 flex min-h-0 flex-1 items-start justify-center">
         {!cut ? (
-          <div className="flex h-full min-h-[420px] w-full items-center justify-center rounded-[32px] border border-dashed border-editor-border bg-black/10 text-center text-sm text-zinc-500">
+          <div className="flex h-full min-h-[360px] w-full items-center justify-center rounded-[20px] border border-dashed border-editor-border bg-black/10 text-center text-sm text-zinc-500">
             표시할 컷이 없습니다.
           </div>
         ) : (
           <div
             ref={phoneFrameRef}
-            className="relative aspect-[9/16] max-h-full w-full max-w-full overflow-hidden rounded-[2.5rem] border-[8px] border-editor-panel bg-black shadow-phone"
+            className="relative aspect-[9/16] max-h-full w-full max-w-full overflow-hidden rounded-[2rem] border-[6px] border-editor-panel bg-black shadow-phone"
           >
             <AnimatePresence initial={false} mode="wait">
               <motion.div

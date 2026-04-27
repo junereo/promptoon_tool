@@ -13,7 +13,7 @@ import {
   type NodeTypes,
   type NodeMouseHandler
 } from '@xyflow/react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 
 import { AddCutPlaceholderNode } from './AddCutPlaceholderNode';
 import { CutNode } from './CutNode';
@@ -127,7 +127,16 @@ function BranchCanvasInner({
   const { fitView, getZoom, setCenter } = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState<BranchFlowNode>(buildFlowNodes(cuts, choices, selected, onCreateLinkedCut));
   const edges = mapChoicesToFlowEdges(choices, selected);
+  const graphFitKey = useMemo(
+    () =>
+      JSON.stringify({
+        cuts: cuts.map((cut) => [cut.id, cut.positionX ?? null, cut.positionY ?? null]),
+        choices: choices.map((choice) => [choice.id, choice.cutId, choice.nextCutId ?? null])
+      }),
+    [choices, cuts]
+  );
   const lastFocusedSelectionRef = useRef<string | null>(null);
+  const skipNextSelectionFocusRef = useRef<string | null>(null);
   const canvasFrameRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -166,14 +175,14 @@ function BranchCanvasInner({
         duration: 280,
         maxZoom: 1.2,
         minZoom: 0.45,
-        padding: 0.18
+        padding: 0.08
       });
     });
 
     return () => {
       window.cancelAnimationFrame(frameId);
     };
-  }, [cuts, edges.length, fitView]);
+  }, [cuts.length, fitView, graphFitKey]);
 
   function handleConnect(connection: Connection) {
     if (!isValidGraphConnection(connection)) {
@@ -198,14 +207,6 @@ function BranchCanvasInner({
       return;
     }
 
-    if (typeof canvasFrameRef.current?.scrollIntoView === 'function') {
-      canvasFrameRef.current.scrollIntoView({
-        behavior: 'smooth',
-        block: 'center',
-        inline: 'nearest'
-      });
-    }
-
     void setCenter(point.x, point.y, {
       duration: 260,
       zoom: Math.max(getZoom(), 0.85)
@@ -216,6 +217,13 @@ function BranchCanvasInner({
     const selectionKey = selected.type === 'none' ? null : `${selected.type}:${selected.id}`;
     if (!selectionKey) {
       lastFocusedSelectionRef.current = null;
+      skipNextSelectionFocusRef.current = null;
+      return;
+    }
+
+    if (skipNextSelectionFocusRef.current === selectionKey) {
+      lastFocusedSelectionRef.current = selectionKey;
+      skipNextSelectionFocusRef.current = null;
       return;
     }
 
@@ -256,15 +264,16 @@ function BranchCanvasInner({
       return;
     }
 
+    skipNextSelectionFocusRef.current = `cut:${node.id}`;
     onSelectCut(node.id);
-    focusPoint(getNodeCenter(node));
+    canvasFrameRef.current?.focus();
   };
 
   function handleEdgeClick(_event: React.MouseEvent, edge: Edge) {
     const choiceId = edge.id.replace(/^edge-/, '');
+    skipNextSelectionFocusRef.current = `choice:${choiceId}`;
     onSelectChoice(choiceId);
     canvasFrameRef.current?.focus();
-    focusPoint(getEdgeCenter(edge, nodes));
   }
 
   function handleNodeDragStop(_event: React.MouseEvent, node: BranchFlowNode) {
@@ -279,7 +288,7 @@ function BranchCanvasInner({
     return (
       <button
         className={[
-          'rounded-full px-3 py-1.5 text-xs font-medium transition',
+          'rounded-full px-2.5 py-1 text-xs font-medium transition',
           layoutMode === mode ? 'bg-zinc-100 text-zinc-950' : 'text-zinc-300 hover:text-white'
         ].join(' ')}
         onClick={() => onApplyLayout(mode)}
@@ -291,26 +300,25 @@ function BranchCanvasInner({
   }
 
   return (
-    <section className="flex h-[780px] min-h-[780px] self-start flex-col rounded-[32px] border border-editor-border bg-editor-panel/80 p-4">
-      <div className="mb-4 flex items-center justify-between gap-3 px-2">
+    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-[20px] border border-editor-border bg-editor-panel/80 p-2">
+      <div className="mb-1.5 flex items-center justify-between gap-2 px-1">
         <div>
-          <p className="font-display text-xl font-semibold text-zinc-50">Branch Graph</p>
-          <p className="text-sm text-zinc-400">Design the episode flow by moving cuts and reconnecting existing choices.</p>
+          <p className="font-display text-lg font-semibold text-zinc-50">Branch Graph</p>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
           <div className="inline-flex rounded-full border border-editor-border bg-black/20 p-1">
             {renderLayoutButton('custom', 'Custom')}
             {renderLayoutButton('vertical', 'Vertical')}
             {renderLayoutButton('horizontal', 'Horizontal')}
           </div>
-          <div className="rounded-full border border-editor-border bg-black/10 px-3 py-2 text-xs uppercase tracking-[0.2em] text-zinc-500">
+          <div className="rounded-full border border-editor-border bg-black/10 px-2.5 py-1.5 text-xs uppercase tracking-[0.18em] text-zinc-500">
             {cuts.length} nodes / {edges.length} edges
           </div>
         </div>
       </div>
 
       <div
-        className="relative h-[720px] min-h-[720px] flex-1 overflow-hidden rounded-[28px] border border-editor-border bg-[#121217]"
+        className="relative min-h-0 flex-1 overflow-hidden rounded-[20px] border border-editor-border bg-[#121217]"
         data-testid="branch-canvas"
         ref={canvasFrameRef}
         tabIndex={0}
@@ -331,7 +339,7 @@ function BranchCanvasInner({
           defaultEdgeOptions={{ animated: true }}
           edges={edges}
           fitView
-          fitViewOptions={{ maxZoom: 1.2, minZoom: 0.45, padding: 0.18 }}
+          fitViewOptions={{ maxZoom: 1.2, minZoom: 0.45, padding: 0.08 }}
           isValidConnection={isValidGraphConnection}
           maxZoom={1.8}
           minZoom={0.3}

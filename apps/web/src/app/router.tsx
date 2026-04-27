@@ -25,23 +25,23 @@ function AppShell() {
   }
 
   return (
-    <div className="min-h-screen">
-      <header className="border-b border-editor-border/80 bg-black/20 backdrop-blur">
-        <div className="flex w-full items-center justify-between px-4 py-4 sm:px-6">
+    <div className="flex h-screen flex-col overflow-hidden">
+      <header className="shrink-0 border-b border-editor-border/80 bg-black/20 backdrop-blur">
+        <div className="flex w-full items-center justify-between px-3 py-2.5 sm:px-4">
           <div>
-            <p className="font-display text-xl font-semibold tracking-tight text-zinc-50">Promptoon Authoring</p>
-            <p className="text-sm text-zinc-400">State-first interactive episode editor</p>
+            <p className="font-display text-lg font-semibold tracking-tight text-zinc-50">Promptoon Authoring</p>
+            <p className="text-xs text-zinc-400">State-first interactive episode editor</p>
           </div>
 
-          <div className="flex items-center gap-3">
-            <p className="rounded-full border border-editor-border bg-black/20 px-3 py-2 text-xs uppercase tracking-[0.18em] text-zinc-400">
+          <div className="flex items-center gap-2">
+            <p className="rounded-full border border-editor-border bg-black/20 px-2.5 py-1.5 text-xs uppercase tracking-[0.18em] text-zinc-400">
               {user?.loginId ?? 'anonymous'}
             </p>
             <Link className="text-sm text-zinc-400 transition hover:text-zinc-200" to="/promptoon/projects">
               Home
             </Link>
             <button
-              className="rounded-full border border-editor-border bg-black/20 px-4 py-2 text-sm text-zinc-300 transition hover:border-zinc-500 hover:text-white"
+              className="rounded-full border border-editor-border bg-black/20 px-3 py-1.5 text-sm text-zinc-300 transition hover:border-zinc-500 hover:text-white"
               onClick={handleLogout}
               type="button"
             >
@@ -50,7 +50,9 @@ function AppShell() {
           </div>
         </div>
       </header>
-      <Outlet />
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <Outlet />
+      </div>
     </div>
   );
 }

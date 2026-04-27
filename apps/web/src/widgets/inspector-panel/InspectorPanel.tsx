@@ -7,7 +7,7 @@ import { CutEditorForm } from './CutEditorForm';
 
 function EmptyState() {
   return (
-    <section className="flex h-full flex-col items-center justify-center rounded-[28px] border border-editor-border bg-editor-panel/85 p-6 text-center">
+    <section className="flex h-full flex-col items-center justify-center rounded-[22px] border border-editor-border bg-editor-panel/85 p-4 text-center">
       <div className="flex h-24 w-24 items-center justify-center rounded-full border border-editor-border bg-black/20 text-4xl text-zinc-500">
         P
       </div>
@@ -21,7 +21,7 @@ function EmptyState() {
 
 function EmptyChoiceState() {
   return (
-    <section className="rounded-[24px] border border-editor-border bg-black/10 p-4">
+    <section className="rounded-[18px] border border-editor-border bg-black/10 p-3">
       <div>
         <p className="font-medium text-zinc-100">Branching</p>
         <p className="mt-2 text-sm leading-7 text-zinc-500">
@@ -93,13 +93,13 @@ export function InspectorPanel({
     <section
       className={
         isGraphMode
-          ? 'flex h-full min-h-0 flex-col gap-5 overflow-y-auto rounded-[28px] border border-editor-border bg-editor-panel/85 p-5'
-          : 'grid h-full min-h-0 gap-5 overflow-hidden rounded-[28px] border border-editor-border bg-editor-panel/85 p-5 xl:grid-cols-2'
+          ? 'inspector-compact inspector-frame flex h-full max-h-full min-h-0 flex-col gap-2 overflow-y-auto overscroll-contain rounded-[16px] border border-editor-border bg-editor-panel/85 p-2.5'
+          : 'inspector-compact inspector-frame grid h-full min-h-0 gap-3 overflow-hidden rounded-[16px] border border-editor-border bg-editor-panel/85 p-3 xl:grid-cols-2'
       }
       data-inspector-layout={isGraphMode ? 'graph' : 'list'}
       data-testid="inspector-panel"
     >
-      <div className={isGraphMode ? 'min-h-0' : 'min-h-0 overflow-y-auto pr-1'}>
+      <div className={isGraphMode ? 'shrink-0' : 'min-h-0 overflow-y-auto pr-1'}>
         <CutEditorForm
           cut={selectedCut}
           dialoguePositionPortalTarget={dialoguePositionPortalTarget}
@@ -112,7 +112,7 @@ export function InspectorPanel({
         />
       </div>
 
-      <div className={isGraphMode ? 'flex flex-col gap-5' : 'flex min-h-0 flex-col gap-5 overflow-y-auto pr-1'}>
+      <div className={isGraphMode ? 'flex shrink-0 flex-col gap-3' : 'flex min-h-0 flex-col gap-3 overflow-y-auto pr-1'}>
         {!isGraphMode ? <div ref={setDialoguePositionPortalTarget} /> : null}
         {showChoiceEditor ? (
           <ChoiceEditorSection

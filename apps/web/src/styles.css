@@ -21,6 +21,12 @@ body {
   @apply min-h-screen;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+}
+
 button,
 input,
 textarea,
@@ -41,6 +47,147 @@ select {
   display: none;
   height: 0;
   width: 0;
+}
+
+.inspector-compact :is(input:not([type='checkbox']), select, textarea) {
+  border-radius: 0.75rem;
+  font-size: 0.8125rem;
+  line-height: 1.2rem;
+  padding: 0.45rem 0.65rem;
+}
+
+.inspector-frame {
+  container-name: inspector;
+  container-type: inline-size;
+}
+
+.inspector-field-grid {
+  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+}
+
+.inspector-form-grid {
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+}
+
+.inspector-style-grid {
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+}
+
+.inspector-choice-grid {
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+}
+
+.inspector-compact textarea {
+  min-height: 4.25rem;
+}
+
+.inspector-compact :is(button, label[for^='cut-asset-upload']) {
+  border-radius: 0.75rem;
+  font-size: 0.8125rem;
+  line-height: 1.2rem;
+  padding: 0.4rem 0.65rem;
+}
+
+.inspector-compact :is(.space-y-5 > :not([hidden]) ~ :not([hidden])) {
+  margin-top: 0.75rem;
+}
+
+.inspector-compact :is(.space-y-4 > :not([hidden]) ~ :not([hidden])) {
+  margin-top: 0.6rem;
+}
+
+.inspector-compact :is(.space-y-3 > :not([hidden]) ~ :not([hidden])) {
+  margin-top: 0.45rem;
+}
+
+.inspector-compact :is(.mt-5) {
+  margin-top: 0.75rem;
+}
+
+.inspector-compact :is(.mt-4) {
+  margin-top: 0.6rem;
+}
+
+.inspector-compact :is(.mt-3) {
+  margin-top: 0.55rem;
+}
+
+.inspector-compact :is(.gap-5) {
+  gap: 0.9rem;
+}
+
+.inspector-compact :is(.gap-4) {
+  gap: 0.75rem;
+}
+
+.inspector-compact :is(.gap-3) {
+  gap: 0.55rem;
+}
+
+.inspector-compact :is(.rounded-\[24px\], .rounded-\[26px\]) {
+  border-radius: 1rem;
+}
+
+.inspector-compact :is(.rounded-2xl) {
+  border-radius: 0.8rem;
+}
+
+.inspector-compact :is(.p-4) {
+  padding: 0.75rem;
+}
+
+.inspector-compact :is(.p-3) {
+  padding: 0.6rem;
+}
+
+.inspector-compact :is(.px-4) {
+  padding-left: 0.7rem;
+  padding-right: 0.7rem;
+}
+
+.inspector-compact :is(.py-3) {
+  padding-bottom: 0.55rem;
+  padding-top: 0.55rem;
+}
+
+.inspector-compact :is(.py-2) {
+  padding-bottom: 0.4rem;
+  padding-top: 0.4rem;
+}
+
+.inspector-compact :is(.min-h-24, .min-h-\[96px\]) {
+  min-height: 4.25rem;
+}
+
+.inspector-compact :is(.min-h-20, .min-h-\[72px\]) {
+  min-height: 4rem;
+}
+
+.inspector-compact :is(.h-44, .h-40) {
+  height: 6.5rem;
+}
+
+.inspector-compact :is(.h-36, .h-32) {
+  height: 5.75rem;
+}
+
+@container inspector (max-width: 420px) {
+  .inspector-form-grid,
+  .inspector-style-grid,
+  .inspector-field-grid,
+  .inspector-choice-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .inspector-compact :is(.font-display.text-lg, .font-display.text-xl) {
+    font-size: 1rem;
+    line-height: 1.35rem;
+  }
+
+  .inspector-compact :is(.text-sm) {
+    font-size: 0.75rem;
+    line-height: 1rem;
+  }
 }
 
 .feed-viewport-frame {

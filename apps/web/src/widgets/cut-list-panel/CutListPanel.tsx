@@ -306,14 +306,14 @@ export function CutListPanel({
 
   return (
     <>
-      <section className="flex h-full flex-col rounded-[28px] border border-editor-border bg-editor-panel/85 p-5">
-        <div className="flex items-center justify-between gap-3">
+      <section className="flex h-full min-h-0 flex-col rounded-[22px] border border-editor-border bg-editor-panel/85 p-3">
+        <div className="flex items-center justify-between gap-2">
           <div>
             <p className="font-display text-xl font-semibold text-zinc-50">Cut List</p>
-            <p className="text-sm text-zinc-400">Drag to reorder. Select, delete, and build the episode flow.</p>
+            <p className="text-xs text-zinc-400">Drag to reorder. Select, delete, and build the episode flow.</p>
           </div>
           <button
-            className="rounded-full bg-editor-accent px-4 py-2 text-sm font-medium text-white transition hover:bg-editor-accentSoft"
+            className="rounded-full bg-editor-accent px-3 py-1.5 text-sm font-medium text-white transition hover:bg-editor-accentSoft"
             onClick={() => onCreateCut()}
             type="button"
           >
@@ -321,27 +321,27 @@ export function CutListPanel({
           </button>
         </div>
 
-        <div className="mt-4 rounded-2xl border border-editor-border bg-black/10 px-4 py-3 text-xs uppercase tracking-[0.24em] text-zinc-500">
+        <div className="mt-3 rounded-xl border border-editor-border bg-black/10 px-3 py-2 text-xs uppercase tracking-[0.2em] text-zinc-500">
           {cuts.length} cut{cuts.length === 1 ? '' : 's'}
         </div>
 
-        <div className="mt-5 min-h-0 flex-1 overflow-y-auto pr-1">
+        <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
           {cuts.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-editor-border p-6 text-sm text-zinc-500">
+            <div className="rounded-xl border border-dashed border-editor-border p-4 text-sm text-zinc-500">
               No cuts yet. Create the first scene to start the episode flow.
             </div>
           ) : (
             <DndContext collisionDetection={closestCenter} sensors={sensors} onDragEnd={handleDragEnd}>
               <SortableContext items={visibleNodes.map((node) => node.cut.id)} strategy={verticalListSortingStrategy}>
-                <div className="space-y-4">
+                <div className="space-y-3">
                   {branchGroups.map((group) => {
                     const isCollapsed = collapsedBranchGroupKeys.has(group.key);
 
                     return (
-                      <div key={group.instanceKey} className="rounded-2xl border border-editor-border/70 bg-black/10 p-2">
+                      <div key={group.instanceKey} className="rounded-xl border border-editor-border/70 bg-black/10 p-1.5">
                         <button
                           aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} group ${group.key}`}
-                          className="mb-2 flex w-full items-center justify-between gap-3 rounded-xl px-2 py-2 text-left transition hover:bg-white/[0.03]"
+                          className="mb-1.5 flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-white/[0.03]"
                           onClick={() => {
                             setCollapsedBranchGroupKeys((current) => {
                               const next = new Set(current);
@@ -373,8 +373,8 @@ export function CutListPanel({
                         {isCollapsed ? null : (
                           <div className="space-y-2">
                             {group.contextNode ? (
-                              <div className="rounded-xl border border-dashed border-editor-border/70 bg-black/15 p-1.5">
-                                <div className="mb-1.5 truncate px-2 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-500">
+                              <div className="rounded-lg border border-dashed border-editor-border/70 bg-black/15 p-1">
+                                <div className="mb-1 truncate px-2 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-500">
                                   {group.contextNode.cut.title}
                                   {' '}
                                   -&gt;
@@ -398,10 +398,10 @@ export function CutListPanel({
                               const isSectionCollapsed = collapsedChoiceSectionKeys.has(section.key);
 
                               return (
-                                <div key={section.key} className="rounded-xl border border-editor-border/50 bg-black/10 p-1.5">
+                                <div key={section.key} className="rounded-lg border border-editor-border/50 bg-black/10 p-1">
                                   <button
                                     aria-label={`${isSectionCollapsed ? 'Expand' : 'Collapse'} flow ${section.label}`}
-                                    className="mb-1.5 flex w-full items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-left transition hover:bg-white/[0.03]"
+                                    className="mb-1 flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left transition hover:bg-white/[0.03]"
                                     onClick={() => {
                                       setCollapsedChoiceSectionKeys((current) => {
                                         const next = new Set(current);
@@ -429,7 +429,7 @@ export function CutListPanel({
                                   </button>
 
                                   {isSectionCollapsed ? null : (
-                                    <div className="space-y-3">
+                                    <div className="space-y-2">
                                       {section.nodes.map((node) => (
                                         <SortableCutItem
                                           key={node.cut.id}

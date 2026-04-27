@@ -6,6 +6,14 @@ import type {
   PatchChoiceRequest,
   PatchCutRequest
 } from '@promptoon/shared';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent
+} from 'react';
 
 import { CutListPanel, type CutListDragPayload } from '../cut-list-panel/CutListPanel';
 import { InspectorPanel } from '../inspector-panel/InspectorPanel';
@@ -13,6 +21,15 @@ import { BranchCanvas } from '../branch-canvas/BranchCanvas';
 import type { GraphLayoutMode } from '../branch-canvas/graph-layout';
 import { PreviewPlayer } from '../preview-phone-frame/PreviewPlayer';
 import { EditorToolbar } from './EditorToolbar';
+
+const DEFAULT_GRAPH_INSPECTOR_PERCENT = 30;
+const MIN_GRAPH_INSPECTOR_PERCENT = 24;
+const MAX_GRAPH_INSPECTOR_PERCENT = 45;
+const GRAPH_SPLIT_STEP_PERCENT = 2;
+
+function clampGraphInspectorPercent(value: number): number {
+  return Math.min(MAX_GRAPH_INSPECTOR_PERCENT, Math.max(MIN_GRAPH_INSPECTOR_PERCENT, value));
+}
 
 export function EpisodeEditorShell({
   activeTab,
@@ -109,8 +126,104 @@ export function EpisodeEditorShell({
   onOpenScriptEditor: () => void;
   onToggleViewMode: () => void;
 }) {
+  const graphSplitFrameRef = useRef<HTMLDivElement | null>(null);
+  const isDraggingGraphSplitRef = useRef(false);
+  const [graphInspectorPercent, setGraphInspectorPercent] = useState(DEFAULT_GRAPH_INSPECTOR_PERCENT);
+
+  const updateGraphInspectorPercentFromClientX = useCallback((clientX: number) => {
+    const frame = graphSplitFrameRef.current;
+    if (!frame) {
+      return;
+    }
+
+    const frameRect = frame.getBoundingClientRect();
+    if (frameRect.width <= 0) {
+      return;
+    }
+
+    const nextInspectorPercent = ((frameRect.right - clientX) / frameRect.width) * 100;
+    setGraphInspectorPercent(Math.round(clampGraphInspectorPercent(nextInspectorPercent)));
+  }, []);
+
+  useEffect(() => {
+    function handlePointerMove(event: PointerEvent) {
+      if (!isDraggingGraphSplitRef.current) {
+        return;
+      }
+
+      event.preventDefault();
+      updateGraphInspectorPercentFromClientX(event.clientX);
+    }
+
+    function handlePointerUp() {
+      if (!isDraggingGraphSplitRef.current) {
+        return;
+      }
+
+      isDraggingGraphSplitRef.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+
+    return () => {
+      isDraggingGraphSplitRef.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [updateGraphInspectorPercentFromClientX]);
+
+  function handleGraphSplitPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) {
+      return;
+    }
+
+    event.preventDefault();
+    isDraggingGraphSplitRef.current = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    updateGraphInspectorPercentFromClientX(event.clientX);
+  }
+
+  function handleGraphSplitKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight' && event.key !== 'Home' && event.key !== 'End') {
+      return;
+    }
+
+    event.preventDefault();
+
+    if (event.key === 'Home') {
+      setGraphInspectorPercent(DEFAULT_GRAPH_INSPECTOR_PERCENT);
+      return;
+    }
+
+    if (event.key === 'End') {
+      setGraphInspectorPercent(MAX_GRAPH_INSPECTOR_PERCENT);
+      return;
+    }
+
+    setGraphInspectorPercent((current) =>
+      clampGraphInspectorPercent(current + (event.key === 'ArrowLeft' ? GRAPH_SPLIT_STEP_PERCENT : -GRAPH_SPLIT_STEP_PERCENT))
+    );
+  }
+
+  const graphSplitGridStyle = {
+    gridTemplateColumns: `minmax(0, calc(${100 - graphInspectorPercent}% - 6px)) 12px minmax(300px, calc(${graphInspectorPercent}% - 6px))`
+  };
+
   return (
-    <main className="flex w-full flex-col gap-6 px-4 py-8 sm:px-6">
+    <main
+      className={[
+        'flex w-full flex-col px-3 sm:px-4 lg:px-5',
+        viewMode === 'graph'
+          ? 'h-[calc(100dvh-65px)] max-h-[calc(100dvh-65px)] min-h-0 gap-2 overflow-hidden py-2'
+          : 'min-h-[calc(100dvh-64px)] gap-4 py-4'
+      ].join(' ')}
+    >
       <EditorToolbar
         activeTab={activeTab}
         episodeStatus={episodeStatus}
@@ -132,15 +245,65 @@ export function EpisodeEditorShell({
         viewMode={viewMode}
       />
 
-      <section
-        className={[
-          'grid min-h-[780px] gap-6',
-          viewMode === 'graph'
-            ? 'items-start xl:grid-cols-[minmax(0,1fr)_420px]'
-            : 'xl:grid-cols-[320px_minmax(240px,0.5fr)_minmax(760px,1fr)]'
-        ].join(' ')}
-      >
-        {viewMode === 'list' ? (
+      {viewMode === 'graph' ? (
+        <section
+          className="grid h-full min-h-0 flex-1 grid-rows-[minmax(0,1fr)] overflow-hidden"
+          data-testid="graph-split-frame"
+          ref={graphSplitFrameRef}
+          style={graphSplitGridStyle}
+        >
+          <div className="h-full min-h-0 min-w-0 overflow-hidden" data-testid="graph-pane">
+            <BranchCanvas
+              choices={choices}
+              cuts={orderedCuts}
+              layoutMode={graphLayoutMode}
+              onApplyLayout={onApplyGraphLayout}
+              onCreateChoiceConnection={onCreateChoiceConnection}
+              onCreateLinkedCut={onCreateLinkedCut}
+              onConnectChoice={onConnectChoice}
+              onDeleteChoice={onDeleteChoice}
+              onMoveCut={onMoveCut}
+              onSelectChoice={onSelectChoice}
+              onSelectCut={onSelectCut}
+              selected={selected}
+            />
+          </div>
+          <div
+            aria-label="Resize graph and inspector panels"
+            aria-orientation="vertical"
+            aria-valuemax={MAX_GRAPH_INSPECTOR_PERCENT}
+            aria-valuemin={MIN_GRAPH_INSPECTOR_PERCENT}
+            aria-valuenow={graphInspectorPercent}
+            className="group flex cursor-col-resize items-stretch justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-editor-accentSoft"
+            data-testid="graph-splitter"
+            onKeyDown={handleGraphSplitKeyDown}
+            onPointerDown={handleGraphSplitPointerDown}
+            role="separator"
+            tabIndex={0}
+          >
+            <span className="my-2 w-px rounded-full bg-editor-border transition group-hover:bg-editor-accentSoft group-focus-visible:bg-editor-accentSoft" />
+          </div>
+          <div className="h-full min-h-0 min-w-0 overflow-hidden" data-testid="graph-inspector-pane">
+            <InspectorPanel
+              cuts={orderedCuts}
+              choices={choices}
+              onCreateChoice={onCreateChoice}
+              onCommitCut={onCommitCut}
+              onDeleteChoice={onDeleteChoice}
+              onDeleteCut={onDeleteCut}
+              onSelectChoice={onSelectChoice}
+              onUpdateChoice={onUpdateChoice}
+              onUpdateCut={onUpdateCut}
+              onUploadAsset={onUploadAsset}
+              pendingAutosaveCount={pendingAutosaveCount}
+              selectedChoice={selectedChoice}
+              selectedCut={selectedCut}
+              viewMode={viewMode}
+            />
+          </div>
+        </section>
+      ) : (
+        <section className="grid min-h-[640px] flex-1 gap-4 xl:grid-cols-[300px_minmax(220px,0.45fr)_minmax(560px,1fr)]">
           <CutListPanel
             choices={choices}
             cuts={orderedCuts}
@@ -150,23 +313,6 @@ export function EpisodeEditorShell({
             onSelectCut={onSelectCut}
             selectedCutId={selectedCut?.id ?? null}
           />
-        ) : (
-          <BranchCanvas
-            choices={choices}
-            cuts={orderedCuts}
-            layoutMode={graphLayoutMode}
-            onApplyLayout={onApplyGraphLayout}
-            onCreateChoiceConnection={onCreateChoiceConnection}
-            onCreateLinkedCut={onCreateLinkedCut}
-            onConnectChoice={onConnectChoice}
-            onDeleteChoice={onDeleteChoice}
-            onMoveCut={onMoveCut}
-            onSelectChoice={onSelectChoice}
-            onSelectCut={onSelectCut}
-            selected={selected}
-          />
-        )}
-        {viewMode === 'list' ? (
           <PreviewPlayer
             choices={previewChoices}
             cut={previewCut}
@@ -174,24 +320,24 @@ export function EpisodeEditorShell({
             onSelectCut={onPreviewSelectCut}
             selectedChoiceId={previewSelectedChoiceId}
           />
-        ) : null}
-        <InspectorPanel
-          cuts={orderedCuts}
-          choices={choices}
-          onCreateChoice={onCreateChoice}
-          onCommitCut={onCommitCut}
-          onDeleteChoice={onDeleteChoice}
-          onDeleteCut={onDeleteCut}
-          onSelectChoice={onSelectChoice}
-          onUpdateChoice={onUpdateChoice}
-          onUpdateCut={onUpdateCut}
-          onUploadAsset={onUploadAsset}
-          pendingAutosaveCount={pendingAutosaveCount}
-          selectedChoice={selectedChoice}
-          selectedCut={selectedCut}
-          viewMode={viewMode}
-        />
-      </section>
+          <InspectorPanel
+            cuts={orderedCuts}
+            choices={choices}
+            onCreateChoice={onCreateChoice}
+            onCommitCut={onCommitCut}
+            onDeleteChoice={onDeleteChoice}
+            onDeleteCut={onDeleteCut}
+            onSelectChoice={onSelectChoice}
+            onUpdateChoice={onUpdateChoice}
+            onUpdateCut={onUpdateCut}
+            onUploadAsset={onUploadAsset}
+            pendingAutosaveCount={pendingAutosaveCount}
+            selectedChoice={selectedChoice}
+            selectedCut={selectedCut}
+            viewMode={viewMode}
+          />
+        </section>
+      )}
     </main>
   );
 }

@@ -48,29 +48,26 @@ export function EditorToolbar({
   const saveActionLabel = viewMode === 'graph' ? 'Save Layout' : 'Save Order';
 
   return (
-    <section className="rounded-[32px] border border-editor-border bg-editor-panel/80 p-6">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-        <div className="flex items-start gap-4">
+    <section className="rounded-[24px] border border-editor-border bg-editor-panel/80 p-4">
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        <div className="flex items-start gap-3">
           <button
-            className="rounded-full border border-editor-border px-4 py-2 text-sm text-zinc-200 transition hover:border-zinc-500"
+            className="rounded-full border border-editor-border px-3 py-1.5 text-sm text-zinc-200 transition hover:border-zinc-500"
             onClick={onBack}
             type="button"
           >
             Back to Dashboard
           </button>
           <div>
-            <p className="font-display text-3xl font-semibold tracking-tight text-zinc-50">{episodeTitle}</p>
-            <p className="mt-2 text-sm text-zinc-400">
-              {viewMode === 'list' ? 'List mode is active.' : 'Graph mode toggle is reserved for Phase 2.'}
-            </p>
+            <p className="font-display text-2xl font-semibold tracking-tight text-zinc-50">{episodeTitle}</p>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="inline-flex rounded-full border border-editor-border bg-black/20 p-1">
             <button
               className={[
-                'rounded-full px-4 py-2 text-sm transition',
+                'rounded-full px-3 py-1.5 text-sm transition',
                 activeTab === 'editor' ? 'bg-zinc-100 text-zinc-950' : 'text-zinc-300 hover:text-white'
               ].join(' ')}
               onClick={() => {
@@ -84,7 +81,7 @@ export function EditorToolbar({
             </button>
             <button
               className={[
-                'rounded-full px-4 py-2 text-sm transition',
+                'rounded-full px-3 py-1.5 text-sm transition',
                 activeTab === 'analytics' ? 'bg-zinc-100 text-zinc-950' : 'text-zinc-300 hover:text-white'
               ].join(' ')}
               onClick={() => {
@@ -100,7 +97,7 @@ export function EditorToolbar({
           <div className="inline-flex rounded-full border border-editor-border bg-black/20 p-1">
             <button
               className={[
-                'rounded-full px-4 py-2 text-sm transition',
+                'rounded-full px-3 py-1.5 text-sm transition',
                 viewMode === 'list' ? 'bg-zinc-100 text-zinc-950' : 'text-zinc-300 hover:text-white'
               ].join(' ')}
               onClick={() => {
@@ -114,7 +111,7 @@ export function EditorToolbar({
             </button>
             <button
               className={[
-                'rounded-full px-4 py-2 text-sm transition',
+                'rounded-full px-3 py-1.5 text-sm transition',
                 viewMode === 'graph' ? 'bg-zinc-100 text-zinc-950' : 'text-zinc-300 hover:text-white'
               ].join(' ')}
               onClick={() => {
@@ -128,7 +125,7 @@ export function EditorToolbar({
             </button>
           </div>
           <button
-            className="rounded-full border border-editor-border px-4 py-2 text-sm text-zinc-200 transition hover:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-full border border-editor-border px-3 py-1.5 text-sm text-zinc-200 transition hover:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-60"
             disabled={isValidating || isPublishing}
             onClick={onValidate}
             type="button"
@@ -136,7 +133,7 @@ export function EditorToolbar({
             {isValidating ? 'Validating...' : 'Validate'}
           </button>
           <button
-            className="rounded-full border border-editor-border px-4 py-2 text-sm text-zinc-200 transition hover:border-zinc-500"
+            className="rounded-full border border-editor-border px-3 py-1.5 text-sm text-zinc-200 transition hover:border-zinc-500"
             onClick={onOpenScriptEditor}
             type="button"
           >
@@ -144,7 +141,7 @@ export function EditorToolbar({
           </button>
           <button
             className={[
-              'rounded-full px-4 py-2 text-sm font-medium transition',
+              'rounded-full px-3 py-1.5 text-sm font-medium transition',
               isDirty ? 'bg-zinc-100 text-zinc-950 hover:bg-white animate-pulse' : 'border border-editor-border text-zinc-500',
               highlightSaveOrder ? 'animate-bounce' : ''
             ].join(' ')}
@@ -155,16 +152,19 @@ export function EditorToolbar({
             {saveActionLabel}
           </button>
           <button
-            className="rounded-full bg-editor-accent px-4 py-2 text-sm font-medium text-white transition hover:bg-editor-accentSoft disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-full bg-editor-accent px-3 py-1.5 text-sm font-medium text-white transition hover:bg-editor-accentSoft disabled:cursor-not-allowed disabled:opacity-60"
             disabled={isValidating || isPublishing}
             onClick={onPublish}
             type="button"
           >
             {publishActionLabel}
           </button>
+          <span className="rounded-full border border-editor-border bg-black/10 px-3 py-1.5 text-sm text-zinc-300">
+            Publish: {publishSummary}
+          </span>
           {publishedViewerPath ? (
             <a
-              className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-4 py-2 text-sm font-medium text-emerald-100 transition hover:border-emerald-300/50 hover:bg-emerald-500/15"
+              className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1.5 text-sm font-medium text-emerald-100 transition hover:border-emerald-300/50 hover:bg-emerald-500/15"
               href={publishedViewerPath}
               rel="noreferrer"
               target="_blank"
@@ -172,18 +172,6 @@ export function EditorToolbar({
               Open Viewer
             </a>
           ) : null}
-        </div>
-      </div>
-
-      <div className="mt-5 grid gap-3 lg:grid-cols-[1fr_auto_auto]">
-        <div className="rounded-2xl border border-editor-border bg-black/10 px-4 py-3 text-sm text-zinc-300">
-          Mode summary: {viewMode}
-        </div>
-        <div className="rounded-2xl border border-editor-border bg-black/10 px-4 py-3 text-sm text-zinc-300">
-          Validation: {isValidating ? 'running' : 'idle'}
-        </div>
-        <div className="rounded-2xl border border-editor-border bg-black/10 px-4 py-3 text-sm text-zinc-300">
-          Publish: {publishSummary}
         </div>
       </div>
 

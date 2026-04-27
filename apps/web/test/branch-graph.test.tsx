@@ -322,6 +322,16 @@ describe('EpisodeEditorShell graph mode', () => {
     expect(screen.queryByText('Live Preview')).toBeNull();
     expect(screen.getByText('Branch Graph')).toBeTruthy();
 
+    expect(screen.getByTestId('graph-split-frame').getAttribute('style')).toContain('70%');
+    expect(screen.getByTestId('graph-split-frame').getAttribute('style')).toContain('30%');
+
+    const graphSplitter = screen.getByTestId('graph-splitter');
+    expect(graphSplitter.getAttribute('aria-valuenow')).toBe('30');
+    fireEvent.keyDown(graphSplitter, { key: 'ArrowLeft' });
+    expect(graphSplitter.getAttribute('aria-valuenow')).toBe('32');
+    expect(screen.getByTestId('graph-split-frame').getAttribute('style')).toContain('68%');
+    expect(screen.getByTestId('graph-split-frame').getAttribute('style')).toContain('32%');
+
     const inspectorPanel = screen.getByTestId('inspector-panel');
     expect(inspectorPanel.getAttribute('data-inspector-layout')).toBe('graph');
     expect(inspectorPanel.className).not.toContain('xl:grid-cols-2');

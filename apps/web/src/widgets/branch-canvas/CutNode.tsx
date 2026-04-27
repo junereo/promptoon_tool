@@ -47,8 +47,8 @@ export function CutNode({ data }: NodeProps<CutFlowNode>) {
   return (
     <div
       className={[
-        'relative min-w-[220px] max-w-[260px] rounded-[28px] border px-4 pt-5 shadow-xl shadow-black/30 transition',
-        canCreateOutput ? 'pb-16' : 'pb-6',
+        'relative min-w-[200px] max-w-[240px] rounded-[22px] border px-3 pt-4 shadow-xl shadow-black/30 transition',
+        canCreateOutput ? 'pb-14' : 'pb-5',
         selected
           ? 'border-editor-accent bg-[#232329] ring-1 ring-editor-accent/30'
           : 'border-editor-border bg-editor-panel/95'
@@ -73,14 +73,14 @@ export function CutNode({ data }: NodeProps<CutFlowNode>) {
 
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="truncate font-display text-lg font-semibold text-zinc-50">{cut.title}</p>
-          <p className="mt-2 line-clamp-3 whitespace-pre-wrap text-sm leading-6 text-zinc-400">
+          <p className="truncate font-display text-base font-semibold text-zinc-50">{cut.title}</p>
+          <p className="mt-1.5 line-clamp-2 whitespace-pre-wrap text-xs leading-5 text-zinc-400">
             {cut.body || 'No dialogue yet.'}
           </p>
         </div>
         <span
           className={[
-            'shrink-0 rounded-full border px-2 py-1 text-[10px] uppercase tracking-[0.2em]',
+            'shrink-0 rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.18em]',
             KIND_BADGE_STYLES[cut.kind]
           ].join(' ')}
         >
@@ -88,10 +88,10 @@ export function CutNode({ data }: NodeProps<CutFlowNode>) {
         </span>
       </div>
 
-      <div className="mt-4 flex items-center gap-2 text-[11px] uppercase tracking-[0.2em] text-zinc-500">
-        {cut.isStart ? <span className="rounded-full border border-editor-accent/30 px-2 py-1 text-editor-accentSoft">Start</span> : null}
-        {cut.isEnding ? <span className="rounded-full border border-emerald-500/25 px-2 py-1 text-emerald-200">End</span> : null}
-        <span className="rounded-full border border-editor-border px-2 py-1">#{cut.orderIndex + 1}</span>
+      <div className="mt-3 flex items-center gap-1.5 text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+        {cut.isStart ? <span className="rounded-full border border-editor-accent/30 px-2 py-0.5 text-editor-accentSoft">Start</span> : null}
+        {cut.isEnding ? <span className="rounded-full border border-emerald-500/25 px-2 py-0.5 text-emerald-200">End</span> : null}
+        <span className="rounded-full border border-editor-border px-2 py-0.5">#{cut.orderIndex + 1}</span>
       </div>
 
       {canCreateOutput ? (

@@ -36,9 +36,9 @@ function inlineInputClassName() {
 
 function ToolbarGroup({ children, title }: { children: ReactNode; title: string }) {
   return (
-    <div className="rounded-2xl border border-editor-border bg-black/10 p-3">
-      <p className="text-center text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">{title}</p>
-      <div className="mt-3 grid gap-3">{children}</div>
+    <div className="rounded-2xl border border-editor-border bg-black/10 p-2.5">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">{title}</p>
+      <div className="mt-2 grid gap-2">{children}</div>
     </div>
   );
 }
@@ -215,20 +215,20 @@ function TextStyleToolbar({
   const disabled = selectedBlock === null;
 
   return (
-    <div className="rounded-2xl border border-editor-border bg-black/10 p-4">
-      <div className="flex flex-col items-center gap-4 text-center">
-        <div className="w-full max-w-md">
+    <div className="rounded-2xl border border-editor-border bg-black/10 p-3">
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-2">
           <p className="text-xs font-medium uppercase tracking-[0.2em] text-zinc-500">Text Style</p>
-          <p className="mt-1 text-sm text-zinc-400">
+          <p className="truncate text-xs text-zinc-400">
             {selectedBlock
               ? `${blockTitle(selectedBlock.type)} block selected`
-              : '텍스트 블록을 선택하면 Align / Font / Size / Placement / Spacing을 조정할 수 있습니다.'}
+              : 'No text block selected'}
           </p>
         </div>
 
-        <div className="grid w-full gap-3">
+        <div className="inspector-style-grid grid w-full gap-2">
           <ToolbarGroup title="Layout">
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="inspector-field-grid grid gap-2">
               <div className="min-w-0">
                 <label className="block text-center text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Align</label>
                 <select
@@ -266,7 +266,7 @@ function TextStyleToolbar({
           </ToolbarGroup>
 
           <ToolbarGroup title="Typography">
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="inspector-field-grid grid gap-2">
               <div className="min-w-0">
                 <label className="block text-center text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Font</label>
                 <select
@@ -321,7 +321,7 @@ function TextStyleToolbar({
           </ToolbarGroup>
 
           <ToolbarGroup title="Rhythm">
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="inspector-field-grid grid gap-2">
               <div className="min-w-0">
                 <label className="block text-center text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Top</label>
                 <select
@@ -373,12 +373,12 @@ function InsertBlockLine({
   onInsert: (type: CutContentBlock['type']) => void;
 }) {
   return (
-    <div className="py-2">
-      <div className="flex items-center gap-3">
+    <div className="py-1.5">
+      <div className="flex items-center gap-2">
         <div className="h-px flex-1 bg-editor-border" />
         <button
           aria-label="Insert block"
-          className="inline-flex h-8 items-center justify-center rounded-full border border-editor-border bg-black/15 px-3 text-sm text-zinc-300 transition hover:border-editor-accentSoft hover:text-white"
+          className="inline-flex h-7 items-center justify-center rounded-full border border-editor-border bg-black/15 px-2.5 text-xs text-zinc-300 transition hover:border-editor-accentSoft hover:text-white"
           onClick={onToggle}
           type="button"
         >
@@ -388,7 +388,7 @@ function InsertBlockLine({
       </div>
 
       {expanded ? (
-        <div className="mt-3 flex flex-wrap justify-center gap-2">
+        <div className="mt-2 flex flex-wrap justify-center gap-1.5">
           {CONTENT_BLOCK_TYPE_OPTIONS.map((option) => (
             <button
               className="rounded-full border border-editor-border bg-black/20 px-3 py-1.5 text-xs text-zinc-200 transition hover:border-editor-accentSoft"
@@ -449,7 +449,7 @@ function SortableBlockRow({
   return (
     <div
       className={[
-        'group rounded-[26px] border px-4 py-3 transition',
+        'group rounded-[18px] border px-3 py-2.5 transition',
         isSelected ? 'border-editor-accentSoft bg-editor-panelAlt/70 shadow-[0_0_0_1px_rgba(122,48,64,0.18)]' : 'border-editor-border bg-editor-panelAlt/40 hover:border-zinc-600/70',
         isDragging ? 'opacity-70' : ''
       ].join(' ')}
@@ -460,10 +460,10 @@ function SortableBlockRow({
         transition
       }}
     >
-      <div className="flex gap-3">
+      <div className="flex gap-2">
         <button
           aria-label="Reorder block"
-          className="mt-3 inline-flex h-8 w-8 shrink-0 cursor-grab items-center justify-center rounded-full border border-editor-border bg-black/15 text-zinc-500 transition hover:border-zinc-500 hover:text-zinc-200"
+          className="mt-2 inline-flex h-7 w-7 shrink-0 cursor-grab items-center justify-center rounded-full border border-editor-border bg-black/15 text-zinc-500 transition hover:border-zinc-500 hover:text-zinc-200"
           ref={setActivatorNodeRef}
           type="button"
           {...attributes}
@@ -473,8 +473,8 @@ function SortableBlockRow({
         </button>
 
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-2">
               <select
                 aria-label={`Block Type ${block.id}`}
                 className="rounded-full border border-editor-border bg-black/20 px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-zinc-200 outline-none transition focus:border-editor-accentSoft"
@@ -488,7 +488,6 @@ function SortableBlockRow({
                   </option>
                 ))}
               </select>
-              <span className="text-xs text-zinc-500">{blockTitle(block.type)}</span>
             </div>
 
             <button
@@ -505,7 +504,7 @@ function SortableBlockRow({
           </div>
 
           {isTextBlock(block) ? (
-            <div className="mt-3 space-y-3">
+            <div className="mt-2 space-y-2">
               {block.type === 'dialogue' ? (
                 <input
                   aria-label="Dialogue Speaker"
@@ -532,7 +531,7 @@ function SortableBlockRow({
 
               <textarea
                 aria-label="Block Text"
-                className={`${inlineInputClassName()} min-h-[96px] resize-y whitespace-pre-wrap`}
+                className={`${inlineInputClassName()} min-h-[72px] resize-y whitespace-pre-wrap`}
                 onChange={(event) => onUpdateBlock((current) => ('text' in current ? { ...current, text: event.target.value } : current))}
                 onFocus={onFocusBlock}
                 placeholder={block.type === 'heading' ? 'Heading text' : block.type === 'dialogue' ? 'Dialogue text' : 'Write a block...'}
@@ -542,7 +541,7 @@ function SortableBlockRow({
           ) : null}
 
           {block.type === 'image' ? (
-            <div className="mt-3 space-y-3">
+            <div className="mt-2 space-y-2">
               {block.assetUrl ? (
                 <div className="overflow-hidden rounded-2xl border border-editor-border bg-black/20">
                   <img alt={block.alt || 'Block image'} className="h-44 w-full object-cover" src={block.assetUrl} />
@@ -553,7 +552,7 @@ function SortableBlockRow({
                 </div>
               )}
 
-              <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
+              <div className="inspector-form-grid grid gap-2">
                 <input
                   aria-label="Image Alt"
                   className={inlineInputClassName()}
@@ -591,7 +590,7 @@ function SortableBlockRow({
           ) : null}
 
           {block.type === 'nameInput' ? (
-            <div className="mt-3 grid gap-3 md:grid-cols-[1.4fr_0.8fr_auto]">
+            <div className="inspector-form-grid mt-2 grid gap-2">
               <input
                 aria-label="Name Input Placeholder"
                 className={inlineInputClassName()}
@@ -779,14 +778,13 @@ export function CutContentBlocksEditor({
   }
 
   return (
-    <div className="rounded-2xl border border-editor-border bg-black/10 p-4">
-      <div className="flex flex-wrap items-start justify-between gap-4">
+    <div className="inspector-card rounded-2xl border border-editor-border bg-black/10 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-xs font-medium uppercase tracking-[0.2em] text-zinc-500">Content Blocks</p>
-          <p className="mt-2 text-sm text-zinc-400">블록을 인라인으로 편집하고, 드래그해서 순서를 바꿉니다.</p>
         </div>
 
-        <div className="min-w-[180px]">
+        <div className="min-w-[150px]">
           <label className="text-xs font-medium uppercase tracking-[0.2em] text-zinc-500">View Style</label>
           <select
             aria-label="View Style"
@@ -800,7 +798,7 @@ export function CutContentBlocksEditor({
         </div>
       </div>
 
-      <div className="mt-4">
+      <div className="mt-3">
         <TextStyleToolbar
           onAlignChange={handleAlignChange}
           onFontChange={handleFontChange}
@@ -813,9 +811,9 @@ export function CutContentBlocksEditor({
         />
       </div>
 
-      <div className="mt-5">
+      <div className="mt-3">
         {blocks.length === 0 ? (
-          <div className="rounded-[26px] border border-dashed border-editor-border bg-black/10 px-5 py-8 text-center text-sm text-zinc-500">
+          <div className="rounded-[18px] border border-dashed border-editor-border bg-black/10 px-4 py-5 text-center text-sm text-zinc-500">
             아직 블록이 없습니다. 아래 삽입 라인에서 첫 블록을 추가하세요.
           </div>
         ) : (
