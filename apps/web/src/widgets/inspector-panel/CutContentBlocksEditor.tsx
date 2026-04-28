@@ -30,8 +30,8 @@ function textStyleSelectClassName() {
   return 'w-full min-w-0 max-w-full rounded-lg border border-editor-border bg-black/20 px-2 py-1.5 text-xs text-zinc-100 outline-none transition focus:border-editor-accentSoft disabled:cursor-not-allowed disabled:opacity-60';
 }
 
-function inlineInputClassName() {
-  return 'w-full rounded-2xl border border-transparent bg-transparent px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-editor-accentSoft focus:bg-black/20';
+function inlineInputClassName(fontSizeClassName = 'text-sm') {
+  return `w-full rounded-2xl border border-transparent bg-transparent px-3 py-2 ${fontSizeClassName} text-zinc-100 outline-none transition focus:border-editor-accentSoft focus:bg-black/20`;
 }
 
 function ToolbarGroup({ children, title }: { children: ReactNode; title: string }) {
@@ -499,7 +499,7 @@ function SortableBlockRow({
               {block.type === 'dialogue' ? (
                 <input
                   aria-label="Dialogue Speaker"
-                  className={inlineInputClassName()}
+                  className={inlineInputClassName('text-[16.667px]')}
                   onChange={(event) => onUpdateBlock((current) => (current.type === 'dialogue' ? { ...current, speaker: event.target.value } : current))}
                   onFocus={onFocusBlock}
                   placeholder="화자"

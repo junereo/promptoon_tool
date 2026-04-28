@@ -2,7 +2,12 @@ import type { Choice, Cut, EditorSelection } from '@promptoon/shared';
 import { DEFAULT_CUT_EFFECT_DURATION_MS } from '@promptoon/shared';
 import { describe, expect, it } from 'vitest';
 
-import { buildCutHierarchy, getPreviewCut, sortCutsByLocalOrder } from '../src/entities/promptoon/selectors';
+import {
+  buildCutHierarchy,
+  getCutHierarchyTraversalOrder,
+  getPreviewCut,
+  sortCutsByLocalOrder
+} from '../src/entities/promptoon/selectors';
 
 function createCut(id: string, orderIndex: number, options?: Partial<Cut>): Cut {
   return {
@@ -98,6 +103,32 @@ describe('promptoon selectors', () => {
       ['cut-child', '1.1'],
       ['cut-grandchild', '1.1.1']
     ]);
+  });
+
+  it('returns graph traversal order for connected cuts even when persisted order is stale', () => {
+    const cuts = [
+      createCut('cut-start', 0, { isStart: true }),
+      createCut('cut-unlinked', 1),
+      createCut('cut-child', 2)
+    ];
+    const choices: Choice[] = [
+      {
+        id: 'choice-child',
+        cutId: 'cut-start',
+        label: 'Child',
+        orderIndex: 0,
+        nextCutId: 'cut-child',
+        createdAt: new Date(1).toISOString(),
+        updatedAt: new Date(1).toISOString()
+      }
+    ];
+
+    expect(buildCutHierarchy(cuts, choices).flatNodes.map((node) => node.cut.id)).toEqual([
+      'cut-start',
+      'cut-unlinked',
+      'cut-child'
+    ]);
+    expect(getCutHierarchyTraversalOrder(cuts, choices)).toEqual(['cut-start', 'cut-child', 'cut-unlinked']);
   });
 
   it('orders sibling ranks by choice order and keeps duplicate incoming cuts canonical', () => {

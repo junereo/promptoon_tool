@@ -29,6 +29,47 @@ function GroupTitle({ children }: { children: string }) {
   return <p className="text-xs font-semibold text-zinc-500">{children}</p>;
 }
 
+function CoordinateInput({
+  ariaLabel,
+  onValueChange,
+  value
+}: {
+  ariaLabel: string;
+  onValueChange: (value: number) => void;
+  value: number;
+}) {
+  const [draftValue, setDraftValue] = useState(() => String(value));
+
+  useEffect(() => {
+    setDraftValue(String(value));
+  }, [value]);
+
+  return (
+    <input
+      aria-label={ariaLabel}
+      className={inputClassName()}
+      onBlur={() => {
+        if (draftValue === '' || !Number.isFinite(Number(draftValue))) {
+          setDraftValue(String(value));
+        }
+      }}
+      onChange={(event) => {
+        const nextValue = event.target.value;
+        const numericValue = Number(nextValue);
+
+        setDraftValue(nextValue);
+
+        if (nextValue !== '' && Number.isFinite(numericValue)) {
+          onValueChange(numericValue);
+        }
+      }}
+      step={1}
+      type="number"
+      value={draftValue}
+    />
+  );
+}
+
 interface CutFormState {
   title: string;
   contentBlocks: CutContentBlock[];
@@ -75,10 +116,6 @@ function toFormState(cut: Cut): CutFormState {
     isStart: cut.isStart,
     isEnding: cut.isEnding
   };
-}
-
-function clampDialogOffset(value: number): number {
-  return Math.min(160, Math.max(0, value));
 }
 
 function clampEffectDuration(value: number): number {
@@ -398,38 +435,28 @@ export function CutEditorForm({
         <div className="grid grid-cols-[repeat(2,minmax(0,1fr))] gap-2">
           <div className="min-w-0">
             <FieldLabel>가로 이동</FieldLabel>
-            <input
-              aria-label="X"
-              className={inputClassName()}
-              max={160}
-              min={0}
-              onChange={(event) =>
+            <CoordinateInput
+              ariaLabel="X"
+              onValueChange={(value) =>
                 setFormState((current) => ({
                   ...current,
-                  dialogOffsetX: clampDialogOffset(Number(event.target.value) || 0)
+                  dialogOffsetX: value
                 }))
               }
-              step={1}
-              type="number"
               value={formState.dialogOffsetX}
             />
           </div>
 
           <div className="min-w-0">
             <FieldLabel>세로 이동</FieldLabel>
-            <input
-              aria-label="Y"
-              className={inputClassName()}
-              max={160}
-              min={0}
-              onChange={(event) =>
+            <CoordinateInput
+              ariaLabel="Y"
+              onValueChange={(value) =>
                 setFormState((current) => ({
                   ...current,
-                  dialogOffsetY: clampDialogOffset(Number(event.target.value) || 0)
+                  dialogOffsetY: value
                 }))
               }
-              step={1}
-              type="number"
               value={formState.dialogOffsetY}
             />
           </div>

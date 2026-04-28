@@ -16,6 +16,7 @@ export interface EditorStoreState {
   hydrateFromDraft: (draft: Pick<EpisodeDraftResponse, 'cuts'>) => void;
   setSelected: (selection: EditorSelection) => void;
   setViewMode: (mode: 'list' | 'graph') => void;
+  replaceLocalCutOrder: (cutIds: string[]) => void;
   reorderLocalCuts: (activeId: string, overId: string) => void;
   markDirty: (dirty: boolean) => void;
   markPendingCut: (cutId: string) => void;
@@ -31,6 +32,7 @@ export function createInitialEditorState(): Omit<
   | 'hydrateFromDraft'
   | 'setSelected'
   | 'setViewMode'
+  | 'replaceLocalCutOrder'
   | 'reorderLocalCuts'
   | 'markDirty'
   | 'markPendingCut'
@@ -92,6 +94,8 @@ export const useEditorStore = create<EditorStoreState>((set) => ({
   setSelected: (selection) => set({ selected: selection }),
 
   setViewMode: (mode) => set({ viewMode: mode }),
+
+  replaceLocalCutOrder: (cutIds) => set({ localCutOrder: dedupeIds(cutIds) }),
 
   reorderLocalCuts: (activeId, overId) =>
     set((state) => {

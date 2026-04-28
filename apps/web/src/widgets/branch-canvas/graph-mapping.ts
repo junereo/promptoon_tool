@@ -20,6 +20,10 @@ export type CutFlowNode = Node<CutNodeData, 'cutNode'>;
 export type AddCutPlaceholderFlowNode = Node<AddCutPlaceholderNodeData, 'addCutPlaceholderNode'>;
 export type BranchFlowNode = CutFlowNode | AddCutPlaceholderFlowNode;
 
+const DEFAULT_EDGE_STROKE = '#555';
+const SELECTED_EDGE_STROKE = '#7A3040';
+const MULTI_INPUT_EDGE_STROKES = ['#38bdf8', '#f59e0b', '#a78bfa', '#34d399', '#fb7185', '#f472b6'];
+
 export function getChoiceSourceHandleId(choiceId: string): string {
   return `source:${choiceId}`;
 }
@@ -127,19 +131,38 @@ export function mapCutsToFlowNodes(cuts: Cut[], choices: Choice[], selection: Ed
 
 export function mapChoicesToFlowEdges(choices: Choice[], selection: EditorSelection): Edge[] {
   const selectedChoiceId = selection.type === 'choice' ? selection.id : null;
+  const connectedChoices = choices.filter((choice) => Boolean(choice.nextCutId));
+  const incomingChoiceIndexByTargetCutId = new Map<string, number>();
+  const incomingChoiceCountByTargetCutId = connectedChoices.reduce((counts, choice) => {
+    const targetCutId = choice.nextCutId!;
+    counts.set(targetCutId, (counts.get(targetCutId) ?? 0) + 1);
+    return counts;
+  }, new Map<string, number>());
 
-  return choices
-    .filter((choice) => Boolean(choice.nextCutId))
-    .map((choice) => ({
+  return connectedChoices.map((choice) => {
+    const targetCutId = choice.nextCutId!;
+    const incomingChoiceCount = incomingChoiceCountByTargetCutId.get(targetCutId) ?? 1;
+    const incomingChoiceIndex = incomingChoiceIndexByTargetCutId.get(targetCutId) ?? 0;
+    const isMultiInputEdge = incomingChoiceCount >= 2;
+    const isSelected = selectedChoiceId === choice.id;
+    const multiInputStroke = MULTI_INPUT_EDGE_STROKES[incomingChoiceIndex % MULTI_INPUT_EDGE_STROKES.length];
+
+    incomingChoiceIndexByTargetCutId.set(targetCutId, incomingChoiceIndex + 1);
+
+    return {
       id: `edge-${choice.id}`,
       source: choice.cutId,
       sourceHandle: getChoiceSourceHandleId(choice.id),
-      target: choice.nextCutId!,
-      targetHandle: getCutTargetHandleId(choice.nextCutId!),
+      target: targetCutId,
+      targetHandle: getCutTargetHandleId(targetCutId),
       animated: true,
+      interactionWidth: isMultiInputEdge ? 24 : 18,
+      zIndex: isSelected ? 20 : isMultiInputEdge ? 10 : 0,
       style: {
-        stroke: selectedChoiceId === choice.id ? '#7A3040' : '#555',
-        strokeWidth: selectedChoiceId === choice.id ? 2.5 : 1.8
+        stroke: isSelected ? SELECTED_EDGE_STROKE : isMultiInputEdge ? multiInputStroke : DEFAULT_EDGE_STROKE,
+        strokeOpacity: isMultiInputEdge || isSelected ? 0.95 : 0.72,
+        strokeWidth: isSelected ? 2.8 : isMultiInputEdge ? 2.4 : 1.8
       }
-    }));
+    };
+  });
 }

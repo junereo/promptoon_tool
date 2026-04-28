@@ -48,6 +48,7 @@ import { readFile } from 'node:fs/promises';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { PoolClient } from 'pg';
+import sharp from 'sharp';
 
 import { db, withTransaction } from '../../db';
 import { HttpError } from '../../lib/http-error';
@@ -274,14 +275,21 @@ function isWritablePathError(error: unknown): boolean {
   return error instanceof Error && 'code' in error && ['EACCES', 'EPERM', 'EROFS'].includes(String(error.code));
 }
 
-async function writeUploadFile(relativeDirectory: string, fileName: string, buffer: Buffer): Promise<void> {
+interface UploadFileWrite {
+  fileName: string;
+  buffer: Buffer;
+}
+
+async function writeUploadFiles(relativeDirectory: string, files: UploadFileWrite[]): Promise<void> {
   const directoryCandidates = [path.join(getUploadsDirectory(), relativeDirectory), path.join(getLegacyUploadsDirectory(), relativeDirectory)];
   let lastError: unknown = null;
 
   for (const uploadsDirectory of directoryCandidates) {
     try {
       await mkdir(uploadsDirectory, { recursive: true });
-      await writeFile(path.join(uploadsDirectory, fileName), buffer);
+      for (const file of files) {
+        await writeFile(path.join(uploadsDirectory, file.fileName), file.buffer);
+      }
 
       return;
     } catch (error) {
@@ -315,8 +323,19 @@ function getDatedUploadSegments(now: Date): [string, string, string] {
   return [String(now.getFullYear()), padDatePart(now.getMonth() + 1), padDatePart(now.getDate())];
 }
 
-function buildProjectUploadFileName(file: Express.Multer.File, now: Date): string {
-  return `${sanitizeUploadBaseName(file.originalname)}-${now.getTime()}${getUploadExtension(file)}`;
+function buildProjectUploadBaseName(file: Express.Multer.File, now: Date): string {
+  return `${sanitizeUploadBaseName(file.originalname)}-${now.getTime()}`;
+}
+
+function buildOriginalUploadFileName(file: Express.Multer.File, uploadBaseName: string): string {
+  const extension = getUploadExtension(file);
+  const originalSuffix = extension === '.webp' ? '-original' : '';
+
+  return `${uploadBaseName}${originalSuffix}${extension}`;
+}
+
+function buildWebpUploadFileName(uploadBaseName: string): string {
+  return `${uploadBaseName}.webp`;
 }
 
 function buildPublicUploadScope(): string {
@@ -343,6 +362,14 @@ function getUploadExtension(file: Express.Multer.File): string {
   }
 
   return `.${mimeSubtype.replace(/[^a-z0-9]/g, '') || 'bin'}`;
+}
+
+async function convertUploadToWebp(file: Express.Multer.File): Promise<Buffer> {
+  try {
+    return await sharp(file.buffer).webp().toBuffer();
+  } catch {
+    throw new HttpError(400, 'Invalid image file.');
+  }
 }
 
 function toAbsoluteUrl(baseOrigin: string, value: string | null | undefined): string | null {
@@ -648,28 +675,6 @@ function buildChoiceStats(
   return result;
 }
 
-function getDerivedBranchKind(choiceCount: number): Cut['kind'] {
-  return choiceCount >= 2 ? 'choice' : 'scene';
-}
-
-async function normalizeBranchCutKind(dbClient: PoolClient | typeof db, cutId: string): Promise<void> {
-  const cut = await repository.getCutById(dbClient, cutId);
-  if (!cut || (cut.kind !== 'scene' && cut.kind !== 'choice')) {
-    return;
-  }
-
-  const choiceCount = await repository.countChoicesForCut(dbClient, cutId);
-  const normalizedKind = getDerivedBranchKind(choiceCount);
-  if (cut.kind === normalizedKind && cut.isEnding === false) {
-    return;
-  }
-
-  await repository.updateCut(dbClient, cutId, {
-    kind: normalizedKind,
-    isEnding: false
-  });
-}
-
 async function getValidatedDraft(episodeId: string, dbClient?: PoolClient): Promise<{
   draft: EpisodeDraftResponse;
   validation: ValidateEpisodeResponse;
@@ -739,16 +744,7 @@ export async function updateCut(cutId: string, request: PatchCutRequest, userId:
   await ensureCutOwnedByUser(cutId, userId);
 
   try {
-    const normalizedRequest =
-      request.kind === 'scene' || request.kind === 'choice'
-        ? {
-            ...request,
-            kind: getDerivedBranchKind(await repository.countChoicesForCut(db, cutId)),
-            isEnding: false
-          }
-        : request;
-
-    return assertExists(await repository.updateCut(db, cutId, normalizedRequest), 'Cut not found.');
+    return assertExists(await repository.updateCut(db, cutId, request), 'Cut not found.');
   } catch (error) {
     throw mapDatabaseError(error);
   }
@@ -838,13 +834,9 @@ export async function createChoice(cutId: string, request: CreateChoiceRequest, 
   }
 
   try {
-    return await withTransaction(async (client) => {
-      const createdChoice = await repository.createChoice(client, {
-        cutId,
-        ...request
-      });
-      await normalizeBranchCutKind(client, cutId);
-      return createdChoice;
+    return await repository.createChoice(db, {
+      cutId,
+      ...request
     });
   } catch (error) {
     throw mapDatabaseError(error);
@@ -873,15 +865,13 @@ export async function updateChoice(choiceId: string, request: PatchChoiceRequest
 
 export async function deleteChoice(choiceId: string, userId: string): Promise<void> {
   await ensureChoiceOwnedByUser(choiceId, userId);
-  const choice = assertExists(await repository.getChoiceById(db, choiceId), 'Choice not found.');
+  assertExists(await repository.getChoiceById(db, choiceId), 'Choice not found.');
 
   await withTransaction(async (client) => {
     const deleted = await repository.deleteChoice(client, choiceId);
     if (!deleted) {
       throw new HttpError(404, 'Choice not found.');
     }
-
-    await normalizeBranchCutKind(client, choice.cutId);
   });
 }
 
@@ -967,12 +957,24 @@ export async function uploadAsset(projectId: string, file: Express.Multer.File, 
   const now = new Date();
   const publicUploadScope = buildPublicUploadScope();
   const relativeDirectory = path.join(...getDatedUploadSegments(now), publicUploadScope);
-  const fileName = buildProjectUploadFileName(file, now);
+  const uploadBaseName = buildProjectUploadBaseName(file, now);
+  const originalFileName = buildOriginalUploadFileName(file, uploadBaseName);
+  const webpFileName = buildWebpUploadFileName(uploadBaseName);
+  const webpBuffer = await convertUploadToWebp(file);
 
-  await writeUploadFile(relativeDirectory, fileName, file.buffer);
+  await writeUploadFiles(relativeDirectory, [
+    {
+      fileName: originalFileName,
+      buffer: file.buffer
+    },
+    {
+      fileName: webpFileName,
+      buffer: webpBuffer
+    }
+  ]);
 
   return {
-    assetUrl: buildAssetUrl(publicUploadScope, fileName, now)
+    assetUrl: buildAssetUrl(publicUploadScope, webpFileName, now)
   };
 }
 

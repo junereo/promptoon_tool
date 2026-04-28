@@ -42,7 +42,7 @@ afterEach(() => {
 beforeEach(() => {
   uploadMutate.mockReset();
   updateEpisodeMutate.mockReset();
-  uploadMutate.mockResolvedValue({ assetUrl: '/uploads/cover.png' });
+  uploadMutate.mockResolvedValue({ assetUrl: '/uploads/cover.webp' });
   updateEpisodeMutate.mockResolvedValue({});
   projects = [
     {
@@ -97,7 +97,7 @@ describe('PromptoonProjectListPage cover upload', () => {
     expect(updateEpisodeMutate).toHaveBeenCalledWith({
       episodeId: 'episode-1',
       payload: {
-        coverImageUrl: '/uploads/cover.png'
+        coverImageUrl: '/uploads/cover.webp'
       }
     });
   });

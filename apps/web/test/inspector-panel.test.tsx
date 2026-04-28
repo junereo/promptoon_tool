@@ -78,6 +78,43 @@ describe('InspectorPanel', () => {
     expect(screen.getByText(/좌측 리스트에서 컷을 선택하여 편집하세요/)).toBeTruthy();
   });
 
+  it('deletes from cut settings with the same reconnect target as the cut list', async () => {
+    const start = buildCut('cut-start', { title: 'Start', isStart: true });
+    const middle = buildCut('cut-middle', { title: 'Middle' });
+    const ending = buildCut('cut-ending', { title: 'Ending' });
+    const incomingChoice = buildChoice('choice-incoming', start.id, { nextCutId: middle.id });
+    const outgoingChoice = buildChoice('choice-outgoing', middle.id, { nextCutId: ending.id });
+    const onDeleteCut = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <InspectorPanel
+        choices={[incomingChoice, outgoingChoice]}
+        cuts={[start, middle, ending]}
+        onCreateChoice={vi.fn()}
+        onCommitCut={vi.fn().mockResolvedValue(undefined)}
+        onDeleteChoice={vi.fn()}
+        onDeleteCut={onDeleteCut}
+        onUploadAsset={vi.fn()}
+        onSelectChoice={vi.fn()}
+        onUpdateChoice={vi.fn()}
+        onUpdateCut={vi.fn()}
+        pendingAutosaveCount={0}
+        selectedChoice={null}
+        selectedCut={middle}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '컷 삭제' }));
+
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    expect((screen.getByLabelText('Reconnect incoming choices') as HTMLSelectElement).value).toBe(ending.id);
+    fireEvent.click(screen.getByRole('button', { name: '삭제' }));
+
+    await waitFor(() => {
+      expect(onDeleteCut).toHaveBeenCalledWith(middle.id, { reconnectToCutId: ending.id });
+    });
+  });
+
   it('renders the choice editor section only when the active cut kind is choice', async () => {
     const cut = buildCut('cut-1', { kind: 'choice' });
     const nextCut = buildCut('cut-2', { title: 'Next scene' });
@@ -256,7 +293,7 @@ describe('CutEditorForm', () => {
     vi.useFakeTimers();
     const onQueuePatch = vi.fn();
     const onCommitPatch = vi.fn().mockResolvedValue(undefined);
-    const onUploadAsset = vi.fn().mockResolvedValue('/uploads/cover.png');
+    const onUploadAsset = vi.fn().mockResolvedValue('/uploads/cover.webp');
     const cut = buildCut('cut-1');
 
     render(
@@ -283,7 +320,7 @@ describe('CutEditorForm', () => {
     });
 
     expect(onUploadAsset).toHaveBeenCalledWith(file);
-    expect(onCommitPatch).toHaveBeenCalledWith('cut-1', { assetUrl: '/uploads/cover.png' });
+    expect(onCommitPatch).toHaveBeenCalledWith('cut-1', { assetUrl: '/uploads/cover.webp' });
     expect(onQueuePatch).not.toHaveBeenCalled();
 
     act(() => {
@@ -513,7 +550,9 @@ describe('CutEditorForm', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'Insert block' })[1]);
     fireEvent.click(screen.getByRole('button', { name: '대사' }));
 
-    fireEvent.change(screen.getByLabelText('Dialogue Speaker'), { target: { value: 'Hero' } });
+    const speakerInput = screen.getByLabelText('Dialogue Speaker');
+    expect(speakerInput.className).toContain('text-[16.667px]');
+    fireEvent.change(speakerInput, { target: { value: 'Hero' } });
 
     act(() => {
       vi.advanceTimersByTime(500);
@@ -658,7 +697,7 @@ describe('CutEditorForm', () => {
     vi.useRealTimers();
   });
 
-  it('queues dialogue position changes with safe numeric offsets', () => {
+  it('queues dialogue position changes with signed offsets', () => {
     vi.useFakeTimers();
     const onQueuePatch = vi.fn();
     const cut = buildCut('cut-1');
@@ -691,7 +730,7 @@ describe('CutEditorForm', () => {
     fireEvent.change(horizontalSelect, { target: { value: 'center' } });
     fireEvent.change(verticalSelect, { target: { value: 'lower' } });
     fireEvent.change(textAlignSelect, { target: { value: 'center' } });
-    fireEvent.change(xInput, { target: { value: '24' } });
+    fireEvent.change(xInput, { target: { value: '-24' } });
     fireEvent.change(yInput, { target: { value: '36' } });
 
     act(() => {
@@ -701,7 +740,7 @@ describe('CutEditorForm', () => {
     expect(onQueuePatch).toHaveBeenCalledWith('cut-1', {
       dialogAnchorX: 'center',
       dialogAnchorY: 'lower',
-      dialogOffsetX: 24,
+      dialogOffsetX: -24,
       dialogOffsetY: 36,
       dialogTextAlign: 'center'
     });
@@ -752,6 +791,36 @@ describe('CutEditorForm', () => {
     });
 
     expect(onQueuePatch).not.toHaveBeenCalledWith('cut-b', expect.objectContaining({ kind: 'choice' }));
+    vi.useRealTimers();
+  });
+
+  it('queues manual cut kind changes', () => {
+    vi.useFakeTimers();
+    const onQueuePatch = vi.fn();
+
+    render(
+      <CutEditorForm
+        cut={buildCut('cut-1', { kind: 'scene' })}
+        onCommitPatch={vi.fn().mockResolvedValue(undefined)}
+        onDeleteCut={vi.fn()}
+        onKindPreviewChange={vi.fn()}
+        onQueuePatch={onQueuePatch}
+        onUploadAsset={vi.fn()}
+        pendingAutosaveCount={0}
+      />
+    );
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Kind' }), {
+      target: {
+        value: 'choice'
+      }
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+
+    expect(onQueuePatch).toHaveBeenCalledWith('cut-1', { kind: 'choice' });
     vi.useRealTimers();
   });
 

@@ -144,8 +144,11 @@ describe('ViewerCutCard', () => {
       />
     );
 
+    const overlayFrame = screen.getByTestId('viewer-content-frame-cut-1:overlay');
+    expect(overlayFrame.className).toContain('px-2 py-1.5');
+    expect(overlayFrame.className).not.toContain('px-5 py-4');
     expect(screen.getByLabelText('Overlay line').className).toContain('text-[clamp(1.4375rem');
-    expect(screen.getByText('Hero')).toBeTruthy();
+    expect(screen.getByText('Hero').className).toContain('text-[14.667px]');
     const flowLine = within(screen.getByTestId('viewer-flow-content')).getByText('Flow line');
     const flowReveal = screen.getByTestId('content-block-reveal-cut-1:flow:flow-1');
     expect(flowLine.className).toContain('text-[clamp(0.75rem');
@@ -225,8 +228,9 @@ describe('ViewerCutCard', () => {
     expect(screen.getByText('Aligned flow').getAttribute('style')).toContain('text-align: center');
   });
 
-  it('places overlay dialogue at intermediate vertical anchors', () => {
+  it('places overlay dialogue at intermediate vertical anchors with signed offsets', () => {
     const cut = buildViewerCut({
+      dialogAnchorX: 'center',
       dialogAnchorY: 'center',
       dialogOffsetY: 12,
       contentBlocks: [
@@ -252,13 +256,15 @@ describe('ViewerCutCard', () => {
 
     expect(screen.getByText('Centered overlay')).toBeTruthy();
     const positionedPanel = container.querySelector<HTMLElement>('[style*="top: 50%"]');
-    expect(positionedPanel?.getAttribute('style')).toContain('translateY(calc(-50% + 12px))');
+    expect(positionedPanel?.getAttribute('style')).toContain('translateY(calc(-50% - 12px))');
   });
 
-  it('centers overlay dialogue horizontally with an optional x offset', () => {
+  it('supports signed horizontal and vertical dialogue offsets', () => {
     const cut = buildViewerCut({
       dialogAnchorX: 'center',
+      dialogAnchorY: 'center',
       dialogOffsetX: 18,
+      dialogOffsetY: -24,
       contentBlocks: [
         {
           id: 'overlay-1',
@@ -281,11 +287,14 @@ describe('ViewerCutCard', () => {
     );
 
     const placementRoot = container.querySelector<HTMLElement>('.justify-center');
-    const positionedPanel = container.querySelector<HTMLElement>('[style*="translateX(18px)"]');
+    const positionedPanel = container.querySelector<HTMLElement>('[style*="top: 50%"]');
+    const positionedPanelStyle = positionedPanel?.getAttribute('style') ?? '';
 
     expect(placementRoot).toBeTruthy();
-    expect(positionedPanel?.getAttribute('style')).not.toContain('margin-left');
-    expect(positionedPanel?.getAttribute('style')).not.toContain('margin-right');
+    expect(positionedPanelStyle).toContain('translateX(18px)');
+    expect(positionedPanelStyle).toContain('translateY(calc(-50% + 24px))');
+    expect(positionedPanelStyle).not.toContain('margin-left');
+    expect(positionedPanelStyle).not.toContain('margin-right');
   });
 
   it('reveals upper overlay text when it is already above the trigger line', async () => {

@@ -157,6 +157,19 @@ export function buildCutHierarchy(cuts: Cut[], choices: Choice[]): CutHierarchy 
   };
 }
 
+export function getCutHierarchyTraversalOrder(cuts: Cut[], choices: Choice[]): string[] {
+  const hierarchy = buildCutHierarchy(cuts, choices);
+  const orderedCutIds: string[] = [];
+
+  function visitNode(node: CutHierarchyNode) {
+    orderedCutIds.push(node.cut.id);
+    node.childNodes.forEach(visitNode);
+  }
+
+  hierarchy.rootNodes.forEach(visitNode);
+  return orderedCutIds;
+}
+
 export function sortCutsByLocalOrder(cuts: Cut[], localCutOrder: string[]): Cut[] {
   if (localCutOrder.length === 0) {
     return [...cuts].sort(compareCuts);

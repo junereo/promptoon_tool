@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { stat } from 'node:fs/promises';
+import path from 'node:path';
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
@@ -7,10 +9,15 @@ import { DEFAULT_CUT_EFFECT_DURATION_MS } from '@promptoon/shared';
 import { createApp } from '../src/app/createApp';
 import { closePool, query } from '../src/db';
 import { runMigrations } from '../src/db/migrate';
+import { resolveFromApiRoot, resolveFromWorkspaceRoot } from '../src/lib/workspace-paths';
 
 const integrationEnabled = Boolean(process.env.TEST_DATABASE_URL);
 const maybeDescribe = integrationEnabled ? describe : describe.skip;
 const PASSWORD = 'password123';
+const TINY_PNG_IMAGE = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
+  'base64'
+);
 
 maybeDescribe('promptoon api integration', () => {
   const app = createApp();
@@ -42,6 +49,24 @@ maybeDescribe('promptoon api integration', () => {
 
   function withAuth(requestBuilder: request.Test, token: string) {
     return requestBuilder.set('Authorization', `Bearer ${token}`);
+  }
+
+  async function uploadFileExists(relativePath: string): Promise<boolean> {
+    const candidates = [
+      resolveFromWorkspaceRoot('.data/uploads', relativePath),
+      resolveFromApiRoot('.data/uploads', relativePath)
+    ];
+
+    const results = await Promise.all(candidates.map(async (candidate) => {
+      try {
+        await stat(candidate);
+        return true;
+      } catch {
+        return false;
+      }
+    }));
+
+    return results.some(Boolean);
   }
 
   async function createPublishedEpisodeFixture() {
@@ -232,6 +257,10 @@ maybeDescribe('promptoon api integration', () => {
     expect(cut.body.positionX).toBe(0);
     expect(cut.body.positionY).toBe(100);
     expect(cut.body.orderIndex).toBe(0);
+    expect(cut.body.dialogAnchorX).toBe('left');
+    expect(cut.body.dialogAnchorY).toBe('bottom');
+    expect(cut.body.dialogOffsetX).toBe(0);
+    expect(cut.body.dialogOffsetY).toBe(0);
     expect(cut.body.startEffect).toBe('none');
     expect(cut.body.endEffect).toBe('none');
     expect(cut.body.startEffectDurationMs).toBe(DEFAULT_CUT_EFFECT_DURATION_MS);
@@ -243,7 +272,7 @@ maybeDescribe('promptoon api integration', () => {
     expect(cut.body.contentBlocks).toEqual([]);
   });
 
-  it('derives scene and choice kinds from the number of persisted choices', async () => {
+  it('preserves manually selected scene and choice kinds regardless of choice count', async () => {
     const auth = await registerUser();
     const project = await withAuth(request(app).post('/api/promptoon/projects'), auth.token).send({ title: 'Project A' });
     const episode = await withAuth(request(app).post(`/api/promptoon/projects/${project.body.id}/episodes`), auth.token).send({
@@ -263,13 +292,18 @@ maybeDescribe('promptoon api integration', () => {
       kind: 'scene'
     });
 
+    const patchToChoice = await withAuth(request(app).patch(`/api/promptoon/cuts/${sourceCut.body.id}`), auth.token).send({
+      kind: 'choice'
+    });
+    expect(patchToChoice.body.kind).toBe('choice');
+
     const firstChoice = await withAuth(request(app).post(`/api/promptoon/cuts/${sourceCut.body.id}/choices`), auth.token).send({
       label: 'Choice 1',
       nextCutId: targetA.body.id
     });
 
     const afterFirstChoice = await withAuth(request(app).get(`/api/promptoon/episodes/${episode.body.id}/draft`), auth.token);
-    expect(afterFirstChoice.body.cuts.find((cut: { id: string }) => cut.id === sourceCut.body.id)?.kind).toBe('scene');
+    expect(afterFirstChoice.body.cuts.find((cut: { id: string }) => cut.id === sourceCut.body.id)?.kind).toBe('choice');
 
     await withAuth(request(app).post(`/api/promptoon/cuts/${sourceCut.body.id}/choices`), auth.token).send({
       label: 'Choice 2',
@@ -282,7 +316,7 @@ maybeDescribe('promptoon api integration', () => {
     const patchToScene = await withAuth(request(app).patch(`/api/promptoon/cuts/${sourceCut.body.id}`), auth.token).send({
       kind: 'scene'
     });
-    expect(patchToScene.body.kind).toBe('choice');
+    expect(patchToScene.body.kind).toBe('scene');
 
     await withAuth(request(app).delete(`/api/promptoon/choices/${firstChoice.body.id}`), auth.token);
 
@@ -295,7 +329,7 @@ maybeDescribe('promptoon api integration', () => {
     const project = await withAuth(request(app).post('/api/promptoon/projects'), auth.token).send({ title: 'Upload Project' });
     const response = await withAuth(request(app).post(`/api/promptoon/projects/${project.body.id}/assets`), auth.token).attach(
       'file',
-      Buffer.from('fake image bytes'),
+      TINY_PNG_IMAGE,
       {
         filename: 'cover.png',
         contentType: 'image/png'
@@ -303,8 +337,34 @@ maybeDescribe('promptoon api integration', () => {
     );
 
     expect(response.status).toBe(201);
-    expect(response.body.assetUrl).toMatch(/^\/uploads\/\d{4}\/\d{2}\/\d{2}\/[a-f0-9]{12}\/cover-\d+\.png$/);
-    expect(response.body.assetUrl).not.toContain(project.body.id);
+
+    const assetUrl = response.body.assetUrl as string;
+    const uploadRelativePath = assetUrl.replace(/^\/uploads\//, '');
+    const originalRelativePath = path.posix.join(path.posix.dirname(uploadRelativePath), `${path.posix.basename(uploadRelativePath, '.webp')}.png`);
+    const servedAsset = await request(app).get(assetUrl);
+
+    expect(assetUrl).toMatch(/^\/uploads\/\d{4}\/\d{2}\/\d{2}\/[a-f0-9]{12}\/cover-\d+\.webp$/);
+    expect(assetUrl).not.toContain(project.body.id);
+    expect(servedAsset.status).toBe(200);
+    expect(servedAsset.headers['content-type']).toContain('image/webp');
+    expect(await uploadFileExists(uploadRelativePath)).toBe(true);
+    expect(await uploadFileExists(originalRelativePath)).toBe(true);
+  });
+
+  it('rejects corrupt image uploads', async () => {
+    const auth = await registerUser();
+    const project = await withAuth(request(app).post('/api/promptoon/projects'), auth.token).send({ title: 'Corrupt Upload Project' });
+    const response = await withAuth(request(app).post(`/api/promptoon/projects/${project.body.id}/assets`), auth.token).attach(
+      'file',
+      Buffer.from('fake image bytes'),
+      {
+        filename: 'cover.png',
+        contentType: 'image/png'
+      }
+    );
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe('Invalid image file.');
   });
 
   it('rejects uploads to projects owned by another user', async () => {

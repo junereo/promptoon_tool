@@ -226,12 +226,6 @@ export function EpisodeEditorShell({
     };
   }, [updateGraphInspectorPercentFromClientX]);
 
-  useEffect(() => {
-    if (viewMode !== 'list') {
-      setIsLivePreviewModalOpen(false);
-    }
-  }, [viewMode]);
-
   function handleGraphSplitPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.button !== 0) {
       return;
@@ -371,6 +365,7 @@ export function EpisodeEditorShell({
                   onNavigateCut={handlePreviewNavigateCut}
                   onSelectChoice={onPreviewSelectChoice}
                   onSelectCut={handlePreviewNavigateCut}
+                  onTitleClick={() => setIsLivePreviewModalOpen(true)}
                   previousCutId={previousPreviewCut?.id ?? null}
                   selectedChoiceId={currentPreviewSelectedChoiceId}
                 />
@@ -463,7 +458,7 @@ export function EpisodeEditorShell({
       <LivePreviewModal
         currentChoices={previewChoices}
         currentCut={previewCut}
-        isOpen={viewMode === 'list' && isLivePreviewModalOpen}
+        isOpen={isLivePreviewModalOpen}
         nextChoices={nextPreviewChoices}
         nextCut={nextPreviewCut}
         onClose={() => setIsLivePreviewModalOpen(false)}

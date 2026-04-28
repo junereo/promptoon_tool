@@ -439,7 +439,7 @@ export function CutContentBlocksView({
                   style={textStyle}
                 >
                   {block.speaker?.trim() ? (
-                    <p className={isInverse ? 'mb-2 text-xs uppercase tracking-[0.22em] text-zinc-500' : 'mb-2 text-xs uppercase tracking-[0.22em] text-white/45'}>
+                    <p className={isInverse ? 'mb-2 text-[14.667px] uppercase tracking-[0.22em] text-zinc-500' : 'mb-2 text-[14.667px] uppercase tracking-[0.22em] text-white/45'}>
                       {replaceContentBindings(block.speaker, bindings)}
                     </p>
                   ) : null}

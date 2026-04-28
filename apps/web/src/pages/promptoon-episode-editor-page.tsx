@@ -1,4 +1,5 @@
 import type {
+  Choice,
   Cut,
   CreateChoiceRequest,
   CreateCutRequest,
@@ -13,6 +14,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 
 import {
   buildCutHierarchy,
+  getCutHierarchyTraversalOrder,
   getChoicesForCut,
   getPreviewCut,
   getSelectedChoice,
@@ -78,6 +80,10 @@ function insertAfter(ids: string[], anchorId: string | null, insertedId: string)
   return nextIds;
 }
 
+function areOrdersEqual(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((cutId, index) => cutId === right[index]);
+}
+
 function getServerCutOrder(cuts: Cut[]): string[] {
   return [...cuts]
     .sort((left, right) => left.orderIndex - right.orderIndex || left.createdAt.localeCompare(right.createdAt))
@@ -141,6 +147,7 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
   const resetForEpisode = useEditorStore((state) => state.resetForEpisode);
   const setSelected = useEditorStore((state) => state.setSelected);
   const setViewMode = useEditorStore((state) => state.setViewMode);
+  const replaceLocalCutOrder = useEditorStore((state) => state.replaceLocalCutOrder);
   const reorderLocalCuts = useEditorStore((state) => state.reorderLocalCuts);
   const clearDirty = useEditorStore((state) => state.clearDirty);
   const markDirty = useEditorStore((state) => state.markDirty);
@@ -383,6 +390,30 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
     });
   }
 
+  async function syncCutListOrderToHierarchy(nextChoices: Choice[]) {
+    const currentOrder = orderedCuts.map((cut) => cut.id);
+    const hierarchyOrder = getCutHierarchyTraversalOrder(orderedCuts, nextChoices);
+
+    if (areOrdersEqual(currentOrder, hierarchyOrder)) {
+      return;
+    }
+
+    const response = await reorderCuts.mutateAsync({
+      cuts: hierarchyOrder.map((cutId, index) => ({
+        cutId,
+        orderIndex: index
+      }))
+    });
+    hydrateFromDraft({ cuts: response.cuts });
+    replaceLocalCutOrder(hierarchyOrder);
+
+    if (Object.keys(graphPositionDraft).length === 0) {
+      clearDirty();
+    } else {
+      markDirty(true);
+    }
+  }
+
   function handleMoveCut(cutId: string, position: { x: number; y: number }) {
     setGraphLayoutMode('custom');
     setGraphPositionDraft((currentDraft) => ({
@@ -412,16 +443,30 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
   }
 
   function handleConnectChoice(choiceId: string, targetCutId: string) {
+    const nextChoices = draftQuery.data
+      ? draftQuery.data.choices.map((choice) => (choice.id === choiceId ? { ...choice, nextCutId: targetCutId } : choice))
+      : null;
+
     updateChoice.mutate({
       choiceId,
       payload: {
         nextCutId: targetCutId
       }
     });
+
+    if (nextChoices) {
+      void syncCutListOrderToHierarchy(nextChoices).catch(() => {
+        setToolbarNotice('컷 리스트 순서를 동기화하지 못했습니다');
+      });
+    }
   }
 
   async function handleCreateChoiceConnection(cutId: string, targetCutId: string) {
-    const existingChoices = draftQuery.data ? getChoicesForCut(draftQuery.data.choices, cutId) : [];
+    if (!draftQuery.data) {
+      return;
+    }
+
+    const existingChoices = getChoicesForCut(draftQuery.data.choices, cutId);
     const choice = await createChoice.mutateAsync({
       cutId,
       payload: {
@@ -430,6 +475,7 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
       }
     });
 
+    await syncCutListOrderToHierarchy([...draftQuery.data.choices, choice]);
     setSelected({ type: 'choice', id: choice.id });
   }
 

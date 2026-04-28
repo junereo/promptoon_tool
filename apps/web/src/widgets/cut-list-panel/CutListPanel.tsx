@@ -4,6 +4,11 @@ import type { Choice, Cut, DeleteCutRequest } from '@promptoon/shared';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { buildCutHierarchy, type CutHierarchyNode } from '../../entities/promptoon/selectors';
+import {
+  getDefaultDeleteCutReconnectToCutId,
+  getDeleteCutReconnectCandidates,
+  getIncomingChoiceCount
+} from '../../shared/lib/cut-delete';
 import { CutItem } from './CutItem';
 import { DeleteCutConfirmModal } from './DeleteCutConfirmModal';
 import { SortableCutItem } from './SortableCutItem';
@@ -153,18 +158,6 @@ function buildChoiceSections(group: Pick<CutBranchGroup, 'key' | 'nodes'>): CutC
   return sections;
 }
 
-function uniqueCutsById(cuts: Cut[]): Cut[] {
-  const seen = new Set<string>();
-  return cuts.filter((cut) => {
-    if (seen.has(cut.id)) {
-      return false;
-    }
-
-    seen.add(cut.id);
-    return true;
-  });
-}
-
 export function CutListPanel({
   choices,
   cuts,
@@ -215,18 +208,8 @@ export function CutListPanel({
     () => new Map(visibleNodes.map((node) => [node.cut.id, node])),
     [visibleNodes]
   );
-  const incomingChoiceCount = pendingDeleteCut
-    ? choices.filter((choice) => choice.nextCutId === pendingDeleteCut.id).length
-    : 0;
-  const reconnectCandidates = pendingDeleteCut
-    ? uniqueCutsById(
-        choices
-          .filter((choice) => choice.cutId === pendingDeleteCut.id && choice.nextCutId)
-          .map((choice) => cuts.find((cut) => cut.id === choice.nextCutId))
-          .filter((cut): cut is Cut => Boolean(cut))
-          .filter((cut) => cut.id !== pendingDeleteCut.id)
-      )
-    : [];
+  const incomingChoiceCount = pendingDeleteCut ? getIncomingChoiceCount(pendingDeleteCut.id, choices) : 0;
+  const reconnectCandidates = pendingDeleteCut ? getDeleteCutReconnectCandidates(pendingDeleteCut.id, cuts, choices) : [];
 
   useEffect(() => {
     const storedFoldState = readStoredFoldState(foldStorageKey);
@@ -274,16 +257,8 @@ export function CutListPanel({
   }
 
   function openDeleteModal(cut: Cut) {
-    const candidates = uniqueCutsById(
-      choices
-        .filter((choice) => choice.cutId === cut.id && choice.nextCutId)
-        .map((choice) => cuts.find((candidate) => candidate.id === choice.nextCutId))
-        .filter((candidate): candidate is Cut => Boolean(candidate))
-        .filter((candidate) => candidate.id !== cut.id)
-    );
-
     setPendingDeleteCut(cut);
-    setReconnectToCutId(candidates.length === 1 ? candidates[0].id : null);
+    setReconnectToCutId(getDefaultDeleteCutReconnectToCutId(cut.id, cuts, choices));
   }
 
   async function handleConfirmDelete() {

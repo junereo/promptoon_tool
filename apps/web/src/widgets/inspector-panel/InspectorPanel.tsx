@@ -1,8 +1,14 @@
-import type { Choice, Cut, PatchChoiceRequest, PatchCutRequest } from '@promptoon/shared';
+import type { Choice, Cut, DeleteCutRequest, PatchChoiceRequest, PatchCutRequest } from '@promptoon/shared';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { getChoicesForCut } from '../../entities/promptoon/selectors';
+import {
+  getDefaultDeleteCutReconnectToCutId,
+  getDeleteCutReconnectCandidates,
+  getIncomingChoiceCount
+} from '../../shared/lib/cut-delete';
+import { DeleteCutConfirmModal } from '../cut-list-panel/DeleteCutConfirmModal';
 import { ChoiceEditorSection } from './ChoiceEditorSection';
 import { CutEditorForm } from './CutEditorForm';
 
@@ -46,7 +52,7 @@ export function InspectorPanel({
   onUpdateCut: (cutId: string, patch: PatchCutRequest) => void;
   onCommitCut: (cutId: string, patch: PatchCutRequest) => Promise<void>;
   onUploadAsset: (file: File) => Promise<string>;
-  onDeleteCut: (cutId: string) => void;
+  onDeleteCut: (cutId: string, payload?: DeleteCutRequest) => Promise<void> | void;
   onCreateChoice: (cutId: string) => void;
   onUpdateChoice: (choiceId: string, patch: PatchChoiceRequest) => void;
   onDeleteChoice: (choiceId: string) => void;
@@ -56,6 +62,9 @@ export function InspectorPanel({
   const [activeKind, setActiveKind] = useState<Cut['kind'] | null>(selectedCut?.kind ?? null);
   const [contentBlocksPortalTarget, setContentBlocksPortalTarget] = useState<HTMLDivElement | null>(null);
   const [dialoguePositionPortalTarget, setDialoguePositionPortalTarget] = useState<HTMLDivElement | null>(null);
+  const [pendingDeleteCut, setPendingDeleteCut] = useState<Cut | null>(null);
+  const [isDeletePending, setIsDeletePending] = useState(false);
+  const [reconnectToCutId, setReconnectToCutId] = useState<string | null>(null);
   const isGraphMode = viewMode === 'graph';
 
   useEffect(() => {
@@ -71,10 +80,43 @@ export function InspectorPanel({
     [cuts, selectedCut]
   );
   const showChoiceEditor = activeKind === 'choice';
+  const incomingChoiceCount = pendingDeleteCut ? getIncomingChoiceCount(pendingDeleteCut.id, choices) : 0;
+  const reconnectCandidates = pendingDeleteCut ? getDeleteCutReconnectCandidates(pendingDeleteCut.id, cuts, choices) : [];
 
   const handleKindPreviewChange = useCallback((kind: Cut['kind']) => {
     setActiveKind(kind);
   }, []);
+
+  const handleOpenDeleteModal = useCallback(
+    (cutId: string) => {
+      const cut = cuts.find((candidate) => candidate.id === cutId);
+      if (!cut) {
+        return;
+      }
+
+      setPendingDeleteCut(cut);
+      setReconnectToCutId(getDefaultDeleteCutReconnectToCutId(cut.id, cuts, choices));
+    },
+    [choices, cuts]
+  );
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (!pendingDeleteCut || isDeletePending) {
+      return;
+    }
+
+    setIsDeletePending(true);
+
+    try {
+      await onDeleteCut(pendingDeleteCut.id, { reconnectToCutId });
+      setPendingDeleteCut(null);
+      setReconnectToCutId(null);
+    } catch {
+      // Keep the modal open so the user can retry if deletion fails.
+    } finally {
+      setIsDeletePending(false);
+    }
+  }, [isDeletePending, onDeleteCut, pendingDeleteCut, reconnectToCutId]);
 
   if (!selectedCut) {
     return <EmptyState />;
@@ -99,7 +141,7 @@ export function InspectorPanel({
       cut={selectedCut}
       dialoguePositionPortalTarget={dialoguePositionPortalTarget}
       onCommitPatch={onCommitCut}
-      onDeleteCut={onDeleteCut}
+      onDeleteCut={handleOpenDeleteModal}
       onKindPreviewChange={handleKindPreviewChange}
       onQueuePatch={onUpdateCut}
       onUploadAsset={onUploadAsset}
@@ -144,6 +186,25 @@ export function InspectorPanel({
         {isGraphMode ? choiceEditor : null}
         <div className="grid w-full justify-items-end" ref={setDialoguePositionPortalTarget} />
       </div>
+      <DeleteCutConfirmModal
+        cut={pendingDeleteCut}
+        incomingChoiceCount={incomingChoiceCount}
+        isDeleting={isDeletePending}
+        onCancel={() => {
+          if (isDeletePending) {
+            return;
+          }
+
+          setPendingDeleteCut(null);
+          setReconnectToCutId(null);
+        }}
+        onConfirm={() => {
+          void handleConfirmDelete();
+        }}
+        onReconnectChange={setReconnectToCutId}
+        reconnectCandidates={reconnectCandidates}
+        reconnectToCutId={reconnectToCutId}
+      />
     </section>
   );
 }

@@ -795,7 +795,7 @@ describe('publish flow', () => {
 
   it('uploads images with the current project id', async () => {
     uploadMutate.mockResolvedValue({
-      assetUrl: '/uploads/2026/04/03/project-1/cover-1234.png'
+      assetUrl: '/uploads/2026/04/03/project-1/cover-1234.webp'
     });
 
     const { container } = renderPage();

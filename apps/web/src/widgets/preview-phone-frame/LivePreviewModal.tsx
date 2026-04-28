@@ -308,11 +308,11 @@ export function LivePreviewModal({
                 >
                   <div className="w-full overflow-hidden" data-testid="live-preview-modal-panels">
                     {viewerCuts.length > 0 ? (
-                      viewerCuts.map((viewerCut) => (
+                      viewerCuts.map((viewerCut, index) => (
                         <ViewerCutCard
                           compact={viewerCuts.length > 1}
                           cut={viewerCut}
-                          key={viewerCut.id}
+                          key={`${viewerCut.id}:${index}`}
                           onUserNameChange={setUserName}
                           showChoices={false}
                           showEndingActions={false}

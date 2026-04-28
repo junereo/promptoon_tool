@@ -74,22 +74,26 @@ function getDialogAnchorTop(dialogAnchorY: Cut['dialogAnchorY']): string | undef
   }
 }
 
+function formatDialogVerticalOffset(offsetY: number): string {
+  return offsetY < 0 ? `+ ${Math.abs(offsetY)}px` : `- ${offsetY}px`;
+}
+
 function getDialogPlacementStyle(cut: Cut): CSSProperties {
   const dialogAnchorX = cut.dialogAnchorX ?? 'left';
   const dialogAnchorY = cut.dialogAnchorY ?? 'bottom';
-  const dialogOffsetX = Math.min(160, Math.max(0, cut.dialogOffsetX ?? 0));
-  const dialogOffsetY = Math.min(160, Math.max(0, cut.dialogOffsetY ?? 0));
+  const dialogOffsetX = Number.isFinite(cut.dialogOffsetX) ? cut.dialogOffsetX : 0;
+  const dialogOffsetY = Number.isFinite(cut.dialogOffsetY) ? cut.dialogOffsetY : 0;
   const dialogTextAlign = cut.dialogTextAlign ?? 'left';
   const anchorTop = getDialogAnchorTop(dialogAnchorY);
   const translateX = dialogAnchorX === 'center' ? `translateX(${dialogOffsetX}px)` : undefined;
-  const translateY = anchorTop ? `translateY(calc(-50% + ${dialogOffsetY}px))` : undefined;
+  const translateY = anchorTop ? `translateY(calc(-50% ${formatDialogVerticalOffset(dialogOffsetY)}))` : undefined;
   const transform = [translateX, translateY].filter(Boolean).join(' ') || undefined;
 
   return {
     marginBottom: dialogAnchorY === 'bottom' ? `${dialogOffsetY}px` : undefined,
     marginLeft: dialogAnchorX === 'left' ? `${dialogOffsetX}px` : undefined,
-    marginRight: dialogAnchorX === 'right' ? `${dialogOffsetX}px` : undefined,
-    marginTop: dialogAnchorY === 'top' ? `${dialogOffsetY}px` : undefined,
+    marginRight: dialogAnchorX === 'right' ? `${-dialogOffsetX}px` : undefined,
+    marginTop: dialogAnchorY === 'top' ? `${-dialogOffsetY}px` : undefined,
     maxWidth: 'min(20rem, calc(100% - 2rem))',
     position: anchorTop ? 'relative' : undefined,
     textAlign: dialogTextAlign,
@@ -98,10 +102,12 @@ function getDialogPlacementStyle(cut: Cut): CSSProperties {
   };
 }
 
-function getContentPanelClassName(cut: Cut): string {
+function getContentPanelClassName(cut: Cut, density: 'default' | 'compact' = 'default'): string {
+  const paddingClassName = density === 'compact' ? 'px-2 py-1.5' : 'p-5';
+
   return (cut.contentViewMode ?? 'default') === 'inverse'
-    ? 'rounded-[28px] border border-zinc-900/10 bg-white/88 p-5 text-zinc-950 shadow-[0_18px_48px_rgba(255,255,255,0.12)] backdrop-blur-sm'
-    : 'rounded-[28px] border border-white/10 bg-black/20 p-5 backdrop-blur-sm';
+    ? `rounded-[28px] border border-zinc-900/10 bg-white/88 ${paddingClassName} text-zinc-950 shadow-[0_18px_48px_rgba(255,255,255,0.12)] backdrop-blur-sm`
+    : `rounded-[28px] border border-white/10 bg-black/20 ${paddingClassName} backdrop-blur-sm`;
 }
 
 export function PreviewPlayer({
@@ -433,7 +439,7 @@ export function PreviewPlayer({
                     {hasOverlayContent ? (
                       <div className={getDialogPlacementClasses(cut)}>
                         <div
-                          className={getContentPanelClassName(cut)}
+                          className={getContentPanelClassName(cut, 'compact')}
                           style={getDialogPlacementStyle(cut)}
                         >
                           <CutContentBlocksView

@@ -126,6 +126,24 @@ describe('branch graph mapping', () => {
     expect(edges[0]?.style).toMatchObject({ stroke: '#7A3040' });
   });
 
+  it('colors multiple incoming graph edges to the same cut distinctly', () => {
+    const choices = [
+      buildChoice('choice-left', 'cut-left', { nextCutId: 'cut-target' }),
+      buildChoice('choice-right', 'cut-right', { nextCutId: 'cut-target' }),
+      buildChoice('choice-single', 'cut-single', { nextCutId: 'cut-other' })
+    ];
+
+    const edges = mapChoicesToFlowEdges(choices, { type: 'none' });
+    const multiInputEdges = edges.filter((edge) => edge.target === 'cut-target');
+    const singleInputEdge = edges.find((edge) => edge.id === 'edge-choice-single');
+
+    expect(multiInputEdges).toHaveLength(2);
+    expect(multiInputEdges[0]?.style?.stroke).not.toBe(multiInputEdges[1]?.style?.stroke);
+    expect(multiInputEdges[0]?.style).toMatchObject({ strokeWidth: 2.4, strokeOpacity: 0.95 });
+    expect(multiInputEdges[1]?.interactionWidth).toBe(24);
+    expect(singleInputEdge?.style).toMatchObject({ stroke: '#555', strokeWidth: 1.8 });
+  });
+
   it('accepts only source-to-target graph connections', () => {
     expect(
       isValidGraphConnection({
@@ -447,8 +465,14 @@ describe('EpisodeEditorShell graph mode', () => {
     );
 
     expect(screen.queryByText('Cut List')).toBeNull();
-    expect(screen.getByText('Live Preview')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Live Preview' })).toBeTruthy();
     expect(screen.getByText('Branch Graph')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Live Preview' }));
+    expect(screen.getByRole('dialog', { name: 'Live Preview' })).toBeTruthy();
+    expect(screen.getByTestId('live-preview-viewer-frame')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '닫기' }));
+    expect(screen.queryByTestId('live-preview-modal')).toBeNull();
 
     expect(screen.getByTestId('graph-split-frame').getAttribute('style')).toContain('70%');
     expect(screen.getByTestId('graph-split-frame').getAttribute('style')).toContain('30%');

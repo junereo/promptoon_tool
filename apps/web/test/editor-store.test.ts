@@ -78,4 +78,14 @@ describe('editor store', () => {
     expect(useEditorStore.getState().localCutOrder).toEqual(['cut-b', 'cut-a']);
     expect(useEditorStore.getState().isDirty).toBe(false);
   });
+
+  it('replaces local order without changing dirty state', () => {
+    useEditorStore.getState().resetForEpisode();
+    useEditorStore.getState().markDirty(true);
+
+    useEditorStore.getState().replaceLocalCutOrder(['cut-a', 'cut-b', 'cut-a']);
+
+    expect(useEditorStore.getState().localCutOrder).toEqual(['cut-a', 'cut-b']);
+    expect(useEditorStore.getState().isDirty).toBe(true);
+  });
 });

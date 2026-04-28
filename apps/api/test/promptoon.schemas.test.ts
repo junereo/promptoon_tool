@@ -12,7 +12,7 @@ import {
 describe('promptoon cut schemas', () => {
   it('accepts episode cover image patches', () => {
     const result = patchEpisodeSchema.safeParse({
-      coverImageUrl: '/uploads/2026/04/24/project/cover.png'
+      coverImageUrl: '/uploads/2026/04/24/project/cover.webp'
     });
 
     expect(result.success).toBe(true);
@@ -46,6 +46,17 @@ describe('promptoon cut schemas', () => {
 
   it('accepts center dialogue horizontal anchor', () => {
     const result = patchCutSchema.safeParse({ dialogAnchorX: 'center' });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts signed dialogue offsets', () => {
+    const result = patchCutSchema.safeParse({
+      dialogAnchorX: 'center',
+      dialogAnchorY: 'center',
+      dialogOffsetX: -48,
+      dialogOffsetY: 96
+    });
 
     expect(result.success).toBe(true);
   });
