@@ -11,6 +11,7 @@ interface ViewerState {
   initialize: (publishId: string, startCutId: string) => void;
   initializeFromFeed: (publishId: string, startCutId: string, nextCutId: string) => void;
   push: (nextCutId: string) => void;
+  replace: (nextCutId: string) => void;
   pop: () => void;
   reset: (startCutId: string) => void;
   showChrome: () => void;
@@ -66,6 +67,17 @@ export const useViewerStore = create<ViewerState>((set) => ({
         currentCutId: nextCutId,
         historyStack: [...state.historyStack, state.currentCutId],
         navigationDirection: 'forward'
+      };
+    }),
+  replace: (nextCutId) =>
+    set((state) => {
+      if (!state.currentCutId || state.currentCutId === nextCutId) {
+        return state;
+      }
+
+      return {
+        currentCutId: nextCutId,
+        navigationDirection: state.navigationDirection
       };
     }),
   pop: () =>

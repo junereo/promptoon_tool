@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MAX_CUT_STATE_ROUTE_CONDITIONS } from '@promptoon/shared';
 
 const uuidSchema = z.string().uuid();
 const cutEffectSchema = z.enum(['none', 'fade', 'slide-left', 'slide-right', 'slide-up', 'slide-down', 'zoom-in', 'zoom-out']);
@@ -14,6 +15,51 @@ const edgeFadeIntensitySchema = z.enum(['minimal', 'barely-soft', 'ultra-soft', 
 const edgeFadeColorSchema = z.enum(['black', 'white']);
 const dialogAnchorYSchema = z.enum(['top', 'upper', 'center', 'lower', 'bottom']);
 const bindingKeySchema = z.enum(['userName']);
+const stateKeySchema = z.string().trim().min(1).max(64).regex(/^[A-Za-z0-9_.-]+$/);
+const stateValueSchema = z.string().trim().min(1).max(128);
+const choiceStateWriteSchema = z.object({
+  key: stateKeySchema,
+  value: stateValueSchema
+});
+const cutStateVariantSchema = z.object({
+  id: z.string().trim().min(1).max(128),
+  stateKey: stateKeySchema,
+  equals: stateValueSchema,
+  variantCutId: uuidSchema,
+  label: z.string().trim().max(120).optional()
+});
+const cutStateRouteConditionSchema = z.object({
+  stateKey: stateKeySchema,
+  equals: stateValueSchema
+});
+const cutStateRouteSchema = z.object({
+  id: z.string().trim().min(1).max(128),
+  stateKey: stateKeySchema.optional(),
+  equals: stateValueSchema.optional(),
+  conditions: z.array(cutStateRouteConditionSchema).min(1).max(MAX_CUT_STATE_ROUTE_CONDITIONS).optional(),
+  nextCutId: uuidSchema,
+  label: z.string().trim().max(120).optional()
+}).superRefine((value, context) => {
+  const hasLegacyStateKey = value.stateKey !== undefined;
+  const hasLegacyEquals = value.equals !== undefined;
+  const hasLegacyCondition = hasLegacyStateKey && hasLegacyEquals;
+
+  if ((hasLegacyStateKey || hasLegacyEquals) && !hasLegacyCondition) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Both stateKey and equals are required for a legacy state route condition.',
+      path: hasLegacyStateKey ? ['equals'] : ['stateKey']
+    });
+  }
+
+  if (!value.conditions && !hasLegacyCondition) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'At least one state route condition is required.',
+      path: ['conditions']
+    });
+  }
+});
 const contentBlockBaseSchema = z.object({
   id: z.string().trim().min(1)
 });
@@ -86,7 +132,7 @@ export const patchEpisodeSchema = z.object({
 });
 
 export const createCutSchema = z.object({
-  kind: z.enum(['scene', 'choice', 'ending', 'transition']),
+  kind: z.enum(['scene', 'choice', 'ending', 'transition', 'stateRouter']),
   title: z.string().trim().min(1),
   body: z.string().optional(),
   contentBlocks: z.array(contentBlockSchema).optional(),
@@ -105,6 +151,9 @@ export const createCutSchema = z.object({
   edgeFadeIntensity: edgeFadeIntensitySchema.optional(),
   edgeFadeColor: edgeFadeColorSchema.optional(),
   marginBottomToken: spacingTokenSchema.optional(),
+  stateVariants: z.array(cutStateVariantSchema).max(20).optional(),
+  stateRoutes: z.array(cutStateRouteSchema).max(20).optional(),
+  stateFallbackCutId: uuidSchema.nullable().optional(),
   orderIndex: z.number().int().min(0).optional(),
   positionX: z.number().finite().optional(),
   positionY: z.number().finite().optional(),
@@ -124,7 +173,8 @@ export const createChoiceSchema = z.object({
   label: z.string().trim().min(1),
   orderIndex: z.number().int().min(0).optional(),
   nextCutId: uuidSchema.nullable().optional(),
-  afterSelectReactionText: z.string().optional()
+  afterSelectReactionText: z.string().optional(),
+  stateWrites: z.array(choiceStateWriteSchema).max(20).optional()
 });
 
 export const patchChoiceSchema = createChoiceSchema.partial().refine((value) => Object.keys(value).length > 0, {

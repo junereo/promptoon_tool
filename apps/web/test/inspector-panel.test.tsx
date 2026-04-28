@@ -824,6 +824,157 @@ describe('CutEditorForm', () => {
     vi.useRealTimers();
   });
 
+  it('saves state router routes once without hidden content patches', () => {
+    vi.useFakeTimers();
+    const onQueuePatch = vi.fn();
+    const targetCut = buildCut('cut-target', { title: 'A선택' });
+    const route = {
+      id: 'route-a',
+      stateKey: 'first_route',
+      equals: 'A',
+      nextCutId: targetCut.id
+    };
+    const routerCut = buildCut('cut-router', {
+      kind: 'stateRouter',
+      title: '상태 분기',
+      stateRoutes: [route],
+      stateFallbackCutId: targetCut.id
+    });
+
+    const { rerender } = render(
+      <CutEditorForm
+        availableCuts={[targetCut]}
+        cut={routerCut}
+        onCommitPatch={vi.fn().mockResolvedValue(undefined)}
+        onDeleteCut={vi.fn()}
+        onKindPreviewChange={vi.fn()}
+        onQueuePatch={onQueuePatch}
+        onUploadAsset={vi.fn()}
+        pendingAutosaveCount={0}
+      />
+    );
+
+    expect(screen.queryByLabelText('Block Text')).toBeNull();
+    fireEvent.change(screen.getByPlaceholderText('A 루트'), {
+      target: {
+        value: 'A 루트'
+      }
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+
+    expect(onQueuePatch).toHaveBeenCalledTimes(1);
+    expect(onQueuePatch).toHaveBeenCalledWith('cut-router', {
+      stateRoutes: [
+        {
+          ...route,
+          conditions: [
+            {
+              stateKey: 'first_route',
+              equals: 'A'
+            }
+          ],
+          label: 'A 루트'
+        }
+      ]
+    });
+
+    rerender(
+      <CutEditorForm
+        availableCuts={[targetCut]}
+        cut={{
+          ...routerCut,
+          stateRoutes: [
+            {
+              ...route,
+              label: 'A 루트'
+            }
+          ]
+        }}
+        onCommitPatch={vi.fn().mockResolvedValue(undefined)}
+        onDeleteCut={vi.fn()}
+        onKindPreviewChange={vi.fn()}
+        onQueuePatch={onQueuePatch}
+        onUploadAsset={vi.fn()}
+        pendingAutosaveCount={0}
+      />
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+
+    expect(onQueuePatch).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it('queues state router routes with two conditions', () => {
+    vi.useFakeTimers();
+    const onQueuePatch = vi.fn();
+    const targetCut = buildCut('cut-target', { title: 'AA선택' });
+    const route = {
+      id: 'route-aa',
+      stateKey: 'first_route',
+      equals: 'A',
+      nextCutId: targetCut.id
+    };
+
+    render(
+      <CutEditorForm
+        availableCuts={[targetCut]}
+        cut={buildCut('cut-router', {
+          kind: 'stateRouter',
+          title: '상태 분기',
+          stateRoutes: [route],
+          stateFallbackCutId: targetCut.id
+        })}
+        onCommitPatch={vi.fn().mockResolvedValue(undefined)}
+        onDeleteCut={vi.fn()}
+        onKindPreviewChange={vi.fn()}
+        onQueuePatch={onQueuePatch}
+        onUploadAsset={vi.fn()}
+        pendingAutosaveCount={0}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '+ 조건' }));
+    fireEvent.change(screen.getByPlaceholderText('second_route'), {
+      target: {
+        value: 'second_route'
+      }
+    });
+    fireEvent.change(screen.getByPlaceholderText('B'), {
+      target: {
+        value: 'A'
+      }
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+
+    expect(onQueuePatch).toHaveBeenCalledWith('cut-router', {
+      stateRoutes: [
+        {
+          ...route,
+          conditions: [
+            {
+              stateKey: 'first_route',
+              equals: 'A'
+            },
+            {
+              stateKey: 'second_route',
+              equals: 'A'
+            }
+          ]
+        }
+      ]
+    });
+    vi.useRealTimers();
+  });
+
   it('shows default effect durations and queues effect and duration changes', () => {
     vi.useFakeTimers();
     const onQueuePatch = vi.fn();

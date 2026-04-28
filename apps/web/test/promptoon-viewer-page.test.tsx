@@ -235,6 +235,330 @@ describe('PromptoonViewerPage', () => {
     expect(payloads.some((payload) => payload.eventType === 'ending_reach' && payload.cutId === 'cut-end')).toBe(true);
   });
 
+  it('stores choice state and renders state-specific cut variants while following the base flow', async () => {
+    publishedEpisode = {
+      ...publishedEpisode,
+      manifest: {
+        ...publishedEpisode.manifest,
+        cuts: [
+          {
+            id: 'cut-start',
+            kind: 'choice',
+            title: '시작',
+            body: '처음 선택하세요.',
+            dialogAnchorX: 'left',
+            dialogAnchorY: 'bottom',
+            dialogOffsetX: 0,
+            dialogOffsetY: 0,
+            dialogTextAlign: 'left',
+            startEffect: 'fade',
+            endEffect: 'slide-left',
+            startEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            endEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            assetUrl: null,
+            positionX: 0,
+            positionY: 0,
+            orderIndex: 0,
+            isStart: true,
+            isEnding: false,
+            choices: [
+              {
+                id: 'choice-a',
+                label: 'A 선택',
+                orderIndex: 0,
+                nextCutId: 'cut-common',
+                stateWrites: [{ key: 'first_route', value: 'A' }]
+              },
+              {
+                id: 'choice-b',
+                label: 'B 선택',
+                orderIndex: 1,
+                nextCutId: 'cut-common',
+                stateWrites: [{ key: 'first_route', value: 'B' }]
+              }
+            ]
+          },
+          {
+            id: 'cut-common',
+            kind: 'scene',
+            title: '공통',
+            body: '공통 기본 연출입니다.',
+            dialogAnchorX: 'left',
+            dialogAnchorY: 'bottom',
+            dialogOffsetX: 0,
+            dialogOffsetY: 0,
+            dialogTextAlign: 'left',
+            startEffect: 'fade',
+            endEffect: 'fade',
+            startEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            endEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            assetUrl: null,
+            positionX: 0,
+            positionY: 0,
+            orderIndex: 1,
+            isStart: false,
+            isEnding: false,
+            stateVariants: [
+              {
+                id: 'variant-a',
+                stateKey: 'first_route',
+                equals: 'A',
+                variantCutId: 'cut-route-a'
+              }
+            ],
+            choices: [
+              {
+                id: 'choice-common-next',
+                label: '공통 다음',
+                orderIndex: 0,
+                nextCutId: 'cut-end'
+              }
+            ]
+          },
+          {
+            id: 'cut-route-a',
+            kind: 'scene',
+            title: 'A 연출',
+            body: 'A 전용 연출입니다.',
+            dialogAnchorX: 'left',
+            dialogAnchorY: 'bottom',
+            dialogOffsetX: 0,
+            dialogOffsetY: 0,
+            dialogTextAlign: 'left',
+            startEffect: 'zoom-in',
+            endEffect: 'fade',
+            startEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            endEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            assetUrl: null,
+            positionX: 0,
+            positionY: 0,
+            orderIndex: 2,
+            isStart: false,
+            isEnding: false,
+            choices: []
+          },
+          {
+            id: 'cut-end',
+            kind: 'ending',
+            title: '엔딩',
+            body: '공통 엔딩입니다.',
+            dialogAnchorX: 'left',
+            dialogAnchorY: 'bottom',
+            dialogOffsetX: 0,
+            dialogOffsetY: 0,
+            dialogTextAlign: 'left',
+            startEffect: 'fade',
+            endEffect: 'none',
+            startEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            endEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            assetUrl: null,
+            positionX: 0,
+            positionY: 0,
+            orderIndex: 3,
+            isStart: false,
+            isEnding: true,
+            choices: []
+          }
+        ]
+      }
+    };
+
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'A 선택' }));
+
+    expect(await screen.findByText('A 전용 연출입니다.')).toBeTruthy();
+    expect(screen.queryByText('공통 기본 연출입니다.')).toBeNull();
+    expect(await screen.findByText('공통 엔딩입니다.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '공통 다음' })).toBeNull();
+    expect(JSON.parse(window.localStorage.getItem('promptoon:viewer-state:publish-1') ?? '{}')).toEqual({
+      first_route: 'A'
+    });
+
+    await waitFor(() => {
+      expect(sendBeaconMock).toHaveBeenCalled();
+    });
+
+    const payloads = await getTelemetryPayloads();
+    expect(payloads.some((payload) => payload.eventType === 'cut_view' && payload.cutId === 'cut-common')).toBe(true);
+    expect(payloads.some((payload) => payload.eventType === 'cut_view' && payload.cutId === 'cut-route-a')).toBe(false);
+  });
+
+  it('routes through invisible state router cuts using stored choice state', async () => {
+    publishedEpisode = {
+      ...publishedEpisode,
+      manifest: {
+        ...publishedEpisode.manifest,
+        cuts: [
+          {
+            id: 'cut-start',
+            kind: 'choice',
+            title: '시작',
+            body: '첫 선택입니다.',
+            dialogAnchorX: 'left',
+            dialogAnchorY: 'bottom',
+            dialogOffsetX: 0,
+            dialogOffsetY: 0,
+            dialogTextAlign: 'left',
+            startEffect: 'fade',
+            endEffect: 'slide-left',
+            startEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            endEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            assetUrl: null,
+            positionX: 0,
+            positionY: 0,
+            orderIndex: 0,
+            isStart: true,
+            isEnding: false,
+            choices: [
+              {
+                id: 'choice-a',
+                label: 'A 선택',
+                orderIndex: 0,
+                nextCutId: 'cut-router',
+                stateWrites: [{ key: 'first_route', value: 'A' }]
+              },
+              {
+                id: 'choice-b',
+                label: 'B 선택',
+                orderIndex: 1,
+                nextCutId: 'cut-router',
+                stateWrites: [{ key: 'first_route', value: 'B' }]
+              }
+            ]
+          },
+          {
+            id: 'cut-router',
+            kind: 'stateRouter',
+            title: '상태 분기',
+            body: '보이면 안 되는 라우터입니다.',
+            dialogAnchorX: 'left',
+            dialogAnchorY: 'bottom',
+            dialogOffsetX: 0,
+            dialogOffsetY: 0,
+            dialogTextAlign: 'left',
+            startEffect: 'none',
+            endEffect: 'none',
+            startEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            endEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            assetUrl: null,
+            positionX: 0,
+            positionY: 0,
+            orderIndex: 1,
+            isStart: false,
+            isEnding: false,
+            stateRoutes: [
+              {
+                id: 'route-a',
+                stateKey: 'first_route',
+                equals: 'A',
+                nextCutId: 'cut-route-a'
+              }
+            ],
+            stateFallbackCutId: 'cut-route-b',
+            choices: []
+          },
+          {
+            id: 'cut-route-a',
+            kind: 'scene',
+            title: 'A 루트',
+            body: 'A 루트 실제 컷입니다.',
+            dialogAnchorX: 'left',
+            dialogAnchorY: 'bottom',
+            dialogOffsetX: 0,
+            dialogOffsetY: 0,
+            dialogTextAlign: 'left',
+            startEffect: 'zoom-in',
+            endEffect: 'fade',
+            startEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            endEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            assetUrl: null,
+            positionX: 0,
+            positionY: 0,
+            orderIndex: 2,
+            isStart: false,
+            isEnding: false,
+            choices: [
+              {
+                id: 'choice-a-end',
+                label: '엔딩으로',
+                orderIndex: 0,
+                nextCutId: 'cut-end'
+              }
+            ]
+          },
+          {
+            id: 'cut-route-b',
+            kind: 'scene',
+            title: 'B 루트',
+            body: 'B 루트 기본 컷입니다.',
+            dialogAnchorX: 'left',
+            dialogAnchorY: 'bottom',
+            dialogOffsetX: 0,
+            dialogOffsetY: 0,
+            dialogTextAlign: 'left',
+            startEffect: 'fade',
+            endEffect: 'fade',
+            startEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            endEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            assetUrl: null,
+            positionX: 0,
+            positionY: 0,
+            orderIndex: 3,
+            isStart: false,
+            isEnding: false,
+            choices: [
+              {
+                id: 'choice-b-end',
+                label: '엔딩으로',
+                orderIndex: 0,
+                nextCutId: 'cut-end'
+              }
+            ]
+          },
+          {
+            id: 'cut-end',
+            kind: 'ending',
+            title: '엔딩',
+            body: '라우터 이후 엔딩입니다.',
+            dialogAnchorX: 'left',
+            dialogAnchorY: 'bottom',
+            dialogOffsetX: 0,
+            dialogOffsetY: 0,
+            dialogTextAlign: 'left',
+            startEffect: 'fade',
+            endEffect: 'none',
+            startEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            endEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            assetUrl: null,
+            positionX: 0,
+            positionY: 0,
+            orderIndex: 4,
+            isStart: false,
+            isEnding: true,
+            choices: []
+          }
+        ]
+      }
+    };
+
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'A 선택' }));
+
+    expect(await screen.findByText('A 루트 실제 컷입니다.')).toBeTruthy();
+    expect(screen.queryByText('보이면 안 되는 라우터입니다.')).toBeNull();
+    expect(screen.queryByText('B 루트 기본 컷입니다.')).toBeNull();
+    expect(await screen.findByText('라우터 이후 엔딩입니다.')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '이전으로' }));
+    expect(await screen.findByText('첫 선택입니다.')).toBeTruthy();
+
+    const payloads = await getTelemetryPayloads();
+    expect(payloads.some((payload) => payload.eventType === 'cut_view' && payload.cutId === 'cut-router')).toBe(false);
+    expect(payloads.some((payload) => payload.eventType === 'cut_view' && payload.cutId === 'cut-route-a')).toBe(true);
+  });
+
   it('shows a spoiler-safe banner for shared endings and dismisses it after the first forward navigation', async () => {
     renderPage('/v/publish-1?e=cut-end');
 

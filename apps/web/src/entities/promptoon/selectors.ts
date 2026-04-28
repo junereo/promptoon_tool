@@ -45,12 +45,29 @@ function getConnectedChoicesByCutId(choices: Choice[]): Map<string, Choice[]> {
   return choicesByCutId;
 }
 
-function getIncomingCutIds(choices: Choice[]): Set<string> {
+function getConnectedStateRouterTargetIds(cut: Cut): string[] {
+  if (cut.kind !== 'stateRouter') {
+    return [];
+  }
+
+  return [
+    ...(cut.stateRoutes ?? []).map((stateRoute) => stateRoute.nextCutId),
+    ...(cut.stateFallbackCutId ? [cut.stateFallbackCutId] : [])
+  ].filter((cutId, index, cutIds) => cutId !== cut.id && cutIds.indexOf(cutId) === index);
+}
+
+function getIncomingCutIds(cuts: Cut[], choices: Choice[]): Set<string> {
   const incomingCutIds = new Set<string>();
 
   for (const choice of choices) {
     if (choice.nextCutId) {
       incomingCutIds.add(choice.nextCutId);
+    }
+  }
+
+  for (const cut of cuts) {
+    for (const targetCutId of getConnectedStateRouterTargetIds(cut)) {
+      incomingCutIds.add(targetCutId);
     }
   }
 
@@ -76,7 +93,7 @@ export function buildCutHierarchy(cuts: Cut[], choices: Choice[]): CutHierarchy 
   const cutOrder = new Map(sortedCuts.map((cut, index) => [cut.id, index]));
   const cutById = new Map(sortedCuts.map((cut) => [cut.id, cut]));
   const connectedChoicesByCutId = getConnectedChoicesByCutId(choices);
-  const incomingCutIds = getIncomingCutIds(choices);
+  const incomingCutIds = getIncomingCutIds(cuts, choices);
   const visitedCutIds = new Set<string>();
   const flatNodes: CutHierarchyNode[] = [];
   const nodeByCutId = new Map<string, CutHierarchyNode>();
@@ -119,6 +136,19 @@ export function buildCutHierarchy(cuts: Cut[], choices: Choice[]): CutHierarchy 
       }
 
       const childNode = visitCut(childCut, [...path, childRank], cut.id, choice.id, nextAncestorCutIds);
+      if (childNode) {
+        node.childNodes.push(childNode);
+        childRank += 1;
+      }
+    }
+
+    for (const targetCutId of getConnectedStateRouterTargetIds(cut)) {
+      const childCut = cutById.get(targetCutId);
+      if (!childCut) {
+        continue;
+      }
+
+      const childNode = visitCut(childCut, [...path, childRank], cut.id, null, nextAncestorCutIds);
       if (childNode) {
         node.childNodes.push(childNode);
         childRank += 1;

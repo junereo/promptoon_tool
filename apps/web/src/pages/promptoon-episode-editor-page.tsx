@@ -390,9 +390,9 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
     });
   }
 
-  async function syncCutListOrderToHierarchy(nextChoices: Choice[]) {
-    const currentOrder = orderedCuts.map((cut) => cut.id);
-    const hierarchyOrder = getCutHierarchyTraversalOrder(orderedCuts, nextChoices);
+  async function syncCutListOrderToHierarchy(nextChoices: Choice[], nextCuts: Cut[] = orderedCuts) {
+    const currentOrder = nextCuts.map((cut) => cut.id);
+    const hierarchyOrder = getCutHierarchyTraversalOrder(nextCuts, nextChoices);
 
     if (areOrdersEqual(currentOrder, hierarchyOrder)) {
       return;
@@ -461,6 +461,57 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
     }
   }
 
+  function handleConnectStateRoute(cutId: string, stateRouteId: string, targetCutId: string) {
+    const sourceCut = draftQuery.data?.cuts.find((cut) => cut.id === cutId);
+    if (!sourceCut) {
+      return;
+    }
+
+    const nextStateRoutes = (sourceCut.stateRoutes ?? []).map((stateRoute) =>
+      stateRoute.id === stateRouteId ? { ...stateRoute, nextCutId: targetCutId } : stateRoute
+    );
+    const nextCuts = draftQuery.data
+      ? draftQuery.data.cuts.map((cut) => (cut.id === cutId ? { ...cut, stateRoutes: nextStateRoutes } : cut))
+      : null;
+
+    updateCut.mutate({
+      cutId,
+      payload: {
+        stateRoutes: nextStateRoutes
+      }
+    });
+
+    if (draftQuery.data && nextCuts) {
+      void syncCutListOrderToHierarchy(draftQuery.data.choices, sortCutsByLocalOrder(nextCuts, localCutOrder)).catch(() => {
+        setToolbarNotice('컷 리스트 순서를 동기화하지 못했습니다');
+      });
+    }
+  }
+
+  function handleConnectStateFallback(cutId: string, targetCutId: string) {
+    const sourceCut = draftQuery.data?.cuts.find((cut) => cut.id === cutId);
+    if (!sourceCut) {
+      return;
+    }
+
+    const nextCuts = draftQuery.data
+      ? draftQuery.data.cuts.map((cut) => (cut.id === cutId ? { ...cut, stateFallbackCutId: targetCutId } : cut))
+      : null;
+
+    updateCut.mutate({
+      cutId,
+      payload: {
+        stateFallbackCutId: targetCutId
+      }
+    });
+
+    if (draftQuery.data && nextCuts) {
+      void syncCutListOrderToHierarchy(draftQuery.data.choices, sortCutsByLocalOrder(nextCuts, localCutOrder)).catch(() => {
+        setToolbarNotice('컷 리스트 순서를 동기화하지 못했습니다');
+      });
+    }
+  }
+
   async function handleCreateChoiceConnection(cutId: string, targetCutId: string) {
     if (!draftQuery.data) {
       return;
@@ -485,7 +536,7 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
     }
 
     const branchEndCut = getBranchEndCut(graphCuts, draftQuery.data.choices, cutId) ?? graphCuts.find((cut) => cut.id === cutId) ?? null;
-    if (!branchEndCut || branchEndCut.isEnding) {
+    if (!branchEndCut || branchEndCut.isEnding || branchEndCut.kind === 'stateRouter') {
       setToolbarNotice('연결할 수 있는 마지막 컷을 선택해 주세요');
       return;
     }
@@ -754,6 +805,8 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
         onApplyGraphLayout={handleApplyGraphLayout}
         onCreateChoiceConnection={handleCreateChoiceConnection}
         onConnectChoice={handleConnectChoice}
+        onConnectStateFallback={handleConnectStateFallback}
+        onConnectStateRoute={handleConnectStateRoute}
         onCommitCut={handleCommitCut}
         onCreateChoice={handleCreateChoice}
         onCreateCut={handleCreateCut}

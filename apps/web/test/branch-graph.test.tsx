@@ -11,6 +11,8 @@ import {
   getChoiceSourceHandleId,
   getCreateSourceHandleId,
   getCutTargetHandleId,
+  getStateFallbackSourceHandleId,
+  getStateRouteSourceHandleId,
   isValidGraphConnection,
   mapChoicesToFlowEdges,
   mapCutsToFlowNodes
@@ -23,7 +25,7 @@ import {
   GRAPH_NODE_HORIZONTAL_GAP,
   GRAPH_NODE_VERTICAL_GAP
 } from '../src/widgets/branch-canvas/graph-layout';
-import { BranchCanvas } from '../src/widgets/branch-canvas/BranchCanvas';
+import { BranchCanvas, shouldAutoFitGraph } from '../src/widgets/branch-canvas/BranchCanvas';
 import { EpisodeEditorShell } from '../src/widgets/episode-editor-shell/episode-editor-shell';
 
 afterEach(() => {
@@ -144,6 +146,39 @@ describe('branch graph mapping', () => {
     expect(singleInputEdge?.style).toMatchObject({ stroke: '#555', strokeWidth: 1.8 });
   });
 
+  it('maps state router routes and fallback to dashed graph edges', () => {
+    const routerCut = buildCut('cut-router', {
+      kind: 'stateRouter',
+      stateRoutes: [
+        {
+          id: 'route-a',
+          stateKey: 'first_route',
+          equals: 'A',
+          nextCutId: 'cut-a'
+        }
+      ],
+      stateFallbackCutId: 'cut-b'
+    });
+
+    const edges = mapChoicesToFlowEdges([], { type: 'none' }, [routerCut, buildCut('cut-a'), buildCut('cut-b')]);
+
+    expect(edges).toHaveLength(2);
+    expect(edges[0]?.id).toBe('state-route-cut-router-route-a');
+    expect(edges[0]?.sourceHandle).toBe(getStateRouteSourceHandleId('cut-router', 'route-a'));
+    expect(edges[0]?.targetHandle).toBe(getCutTargetHandleId('cut-a'));
+    expect(edges[0]?.style).toMatchObject({ strokeDasharray: '5 5' });
+    expect(edges[1]?.id).toBe('state-fallback-cut-router');
+    expect(edges[1]?.sourceHandle).toBe(getStateFallbackSourceHandleId('cut-router'));
+  });
+
+  it('auto-fits only on initial graph load and added cuts', () => {
+    expect(shouldAutoFitGraph(null, [])).toBe(false);
+    expect(shouldAutoFitGraph(null, ['cut-1'])).toBe(true);
+    expect(shouldAutoFitGraph(['cut-1'], ['cut-1', 'cut-2'])).toBe(true);
+    expect(shouldAutoFitGraph(['cut-1', 'cut-2'], ['cut-1', 'cut-2'])).toBe(false);
+    expect(shouldAutoFitGraph(['cut-1', 'cut-2'], ['cut-1'])).toBe(false);
+  });
+
   it('accepts only source-to-target graph connections', () => {
     expect(
       isValidGraphConnection({
@@ -203,6 +238,8 @@ describe('BranchCanvas', () => {
           onCreateChoiceConnection={vi.fn()}
           onCreateLinkedCut={vi.fn()}
           onConnectChoice={vi.fn()}
+          onConnectStateFallback={vi.fn()}
+          onConnectStateRoute={vi.fn()}
           onMoveCut={vi.fn()}
           onSelectChoice={vi.fn()}
           onSelectCut={onSelectCut}
@@ -239,6 +276,8 @@ describe('BranchCanvas', () => {
           onCreateChoiceConnection={vi.fn()}
           onCreateLinkedCut={onCreateLinkedCut}
           onConnectChoice={vi.fn()}
+          onConnectStateFallback={vi.fn()}
+          onConnectStateRoute={vi.fn()}
           onMoveCut={vi.fn()}
           onSelectChoice={vi.fn()}
           onSelectCut={vi.fn()}
@@ -270,6 +309,8 @@ describe('BranchCanvas', () => {
           onCreateChoiceConnection={vi.fn()}
           onCreateLinkedCut={vi.fn()}
           onConnectChoice={vi.fn()}
+          onConnectStateFallback={vi.fn()}
+          onConnectStateRoute={vi.fn()}
           onMoveCut={vi.fn()}
           onSelectChoice={vi.fn()}
           onSelectCut={vi.fn()}
@@ -338,6 +379,8 @@ describe('EpisodeEditorShell graph mode', () => {
         onCreateChoiceConnection={vi.fn()}
         onCreateLinkedCut={vi.fn()}
         onConnectChoice={vi.fn()}
+        onConnectStateFallback={vi.fn()}
+        onConnectStateRoute={vi.fn()}
         onCommitCut={vi.fn().mockResolvedValue(undefined)}
         onCreateChoice={vi.fn()}
         onCreateCut={vi.fn()}
@@ -435,6 +478,8 @@ describe('EpisodeEditorShell graph mode', () => {
         onCreateChoiceConnection={vi.fn()}
         onCreateLinkedCut={vi.fn()}
         onConnectChoice={vi.fn()}
+        onConnectStateFallback={vi.fn()}
+        onConnectStateRoute={vi.fn()}
         onCommitCut={vi.fn().mockResolvedValue(undefined)}
         onCreateChoice={vi.fn()}
         onCreateCut={vi.fn()}

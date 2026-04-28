@@ -2,6 +2,12 @@ import type { Choice, Cut, PublishManifest } from '@promptoon/shared';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import {
+  applyChoiceStateWrites,
+  resolveManifestStateRouterTargetCut,
+  resolveManifestStateVariantCut,
+  type PromptoonViewerState
+} from '../../shared/lib/promptoon-state-variants';
 import { ViewerCutCard } from '../public-viewer/ViewerCutCard';
 
 type ViewerCut = PublishManifest['cuts'][number];
@@ -65,7 +71,8 @@ function toViewerCut(cut: Cut, choices: Choice[]): ViewerCut {
       id: choice.id,
       label: choice.label,
       nextCutId: choice.nextCutId,
-      orderIndex: choice.orderIndex
+      orderIndex: choice.orderIndex,
+      stateWrites: choice.stateWrites ?? []
     })),
     contentBlocks: cut.contentBlocks,
     contentViewMode: cut.contentViewMode,
@@ -89,13 +96,22 @@ function toViewerCut(cut: Cut, choices: Choice[]): ViewerCut {
     positionY: cut.positionY,
     startEffect: cut.startEffect,
     startEffectDurationMs: cut.startEffectDurationMs,
+    stateFallbackCutId: cut.stateFallbackCutId ?? null,
+    stateRoutes: cut.stateRoutes ?? [],
+    stateVariants: cut.stateVariants ?? [],
     title: cut.title
   };
 }
 
+function getSortedChoices(choices: ViewerCut['choices']): ViewerCut['choices'] {
+  return [...choices].sort((left, right) => left.orderIndex - right.orderIndex);
+}
+
 export function LivePreviewModal({
+  choices,
   currentChoices,
   currentCut,
+  cuts,
   isOpen,
   nextChoices,
   nextCut,
@@ -103,8 +119,10 @@ export function LivePreviewModal({
   previousChoices,
   previousCut
 }: {
+  choices: Choice[];
   currentChoices: Choice[];
   currentCut: Cut | null;
+  cuts: Cut[];
   isOpen: boolean;
   nextChoices: Choice[];
   nextCut: Cut | null;
@@ -113,6 +131,7 @@ export function LivePreviewModal({
   previousCut: Cut | null;
 }) {
   const [userName, setUserName] = useState('');
+  const [previewState, setPreviewState] = useState<PromptoonViewerState>({});
   const [selectedDeviceId, setSelectedDeviceId] = useState<DevicePresetId>('iphone-15');
   const [deviceOrientation, setDeviceOrientation] = useState<DeviceOrientation>('portrait');
   const [deviceScale, setDeviceScale] = useState(1);
@@ -125,11 +144,33 @@ export function LivePreviewModal({
   const deviceHeight = deviceOrientation === 'portrait' ? selectedDevice.viewportHeight : selectedDevice.viewportWidth;
   const physicalWidth = deviceOrientation === 'portrait' ? selectedDevice.physicalWidth : selectedDevice.physicalHeight;
   const physicalHeight = deviceOrientation === 'portrait' ? selectedDevice.physicalHeight : selectedDevice.physicalWidth;
-  const viewerCuts = [
+  const choicesByCutId = useMemo(() => {
+    const result = new Map<string, Choice[]>();
+    for (const choice of choices) {
+      const cutChoices = result.get(choice.cutId) ?? [];
+      cutChoices.push(choice);
+      result.set(choice.cutId, cutChoices);
+    }
+    return result;
+  }, [choices]);
+  const viewerCutsById = useMemo(
+    () => new Map(cuts.map((cut) => [cut.id, toViewerCut(cut, choicesByCutId.get(cut.id) ?? [])])),
+    [choicesByCutId, cuts]
+  );
+  const viewerCutEntries = [
     previousCut ? toViewerCut(previousCut, previousChoices) : null,
     currentCut ? toViewerCut(currentCut, currentChoices) : null,
     nextCut ? toViewerCut(nextCut, nextChoices) : null
-  ].filter((cut): cut is ViewerCut => Boolean(cut));
+  ]
+    .filter((cut): cut is ViewerCut => Boolean(cut))
+    .map((cut) => ({
+      baseCut: resolveManifestStateRouterTargetCut(cut, previewState, viewerCutsById),
+      renderCut: resolveManifestStateVariantCut(
+        resolveManifestStateRouterTargetCut(cut, previewState, viewerCutsById),
+        previewState,
+        viewerCutsById
+      )
+    }));
   const scalePercent = Math.round(deviceScale * 100);
 
   useEffect(() => {
@@ -156,6 +197,7 @@ export function LivePreviewModal({
   useEffect(() => {
     if (isOpen) {
       setUserName('');
+      setPreviewState({});
     }
   }, [isOpen]);
 
@@ -307,17 +349,20 @@ export function LivePreviewModal({
                   data-testid="live-preview-viewer-scroll"
                 >
                   <div className="w-full overflow-hidden" data-testid="live-preview-modal-panels">
-                    {viewerCuts.length > 0 ? (
-                      viewerCuts.map((viewerCut, index) => (
+                    {viewerCutEntries.length > 0 ? (
+                      viewerCutEntries.map((viewerCutEntry, index) => (
                         <ViewerCutCard
-                          compact={viewerCuts.length > 1}
-                          cut={viewerCut}
-                          key={`${viewerCut.id}:${index}`}
+                          compact={viewerCutEntries.length > 1}
+                          cut={viewerCutEntry.renderCut}
+                          key={`${viewerCutEntry.baseCut.id}:${viewerCutEntry.renderCut.id}:${index}`}
+                          onChoiceClick={(choice) =>
+                            setPreviewState((current) => applyChoiceStateWrites(current, choice))
+                          }
                           onUserNameChange={setUserName}
-                          showChoices={false}
+                          showChoices={viewerCutEntry.baseCut.kind !== 'scene' && !(viewerCutEntry.baseCut.isEnding || viewerCutEntry.baseCut.kind === 'ending')}
                           showEndingActions={false}
                           userName={userName}
-                          visibleChoices={[]}
+                          visibleChoices={getSortedChoices(viewerCutEntry.baseCut.choices)}
                         />
                       ))
                     ) : (

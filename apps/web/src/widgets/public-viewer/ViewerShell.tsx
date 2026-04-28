@@ -12,6 +12,7 @@ type ViewerChoice = ViewerCut['choices'][number];
 
 interface ViewerPathStep {
   cut: ViewerCut;
+  renderCut: ViewerCut;
   visibleChoices: ViewerChoice[];
 }
 
@@ -64,8 +65,8 @@ export function ViewerShell({
   const terminalStep = pathSteps[pathSteps.length - 1] ?? null;
   const pathStartStep = pathSteps[0] ?? null;
   const areControlsVisible = isChromeVisible && isScrollBoundary;
-  const pathStepKey = pathSteps.map((step) => step.cut.id).join('|');
-  const pathStartKey = pathStartStep?.cut.id ?? 'empty-path';
+  const pathStepKey = pathSteps.map((step) => `${step.cut.id}:${step.renderCut.id}`).join('|');
+  const pathStartKey = pathStartStep ? `${pathStartStep.cut.id}:${pathStartStep.renderCut.id}` : 'empty-path';
 
   const updateScrollBoundary = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;
@@ -214,20 +215,21 @@ export function ViewerShell({
                       animate="animate"
                       className="w-full overflow-hidden will-change-transform"
                       custom={buildCutEffectMotionCustom(
-                        pathStartStep.cut.startEffect,
-                        terminalStep.cut.endEffect,
-                        pathStartStep.cut.startEffectDurationMs,
-                        terminalStep.cut.endEffectDurationMs
+                        pathStartStep.renderCut.startEffect,
+                        terminalStep.renderCut.endEffect,
+                        pathStartStep.renderCut.startEffectDurationMs,
+                        terminalStep.renderCut.endEffectDurationMs
                       )}
-                      data-active-cut-end-effect={terminalStep.cut.endEffect ?? 'none'}
-                      data-active-cut-end-duration-ms={terminalStep.cut.endEffectDurationMs ?? ''}
+                      data-active-cut-end-effect={terminalStep.renderCut.endEffect ?? 'none'}
+                      data-active-cut-end-duration-ms={terminalStep.renderCut.endEffectDurationMs ?? ''}
                       data-active-cut-id={pathStartStep.cut.id}
-                      data-active-cut-start-effect={pathStartStep.cut.startEffect ?? 'none'}
-                      data-active-cut-start-duration-ms={pathStartStep.cut.startEffectDurationMs ?? ''}
+                      data-active-cut-start-effect={pathStartStep.renderCut.startEffect ?? 'none'}
+                      data-active-cut-start-duration-ms={pathStartStep.renderCut.startEffectDurationMs ?? ''}
                       data-cut-id={pathStartStep.cut.id}
-                      data-end-effect={terminalStep.cut.endEffect ?? 'none'}
+                      data-end-effect={terminalStep.renderCut.endEffect ?? 'none'}
                       data-path-step-key={pathStepKey}
-                      data-start-effect={pathStartStep.cut.startEffect ?? 'none'}
+                      data-render-cut-id={pathStartStep.renderCut.id}
+                      data-start-effect={pathStartStep.renderCut.startEffect ?? 'none'}
                       exit="exit"
                       initial="initial"
                       key={pathStartKey}
@@ -245,9 +247,9 @@ export function ViewerShell({
                           <ViewerContent
                             canGoBack={canGoBack}
                             compact={isPathCompact}
-                            cut={step.cut}
+                            cut={step.renderCut}
                             isTerminal={isTerminalStep}
-                            key={step.cut.id}
+                            key={`${step.cut.id}:${step.renderCut.id}`}
                             onChoiceClick={(choice) => onChoiceClick(choice, step.cut.id)}
                             onReset={onReset}
                             onUserNameChange={onUserNameChange}

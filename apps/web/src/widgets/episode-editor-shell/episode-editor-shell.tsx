@@ -119,6 +119,8 @@ export function EpisodeEditorShell({
   onCreateChoiceConnection,
   onUpdateChoice,
   onConnectChoice,
+  onConnectStateFallback,
+  onConnectStateRoute,
   onDeleteChoice,
   onDragEnd,
   onSaveOrder,
@@ -166,6 +168,8 @@ export function EpisodeEditorShell({
   onCreateChoiceConnection: (cutId: string, targetCutId: string) => void;
   onUpdateChoice: (choiceId: string, patch: PatchChoiceRequest) => void;
   onConnectChoice: (choiceId: string, targetCutId: string) => void;
+  onConnectStateFallback: (cutId: string, targetCutId: string) => void;
+  onConnectStateRoute: (cutId: string, stateRouteId: string, targetCutId: string) => void;
   onDeleteChoice: (choiceId: string) => void;
   onDragEnd: (payload: CutListDragPayload) => void;
   onSaveOrder: () => void;
@@ -330,6 +334,8 @@ export function EpisodeEditorShell({
               onCreateChoiceConnection={onCreateChoiceConnection}
               onCreateLinkedCut={onCreateLinkedCut}
               onConnectChoice={onConnectChoice}
+              onConnectStateFallback={onConnectStateFallback}
+              onConnectStateRoute={onConnectStateRoute}
               onDeleteChoice={onDeleteChoice}
               onMoveCut={onMoveCut}
               onSelectChoice={onSelectChoice}
@@ -456,8 +462,10 @@ export function EpisodeEditorShell({
         </section>
       )}
       <LivePreviewModal
+        choices={choices}
         currentChoices={previewChoices}
         currentCut={previewCut}
+        cuts={orderedCuts}
         isOpen={isLivePreviewModalOpen}
         nextChoices={nextPreviewChoices}
         nextCut={nextPreviewCut}

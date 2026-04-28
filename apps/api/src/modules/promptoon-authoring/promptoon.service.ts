@@ -4,9 +4,12 @@ import type {
   AnalyticsDailyView,
   AnalyticsEpisodeResponse,
   Choice,
+  ChoiceStateWrite,
   CutContentBlock,
   CreateChoiceRequest,
   CreateCutRequest,
+  CutStateVariant,
+  CutStateRoute,
   DeleteCutRequest,
   CreateEpisodeRequest,
   CreateProjectRequest,
@@ -41,7 +44,9 @@ import {
   DEFAULT_EDGE_FADE,
   DEFAULT_EDGE_FADE_COLOR,
   DEFAULT_EDGE_FADE_INTENSITY,
+  MAX_CUT_STATE_ROUTE_CONDITIONS,
   deriveCutBody,
+  getCutStateRouteConditions,
   getNormalizedCutContentBlocks
 } from '@promptoon/shared';
 import { readFile } from 'node:fs/promises';
@@ -108,13 +113,17 @@ function normalizeManifest(manifest: PublishManifest): PublishManifest {
         edgeFadeIntensity: cut.edgeFadeIntensity ?? DEFAULT_EDGE_FADE_INTENSITY,
         edgeFadeColor: cut.edgeFadeColor ?? DEFAULT_EDGE_FADE_COLOR,
         marginBottomToken: cut.marginBottomToken ?? DEFAULT_CONTENT_SPACING,
+        stateVariants: cut.stateVariants ?? [],
+        stateRoutes: cut.stateRoutes ?? [],
+        stateFallbackCutId: cut.stateFallbackCutId ?? null,
         startEffect: cut.startEffect ?? 'none',
         endEffect: cut.endEffect ?? 'none',
         startEffectDurationMs: normalizeCutEffectDurationMs(cut.startEffectDurationMs),
         endEffectDurationMs: normalizeCutEffectDurationMs(cut.endEffectDurationMs),
         choices: cut.choices.map((choice) => ({
           ...choice,
-          afterSelectReactionText: choice.afterSelectReactionText ?? undefined
+          afterSelectReactionText: choice.afterSelectReactionText ?? undefined,
+          stateWrites: choice.stateWrites ?? []
         }))
       };
     })
@@ -189,6 +198,102 @@ async function ensureChoiceOwnedByUser(choiceId: string, userId: string): Promis
   }
 }
 
+function normalizeChoiceStateWrites(stateWrites: ChoiceStateWrite[] | undefined): ChoiceStateWrite[] | undefined {
+  if (!stateWrites) {
+    return undefined;
+  }
+
+  return stateWrites.map((stateWrite) => ({
+    key: stateWrite.key.trim(),
+    value: stateWrite.value.trim()
+  }));
+}
+
+function normalizeCutStateVariants(stateVariants: CutStateVariant[] | undefined): CutStateVariant[] | undefined {
+  if (!stateVariants) {
+    return undefined;
+  }
+
+  return stateVariants.map((stateVariant) => ({
+    id: stateVariant.id.trim(),
+    stateKey: stateVariant.stateKey.trim(),
+    equals: stateVariant.equals.trim(),
+    variantCutId: stateVariant.variantCutId,
+    label: stateVariant.label?.trim() || undefined
+  }));
+}
+
+function normalizeCutStateRoutes(stateRoutes: CutStateRoute[] | undefined): CutStateRoute[] | undefined {
+  if (!stateRoutes) {
+    return undefined;
+  }
+
+  return stateRoutes.map((stateRoute) => {
+    const conditions = getCutStateRouteConditions(stateRoute).slice(0, MAX_CUT_STATE_ROUTE_CONDITIONS);
+    const firstCondition = conditions[0] ?? { stateKey: '', equals: '' };
+
+    return {
+      id: stateRoute.id.trim(),
+      stateKey: firstCondition.stateKey,
+      equals: firstCondition.equals,
+      conditions,
+      nextCutId: stateRoute.nextCutId,
+      label: stateRoute.label?.trim() || undefined
+    };
+  });
+}
+
+async function ensureStateVariantTargetsInEpisode(input: {
+  episodeId: string;
+  sourceCutId?: string;
+  stateVariants?: CutStateVariant[];
+}): Promise<void> {
+  if (!input.stateVariants || input.stateVariants.length === 0) {
+    return;
+  }
+
+  const draft = assertExists(await repository.getEpisodeDraft(db, input.episodeId), 'Episode not found.');
+  const cutIds = new Set(draft.cuts.map((cut) => cut.id));
+
+  for (const stateVariant of input.stateVariants) {
+    if (stateVariant.variantCutId === input.sourceCutId) {
+      throw new HttpError(400, 'State variant target cannot be the source cut.');
+    }
+
+    if (!cutIds.has(stateVariant.variantCutId)) {
+      throw new HttpError(400, 'State variant target must reference a cut in the same episode.');
+    }
+  }
+}
+
+async function ensureStateRouterTargetsInEpisode(input: {
+  episodeId: string;
+  sourceCutId?: string;
+  stateRoutes?: CutStateRoute[];
+  stateFallbackCutId?: string | null;
+}): Promise<void> {
+  if ((!input.stateRoutes || input.stateRoutes.length === 0) && !input.stateFallbackCutId) {
+    return;
+  }
+
+  const draft = assertExists(await repository.getEpisodeDraft(db, input.episodeId), 'Episode not found.');
+  const cutIds = new Set(draft.cuts.map((cut) => cut.id));
+  const targetIds = [
+    ...(input.stateRoutes ?? []).map((stateRoute) => stateRoute.nextCutId),
+    ...(input.stateFallbackCutId ? [input.stateFallbackCutId] : [])
+  ];
+
+  for (const targetId of targetIds) {
+    if (targetId === input.sourceCutId) {
+      throw new HttpError(400, 'State router target cannot be the source cut.');
+    }
+
+    if (!cutIds.has(targetId)) {
+      throw new HttpError(400, 'State router target must reference a cut in the same episode.');
+    }
+  }
+}
+
 function buildManifest(draft: EpisodeDraftResponse, project: Project): PublishManifest {
   const choicesByCutId = new Map<string, Choice[]>();
   for (const choice of draft.choices) {
@@ -239,12 +344,16 @@ function buildManifest(draft: EpisodeDraftResponse, project: Project): PublishMa
       orderIndex: cut.orderIndex,
       isStart: cut.isStart,
       isEnding: cut.isEnding,
+      stateVariants: cut.stateVariants ?? [],
+      stateRoutes: cut.stateRoutes ?? [],
+      stateFallbackCutId: cut.stateFallbackCutId ?? null,
       choices: (choicesByCutId.get(cut.id) ?? []).map((choice) => ({
         id: choice.id,
         label: choice.label,
         orderIndex: choice.orderIndex,
         nextCutId: choice.nextCutId,
-        afterSelectReactionText: choice.afterSelectReactionText
+        afterSelectReactionText: choice.afterSelectReactionText,
+        stateWrites: choice.stateWrites ?? []
       }))
     }))
   };
@@ -635,7 +744,8 @@ function buildFeedItem(publish: Publish): FeedItem | null {
         label: choice.label,
         orderIndex: choice.orderIndex,
         nextCutId: choice.nextCutId,
-        afterSelectReactionText: choice.afterSelectReactionText
+        afterSelectReactionText: choice.afterSelectReactionText,
+        stateWrites: choice.stateWrites ?? []
       }))
   };
 }
@@ -729,11 +839,24 @@ export async function getEpisodeDraft(episodeId: string, userId: string): Promis
 
 export async function createCut(episodeId: string, request: CreateCutRequest, userId: string): Promise<Cut> {
   await ensureEpisodeOwnedByUser(episodeId, userId);
+  const stateVariants = normalizeCutStateVariants(request.stateVariants);
+  const stateRoutes = normalizeCutStateRoutes(request.stateRoutes);
+  await ensureStateVariantTargetsInEpisode({
+    episodeId,
+    stateVariants
+  });
+  await ensureStateRouterTargetsInEpisode({
+    episodeId,
+    stateRoutes,
+    stateFallbackCutId: request.stateFallbackCutId
+  });
 
   try {
     return await repository.createCut(db, {
       episodeId,
-      ...request
+      ...request,
+      stateVariants,
+      stateRoutes
     });
   } catch (error) {
     throw mapDatabaseError(error);
@@ -742,9 +865,23 @@ export async function createCut(episodeId: string, request: CreateCutRequest, us
 
 export async function updateCut(cutId: string, request: PatchCutRequest, userId: string): Promise<Cut> {
   await ensureCutOwnedByUser(cutId, userId);
+  const cut = assertExists(await repository.getCutById(db, cutId), 'Cut not found.');
+  const stateVariants = normalizeCutStateVariants(request.stateVariants);
+  const stateRoutes = normalizeCutStateRoutes(request.stateRoutes);
+  await ensureStateVariantTargetsInEpisode({
+    episodeId: cut.episodeId,
+    sourceCutId: cutId,
+    stateVariants
+  });
+  await ensureStateRouterTargetsInEpisode({
+    episodeId: cut.episodeId,
+    sourceCutId: cutId,
+    stateRoutes,
+    stateFallbackCutId: request.stateFallbackCutId
+  });
 
   try {
-    return assertExists(await repository.updateCut(db, cutId, request), 'Cut not found.');
+    return assertExists(await repository.updateCut(db, cutId, { ...request, stateVariants, stateRoutes }), 'Cut not found.');
   } catch (error) {
     throw mapDatabaseError(error);
   }
@@ -813,6 +950,14 @@ export async function deleteCut(cutId: string, userId: string, request: DeleteCu
       cutId,
       reconnectToCutId
     });
+    await repository.removeStateVariantsTargetingCut(client, {
+      episodeId: cut.episodeId,
+      cutId
+    });
+    await repository.removeStateRoutesTargetingCut(client, {
+      episodeId: cut.episodeId,
+      cutId
+    });
 
     const deleted = await repository.deleteCut(client, cutId);
     if (!deleted) {
@@ -836,7 +981,8 @@ export async function createChoice(cutId: string, request: CreateChoiceRequest, 
   try {
     return await repository.createChoice(db, {
       cutId,
-      ...request
+      ...request,
+      stateWrites: normalizeChoiceStateWrites(request.stateWrites)
     });
   } catch (error) {
     throw mapDatabaseError(error);
@@ -857,7 +1003,13 @@ export async function updateChoice(choiceId: string, request: PatchChoiceRequest
   }
 
   try {
-    return assertExists(await repository.updateChoice(db, choiceId, request), 'Choice not found.');
+    return assertExists(
+      await repository.updateChoice(db, choiceId, {
+        ...request,
+        stateWrites: normalizeChoiceStateWrites(request.stateWrites)
+      }),
+      'Choice not found.'
+    );
   } catch (error) {
     throw mapDatabaseError(error);
   }

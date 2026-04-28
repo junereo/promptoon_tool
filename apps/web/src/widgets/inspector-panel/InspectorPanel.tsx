@@ -136,6 +136,7 @@ export function InspectorPanel({
   ) : null;
   const cutEditorForm = (
     <CutEditorForm
+      availableCuts={availableCuts}
       contentBlocksPortalEnabled={!isGraphMode}
       contentBlocksPortalTarget={contentBlocksPortalTarget}
       cut={selectedCut}

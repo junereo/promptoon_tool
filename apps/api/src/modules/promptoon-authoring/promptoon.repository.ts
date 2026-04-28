@@ -4,8 +4,11 @@ import type {
   AnalyticsDailyView,
   AnalyticsEndingStat,
   Choice,
+  ChoiceStateWrite,
   Cut,
   CutContentBlock,
+  CutStateRoute,
+  CutStateVariant,
   Episode,
   EpisodeDraftResponse,
   Project,
@@ -57,11 +60,14 @@ interface EpisodeRow {
 interface CutRow {
   id: string;
   episode_id: string;
-  kind: 'scene' | 'choice' | 'ending' | 'transition';
+  kind: Cut['kind'];
   title: string;
   body: string;
   content_blocks: CutContentBlock[] | null;
   content_view_mode: Cut['contentViewMode'] | null;
+  state_variants: CutStateVariant[] | null;
+  state_routes: CutStateRoute[] | null;
+  state_fallback_cut_id: string | null;
   dialog_anchor_x: Cut['dialogAnchorX'];
   dialog_anchor_y: Cut['dialogAnchorY'];
   dialog_offset_x: number;
@@ -93,6 +99,7 @@ interface ChoiceRow {
   next_cut_id: string | null;
   after_select_reaction_text: string | null;
   after_select_delay_ms: number | null;
+  state_writes: ChoiceStateWrite[] | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -199,6 +206,9 @@ function mapCut(row: CutRow): Cut {
     edgeFadeIntensity: row.edge_fade_intensity ?? DEFAULT_EDGE_FADE_INTENSITY,
     edgeFadeColor: row.edge_fade_color ?? DEFAULT_EDGE_FADE_COLOR,
     marginBottomToken: row.margin_bottom_token ?? DEFAULT_CONTENT_SPACING,
+    stateVariants: Array.isArray(row.state_variants) ? row.state_variants : [],
+    stateRoutes: Array.isArray(row.state_routes) ? row.state_routes : [],
+    stateFallbackCutId: row.state_fallback_cut_id,
     positionX: row.position_x,
     positionY: row.position_y,
     orderIndex: row.order_index,
@@ -217,6 +227,7 @@ function mapChoice(row: ChoiceRow): Choice {
     orderIndex: row.order_index,
     nextCutId: row.next_cut_id,
     afterSelectReactionText: row.after_select_reaction_text ?? undefined,
+    stateWrites: Array.isArray(row.state_writes) ? row.state_writes : [],
     createdAt: toIsoString(row.created_at),
     updatedAt: toIsoString(row.updated_at)
   };
@@ -454,6 +465,9 @@ export async function createCut(
     body?: string;
     contentBlocks?: CutContentBlock[];
     contentViewMode?: Cut['contentViewMode'];
+    stateVariants?: CutStateVariant[];
+    stateRoutes?: CutStateRoute[];
+    stateFallbackCutId?: string | null;
     dialogAnchorX?: Cut['dialogAnchorX'];
     dialogAnchorY?: Cut['dialogAnchorY'];
     dialogOffsetX?: number;
@@ -485,9 +499,9 @@ export async function createCut(
 
   const result = await db.query<CutRow>(
     `INSERT INTO promptoon_cut (
-      id, episode_id, kind, title, body, content_blocks, content_view_mode, dialog_anchor_x, dialog_anchor_y, dialog_offset_x, dialog_offset_y, dialog_text_align,
+      id, episode_id, kind, title, body, content_blocks, content_view_mode, state_variants, state_routes, state_fallback_cut_id, dialog_anchor_x, dialog_anchor_y, dialog_offset_x, dialog_offset_y, dialog_text_align,
       start_effect, end_effect, start_effect_duration_ms, end_effect_duration_ms, asset_url, edge_fade, edge_fade_intensity, edge_fade_color, margin_bottom_token, position_x, position_y, order_index, is_start, is_ending
-     ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
+     ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8::jsonb, $9::jsonb, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
      RETURNING *`,
     [
       randomUUID(),
@@ -497,6 +511,9 @@ export async function createCut(
       input.body ?? '',
       JSON.stringify(input.contentBlocks ?? []),
       input.contentViewMode ?? 'default',
+      JSON.stringify(input.stateVariants ?? []),
+      JSON.stringify(input.stateRoutes ?? []),
+      input.stateFallbackCutId ?? null,
       input.dialogAnchorX ?? 'left',
       input.dialogAnchorY ?? 'bottom',
       input.dialogOffsetX ?? 0,
@@ -540,6 +557,9 @@ export async function updateCut(
     body: string;
     contentBlocks: CutContentBlock[];
     contentViewMode: Cut['contentViewMode'];
+    stateVariants: CutStateVariant[];
+    stateRoutes: CutStateRoute[];
+    stateFallbackCutId: string | null;
     dialogAnchorX: Cut['dialogAnchorX'];
     dialogAnchorY: Cut['dialogAnchorY'];
     dialogOffsetX: number;
@@ -567,6 +587,9 @@ export async function updateCut(
   }
 
   const nextAssetUrl = Object.prototype.hasOwnProperty.call(patch, 'assetUrl') ? patch.assetUrl ?? null : existing.assetUrl;
+  const nextStateFallbackCutId = Object.prototype.hasOwnProperty.call(patch, 'stateFallbackCutId')
+    ? patch.stateFallbackCutId ?? null
+    : existing.stateFallbackCutId ?? null;
   const nextIsEnding =
     patch.isEnding !== undefined ? patch.isEnding : patch.kind === 'ending' ? true : existing.isEnding;
   const result = await db.query<CutRow>(
@@ -576,27 +599,30 @@ export async function updateCut(
          body = $3,
          content_blocks = $4::jsonb,
          content_view_mode = $5,
-         dialog_anchor_x = $6,
-         dialog_anchor_y = $7,
-         dialog_offset_x = $8,
-         dialog_offset_y = $9,
-         dialog_text_align = $10,
-         start_effect = $11,
-         end_effect = $12,
-         start_effect_duration_ms = $13,
-         end_effect_duration_ms = $14,
-         asset_url = $15,
-         edge_fade = $16,
-         edge_fade_intensity = $17,
-         edge_fade_color = $18,
-         margin_bottom_token = $19,
-         position_x = $20,
-         position_y = $21,
-         order_index = $22,
-         is_start = $23,
-         is_ending = $24,
+         state_variants = $6::jsonb,
+         state_routes = $7::jsonb,
+         state_fallback_cut_id = $8,
+         dialog_anchor_x = $9,
+         dialog_anchor_y = $10,
+         dialog_offset_x = $11,
+         dialog_offset_y = $12,
+         dialog_text_align = $13,
+         start_effect = $14,
+         end_effect = $15,
+         start_effect_duration_ms = $16,
+         end_effect_duration_ms = $17,
+         asset_url = $18,
+         edge_fade = $19,
+         edge_fade_intensity = $20,
+         edge_fade_color = $21,
+         margin_bottom_token = $22,
+         position_x = $23,
+         position_y = $24,
+         order_index = $25,
+         is_start = $26,
+         is_ending = $27,
          updated_at = NOW()
-     WHERE id = $25
+     WHERE id = $28
      RETURNING *`,
     [
       patch.kind ?? existing.kind,
@@ -604,6 +630,9 @@ export async function updateCut(
       patch.body ?? existing.body,
       JSON.stringify(patch.contentBlocks ?? existing.contentBlocks),
       patch.contentViewMode ?? existing.contentViewMode ?? 'default',
+      JSON.stringify(patch.stateVariants ?? existing.stateVariants),
+      JSON.stringify(patch.stateRoutes ?? existing.stateRoutes),
+      nextStateFallbackCutId,
       patch.dialogAnchorX ?? existing.dialogAnchorX,
       patch.dialogAnchorY ?? existing.dialogAnchorY,
       patch.dialogOffsetX ?? existing.dialogOffsetX,
@@ -674,6 +703,41 @@ export async function reconnectChoicesTargetingCut(
   );
 }
 
+export async function removeStateVariantsTargetingCut(db: DbExecutor, input: { episodeId: string; cutId: string }): Promise<void> {
+  await db.query(
+    `UPDATE promptoon_cut
+     SET state_variants = COALESCE(
+           (
+             SELECT jsonb_agg(state_variant.value)
+             FROM jsonb_array_elements(COALESCE(state_variants, '[]'::jsonb)) AS state_variant(value)
+             WHERE state_variant.value->>'variantCutId' <> $1
+           ),
+           '[]'::jsonb
+         ),
+         updated_at = NOW()
+     WHERE episode_id = $2`,
+    [input.cutId, input.episodeId]
+  );
+}
+
+export async function removeStateRoutesTargetingCut(db: DbExecutor, input: { episodeId: string; cutId: string }): Promise<void> {
+  await db.query(
+    `UPDATE promptoon_cut
+     SET state_routes = COALESCE(
+           (
+             SELECT jsonb_agg(state_route.value)
+             FROM jsonb_array_elements(COALESCE(state_routes, '[]'::jsonb)) AS state_route(value)
+             WHERE state_route.value->>'nextCutId' <> $1
+           ),
+           '[]'::jsonb
+         ),
+         state_fallback_cut_id = CASE WHEN state_fallback_cut_id = $1::uuid THEN NULL ELSE state_fallback_cut_id END,
+         updated_at = NOW()
+     WHERE episode_id = $2`,
+    [input.cutId, input.episodeId]
+  );
+}
+
 export async function createChoice(
   db: DbExecutor,
   input: {
@@ -682,6 +746,7 @@ export async function createChoice(
     orderIndex?: number;
     nextCutId?: string | null;
     afterSelectReactionText?: string;
+    stateWrites?: ChoiceStateWrite[];
   }
 ): Promise<Choice> {
   const countResult = await db.query<{ count: string }>('SELECT COUNT(*)::text AS count FROM promptoon_choice WHERE cut_id = $1', [
@@ -689,8 +754,8 @@ export async function createChoice(
   ]);
   const defaultOrderIndex = Number(countResult.rows[0].count);
   const result = await db.query<ChoiceRow>(
-    `INSERT INTO promptoon_choice (id, cut_id, label, order_index, next_cut_id, after_select_reaction_text)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO promptoon_choice (id, cut_id, label, order_index, next_cut_id, after_select_reaction_text, state_writes)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
      RETURNING *`,
     [
       randomUUID(),
@@ -698,7 +763,8 @@ export async function createChoice(
       input.label,
       input.orderIndex ?? defaultOrderIndex,
       input.nextCutId ?? null,
-      input.afterSelectReactionText?.trim() ? input.afterSelectReactionText : null
+      input.afterSelectReactionText?.trim() ? input.afterSelectReactionText : null,
+      JSON.stringify(input.stateWrites ?? [])
     ]
   );
   return mapChoice(result.rows[0]);
@@ -712,6 +778,7 @@ export async function updateChoice(
     orderIndex: number;
     nextCutId: string | null;
     afterSelectReactionText: string;
+    stateWrites: ChoiceStateWrite[];
   }>
 ): Promise<Choice | null> {
   const existing = await getChoiceById(db, choiceId);
@@ -731,10 +798,18 @@ export async function updateChoice(
          order_index = $2,
          next_cut_id = $3,
          after_select_reaction_text = $4,
+         state_writes = $5::jsonb,
          updated_at = NOW()
-     WHERE id = $5
+     WHERE id = $6
      RETURNING *`,
-    [patch.label ?? existing.label, patch.orderIndex ?? existing.orderIndex, nextCutId, nextReactionText, choiceId]
+    [
+      patch.label ?? existing.label,
+      patch.orderIndex ?? existing.orderIndex,
+      nextCutId,
+      nextReactionText,
+      JSON.stringify(patch.stateWrites ?? existing.stateWrites),
+      choiceId
+    ]
   );
 
   return mapChoice(result.rows[0]);

@@ -1,4 +1,4 @@
-import type { Choice, Cut, PatchChoiceRequest } from '@promptoon/shared';
+import type { Choice, ChoiceStateWrite, Cut, PatchChoiceRequest } from '@promptoon/shared';
 import { useEffect, useRef, useState } from 'react';
 
 import { useDebounce } from '../../shared/lib/use-debounce';
@@ -19,14 +19,29 @@ interface ChoiceRowState {
   label: string;
   nextCutId: string;
   afterSelectReactionText: string;
+  stateWrites: ChoiceStateWrite[];
 }
 
 function toChoiceState(choice: Choice): ChoiceRowState {
   return {
     label: choice.label,
     nextCutId: choice.nextCutId ?? '',
-    afterSelectReactionText: choice.afterSelectReactionText ?? ''
+    afterSelectReactionText: choice.afterSelectReactionText ?? '',
+    stateWrites: choice.stateWrites ?? []
   };
+}
+
+function serializeStateWrites(stateWrites: ChoiceStateWrite[]): string {
+  return JSON.stringify(stateWrites);
+}
+
+function normalizeStateWrites(stateWrites: ChoiceStateWrite[]): ChoiceStateWrite[] {
+  return stateWrites
+    .map((stateWrite) => ({
+      key: stateWrite.key.trim(),
+      value: stateWrite.value.trim()
+    }))
+    .filter((stateWrite) => stateWrite.key.length > 0 && stateWrite.value.length > 0);
 }
 
 function buildChoicePatch(choice: Choice, rowState: ChoiceRowState): PatchChoiceRequest | null {
@@ -43,6 +58,11 @@ function buildChoicePatch(choice: Choice, rowState: ChoiceRowState): PatchChoice
 
   if (rowState.afterSelectReactionText !== (choice.afterSelectReactionText ?? '')) {
     patch.afterSelectReactionText = rowState.afterSelectReactionText;
+  }
+
+  const nextStateWrites = normalizeStateWrites(rowState.stateWrites);
+  if (serializeStateWrites(nextStateWrites) !== serializeStateWrites(choice.stateWrites ?? [])) {
+    patch.stateWrites = nextStateWrites;
   }
 
   return Object.keys(patch).length > 0 ? patch : null;
@@ -74,7 +94,7 @@ function ChoiceRow({
   useEffect(() => {
     latestChoiceRef.current = choice;
     setRowState(toChoiceState(choice));
-  }, [choice.id, choice.label, choice.nextCutId, choice.afterSelectReactionText]);
+  }, [choice.id, choice.label, choice.nextCutId, choice.afterSelectReactionText, choice.stateWrites]);
 
   const debouncedDraft = useDebounce(
     {
@@ -151,6 +171,78 @@ function ChoiceRow({
           onChange={(event) => setRowState((current) => ({ ...current, afterSelectReactionText: event.target.value }))}
           value={rowState.afterSelectReactionText}
         />
+      </div>
+
+      <div className="mt-2 rounded-xl border border-editor-border bg-black/10 p-2">
+        <div className="flex min-w-0 items-center justify-between gap-2">
+          <FieldLabel>상태 저장</FieldLabel>
+          <button
+            className="shrink-0 rounded-lg border border-editor-border bg-black/20 px-2 py-1 text-[11px] font-medium text-zinc-200 transition hover:border-editor-accentSoft"
+            onClick={() =>
+              setRowState((current) => ({
+                ...current,
+                stateWrites: [...current.stateWrites, { key: '', value: '' }]
+              }))
+            }
+            type="button"
+          >
+            + 추가
+          </button>
+        </div>
+
+        <div className="mt-2 space-y-2">
+          {rowState.stateWrites.length === 0 ? (
+            <p className="text-xs text-zinc-500">선택 시 저장할 상태가 없습니다.</p>
+          ) : (
+            rowState.stateWrites.map((stateWrite, index) => (
+              <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-1.5" key={`${index}:${stateWrite.key}`}>
+                <input
+                  aria-label="State key"
+                  className={inputClassName()}
+                  onChange={(event) =>
+                    setRowState((current) => ({
+                      ...current,
+                      stateWrites: current.stateWrites.map((currentStateWrite, currentIndex) =>
+                        currentIndex === index ? { ...currentStateWrite, key: event.target.value } : currentStateWrite
+                      )
+                    }))
+                  }
+                  placeholder="first_route"
+                  type="text"
+                  value={stateWrite.key}
+                />
+                <input
+                  aria-label="State value"
+                  className={inputClassName()}
+                  onChange={(event) =>
+                    setRowState((current) => ({
+                      ...current,
+                      stateWrites: current.stateWrites.map((currentStateWrite, currentIndex) =>
+                        currentIndex === index ? { ...currentStateWrite, value: event.target.value } : currentStateWrite
+                      )
+                    }))
+                  }
+                  placeholder="A"
+                  type="text"
+                  value={stateWrite.value}
+                />
+                <button
+                  aria-label="상태 저장 삭제"
+                  className="rounded-lg border border-editor-border bg-black/20 px-2 text-xs text-zinc-300 transition hover:border-red-400/60 hover:text-red-200"
+                  onClick={() =>
+                    setRowState((current) => ({
+                      ...current,
+                      stateWrites: current.stateWrites.filter((_, currentIndex) => currentIndex !== index)
+                    }))
+                  }
+                  type="button"
+                >
+                  삭제
+                </button>
+              </div>
+            ))
+          )}
+        </div>
       </div>
     </div>
   );

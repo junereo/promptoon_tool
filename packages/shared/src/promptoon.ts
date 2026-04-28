@@ -1,4 +1,4 @@
-export type PromptoonCutKind = 'scene' | 'choice' | 'ending' | 'transition';
+export type PromptoonCutKind = 'scene' | 'choice' | 'ending' | 'transition' | 'stateRouter';
 export type PromptoonCutEffect =
   | 'none'
   | 'fade'
@@ -137,6 +137,69 @@ export interface Episode {
   updatedAt: string;
 }
 
+export interface ChoiceStateWrite {
+  key: string;
+  value: string;
+}
+
+export interface CutStateVariant {
+  id: string;
+  stateKey: string;
+  equals: string;
+  variantCutId: string;
+  label?: string;
+}
+
+export const MAX_CUT_STATE_ROUTE_CONDITIONS = 2;
+
+export interface CutStateCondition {
+  stateKey: string;
+  equals: string;
+}
+
+export interface CutStateRoute {
+  id: string;
+  stateKey?: string;
+  equals?: string;
+  conditions?: CutStateCondition[];
+  nextCutId: string;
+  label?: string;
+}
+
+export function getCutStateRouteConditions(
+  stateRoute: Pick<CutStateRoute, 'stateKey' | 'equals' | 'conditions'>
+): CutStateCondition[] {
+  const sourceConditions =
+    stateRoute.conditions && stateRoute.conditions.length > 0
+      ? stateRoute.conditions
+      : [
+          {
+            stateKey: stateRoute.stateKey ?? '',
+            equals: stateRoute.equals ?? ''
+          }
+        ];
+
+  return sourceConditions
+    .map((condition) => ({
+      stateKey: condition.stateKey.trim(),
+      equals: condition.equals.trim()
+    }))
+    .filter((condition) => condition.stateKey.length > 0 && condition.equals.length > 0);
+}
+
+export function doesCutStateRouteMatch(
+  stateRoute: Pick<CutStateRoute, 'stateKey' | 'equals' | 'conditions'>,
+  viewerState: Record<string, string>
+): boolean {
+  const conditions = getCutStateRouteConditions(stateRoute);
+  return conditions.length > 0 && conditions.every((condition) => viewerState[condition.stateKey] === condition.equals);
+}
+
+export function getCutStateRouteConditionLabel(stateRoute: Pick<CutStateRoute, 'stateKey' | 'equals' | 'conditions'>): string {
+  const conditions = getCutStateRouteConditions(stateRoute);
+  return conditions.map((condition) => `${condition.stateKey}=${condition.equals}`).join(' + ');
+}
+
 export interface Cut {
   id: string;
   episodeId: string;
@@ -159,6 +222,9 @@ export interface Cut {
   edgeFadeIntensity?: PromptoonEdgeFadeIntensity;
   edgeFadeColor?: PromptoonEdgeFadeColor;
   marginBottomToken?: PromptoonSpacingToken;
+  stateVariants?: CutStateVariant[];
+  stateRoutes?: CutStateRoute[];
+  stateFallbackCutId?: string | null;
   positionX: number;
   positionY: number;
   orderIndex: number;
@@ -175,6 +241,7 @@ export interface Choice {
   orderIndex: number;
   nextCutId: string | null;
   afterSelectReactionText?: string;
+  stateWrites?: ChoiceStateWrite[];
   createdAt: string;
   updatedAt: string;
 }
@@ -240,6 +307,11 @@ export type ValidationIssueCode =
   | 'multiple_start_cuts'
   | 'missing_ending_cut'
   | 'invalid_choice_target'
+  | 'invalid_state_variant_target'
+  | 'invalid_state_router_target'
+  | 'invalid_state_router_condition'
+  | 'missing_state_router_route'
+  | 'missing_state_router_fallback'
   | 'unreachable_cut'
   | 'dead_path'
   | 'missing_episode_cover';
@@ -297,6 +369,9 @@ export interface CreateCutRequest {
   edgeFadeIntensity?: PromptoonEdgeFadeIntensity;
   edgeFadeColor?: PromptoonEdgeFadeColor;
   marginBottomToken?: PromptoonSpacingToken;
+  stateVariants?: CutStateVariant[];
+  stateRoutes?: CutStateRoute[];
+  stateFallbackCutId?: string | null;
   orderIndex?: number;
   positionX?: number;
   positionY?: number;
@@ -324,6 +399,9 @@ export interface PatchCutRequest {
   edgeFadeIntensity?: PromptoonEdgeFadeIntensity;
   edgeFadeColor?: PromptoonEdgeFadeColor;
   marginBottomToken?: PromptoonSpacingToken;
+  stateVariants?: CutStateVariant[];
+  stateRoutes?: CutStateRoute[];
+  stateFallbackCutId?: string | null;
   orderIndex?: number;
   positionX?: number;
   positionY?: number;
@@ -340,6 +418,7 @@ export interface CreateChoiceRequest {
   orderIndex?: number;
   nextCutId?: string | null;
   afterSelectReactionText?: string;
+  stateWrites?: ChoiceStateWrite[];
 }
 
 export interface PatchChoiceRequest {
@@ -347,6 +426,7 @@ export interface PatchChoiceRequest {
   orderIndex?: number;
   nextCutId?: string | null;
   afterSelectReactionText?: string;
+  stateWrites?: ChoiceStateWrite[];
 }
 
 export interface ReorderEpisodeCutsRequest {
@@ -483,6 +563,9 @@ export interface PublishManifest {
     edgeFadeIntensity?: PromptoonEdgeFadeIntensity;
     edgeFadeColor?: PromptoonEdgeFadeColor;
     marginBottomToken?: PromptoonSpacingToken;
+    stateVariants?: CutStateVariant[];
+    stateRoutes?: CutStateRoute[];
+    stateFallbackCutId?: string | null;
     positionX: number;
     positionY: number;
     orderIndex: number;
@@ -494,6 +577,7 @@ export interface PublishManifest {
       orderIndex: number;
       nextCutId: string | null;
       afterSelectReactionText?: string;
+      stateWrites?: ChoiceStateWrite[];
     }>;
   }>;
 }

@@ -151,7 +151,8 @@ export function PreviewPlayer({
   const previewViewportRef = useRef<HTMLDivElement | null>(null);
   const phoneFrameRef = useRef<HTMLDivElement | null>(null);
   const previewContentRef = useRef<HTMLDivElement | null>(null);
-  const showChoices = cut !== null && !cut.isEnding && cut.kind !== 'ending' && choices.length > 1;
+  const showChoices =
+    cut !== null && !cut.isEnding && cut.kind !== 'ending' && (cut.kind === 'scene' ? choices.length > 1 : choices.length > 0);
   const showEndingButton = cut?.kind === 'ending';
   const hasPreviewFooterContent = showChoices || Boolean(reactionText) || showEndingButton;
   const activeSelectedChoiceId = pendingChoiceId ?? selectedChoiceId;
@@ -384,7 +385,7 @@ export function PreviewPlayer({
                 data-end-effect-duration-ms={cut.endEffectDurationMs}
                 data-start-effect={cut.startEffect ?? 'none'}
                 data-start-effect-duration-ms={cut.startEffectDurationMs}
-                data-testid="preview-cut-motion"
+                data-testid={title === 'Live Preview' ? 'preview-cut-motion' : undefined}
                 exit="exit"
                 initial="initial"
                 key={cut.id}

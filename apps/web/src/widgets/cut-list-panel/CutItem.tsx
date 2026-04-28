@@ -5,7 +5,8 @@ const KIND_STYLES: Record<Cut['kind'], string> = {
   scene: 'border-zinc-700 bg-zinc-900/70 text-zinc-200',
   choice: 'border-amber-500/40 bg-amber-500/10 text-amber-200',
   ending: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200',
-  transition: 'border-sky-500/40 bg-sky-500/10 text-sky-200'
+  transition: 'border-sky-500/40 bg-sky-500/10 text-sky-200',
+  stateRouter: 'border-violet-500/40 bg-violet-500/10 text-violet-200'
 };
 
 function TrashIcon() {

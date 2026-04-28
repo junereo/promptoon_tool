@@ -1,14 +1,21 @@
-import type { Choice, Cut } from '@promptoon/shared';
+import { getCutStateRouteConditionLabel, type Choice, type Cut } from '@promptoon/shared';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 
 import type { CutFlowNode } from './graph-mapping';
-import { getChoiceSourceHandleId, getCreateSourceHandleId, getCutTargetHandleId } from './graph-mapping';
+import {
+  getChoiceSourceHandleId,
+  getCreateSourceHandleId,
+  getCutTargetHandleId,
+  getStateFallbackSourceHandleId,
+  getStateRouteSourceHandleId
+} from './graph-mapping';
 
 const KIND_BADGE_STYLES: Record<Cut['kind'], string> = {
   scene: 'border-zinc-700 bg-zinc-900/80 text-zinc-200',
   choice: 'border-amber-500/40 bg-amber-500/10 text-amber-200',
   ending: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200',
-  transition: 'border-sky-500/40 bg-sky-500/10 text-sky-200'
+  transition: 'border-sky-500/40 bg-sky-500/10 text-sky-200',
+  stateRouter: 'border-violet-500/40 bg-violet-500/10 text-violet-200'
 };
 
 function ChoiceHandle({
@@ -40,15 +47,55 @@ function ChoiceHandle({
   );
 }
 
+function StateRouteHandle({
+  cutId,
+  label,
+  routeId,
+  tone = 'route'
+}: {
+  cutId: string;
+  label: string;
+  routeId?: string;
+  tone?: 'route' | 'fallback';
+}) {
+  return (
+    <div className="relative flex flex-col items-center gap-1">
+      <span className="max-w-[86px] truncate text-[10px] text-zinc-500">{label}</span>
+      <Handle
+        className={
+          tone === 'fallback'
+            ? '!h-3 !w-3 !border-slate-400 !bg-slate-600'
+            : '!h-3 !w-3 !border-violet-400 !bg-violet-600'
+        }
+        data-testid={routeId ? `source-handle-state-route-${cutId}-${routeId}` : `source-handle-state-fallback-${cutId}`}
+        id={routeId ? getStateRouteSourceHandleId(cutId, routeId) : getStateFallbackSourceHandleId(cutId)}
+        position={Position.Bottom}
+        style={{
+          position: 'relative',
+          left: 'auto',
+          right: 'auto',
+          top: 'auto',
+          bottom: 'auto',
+          transform: 'none'
+        }}
+        type="source"
+      />
+    </div>
+  );
+}
+
 export function CutNode({ data }: NodeProps<CutFlowNode>) {
   const { cut, choicesForCut, selected, selectedChoiceId } = data;
-  const canCreateOutput = !cut.isEnding;
+  const isStateRouter = cut.kind === 'stateRouter';
+  const canCreateOutput = !cut.isEnding && !isStateRouter;
+  const stateRoutes = cut.stateRoutes ?? [];
+  const hasStateRouterOutputs = stateRoutes.length > 0 || Boolean(cut.stateFallbackCutId);
 
   return (
     <div
       className={[
         'relative min-w-[200px] max-w-[240px] rounded-[22px] border px-3 pt-4 shadow-xl shadow-black/30 transition',
-        canCreateOutput ? 'pb-14' : 'pb-5',
+        canCreateOutput || isStateRouter ? 'pb-14' : 'pb-5',
         selected
           ? 'border-editor-accent bg-[#232329] ring-1 ring-editor-accent/30'
           : 'border-editor-border bg-editor-panel/95'
@@ -75,7 +122,7 @@ export function CutNode({ data }: NodeProps<CutFlowNode>) {
         <div className="min-w-0">
           <p className="truncate font-display text-base font-semibold text-zinc-50">{cut.title}</p>
           <p className="mt-1.5 line-clamp-2 whitespace-pre-wrap text-xs leading-5 text-zinc-400">
-            {cut.body || 'No dialogue yet.'}
+            {isStateRouter ? '저장된 상태값에 따라 다음 컷으로 이동합니다.' : cut.body || 'No dialogue yet.'}
           </p>
         </div>
         <span
@@ -94,7 +141,28 @@ export function CutNode({ data }: NodeProps<CutFlowNode>) {
         <span className="rounded-full border border-editor-border px-2 py-0.5">#{cut.orderIndex + 1}</span>
       </div>
 
-      {canCreateOutput ? (
+      {isStateRouter ? (
+        <div className="absolute bottom-3 left-3 right-3 flex flex-col items-center gap-2">
+          <div className="flex w-full justify-evenly gap-2">
+            {stateRoutes.map((stateRoute) => (
+              <StateRouteHandle
+                cutId={cut.id}
+                key={stateRoute.id}
+                label={stateRoute.label || getCutStateRouteConditionLabel(stateRoute)}
+                routeId={stateRoute.id}
+              />
+            ))}
+            {cut.stateFallbackCutId ? (
+              <StateRouteHandle cutId={cut.id} label="Default" tone="fallback" />
+            ) : null}
+          </div>
+          {!hasStateRouterOutputs ? (
+            <span className="rounded-full border border-editor-border/60 bg-black/20 px-2 py-1 text-[9px] uppercase tracking-[0.2em] text-zinc-500">
+              No routes
+            </span>
+          ) : null}
+        </div>
+      ) : canCreateOutput ? (
         <div className="absolute bottom-3 left-3 right-3 flex flex-col items-center gap-2">
           <div className="flex w-full justify-evenly gap-2">
             <div className="relative flex flex-col items-center gap-1">

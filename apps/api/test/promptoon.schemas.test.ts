@@ -71,6 +71,35 @@ describe('promptoon cut schemas', () => {
       edgeFadeIntensity: 'minimal',
       edgeFadeColor: 'white',
       marginBottomToken: '10xl',
+      stateVariants: [
+        {
+          id: 'variant-1',
+          stateKey: 'first_route',
+          equals: 'A',
+          variantCutId: '00000000-0000-4000-8000-000000000011',
+          label: 'A 루트 연출'
+        }
+      ],
+      stateRoutes: [
+        {
+          id: 'route-1',
+          stateKey: 'first_route',
+          equals: 'A',
+          conditions: [
+            {
+              stateKey: 'first_route',
+              equals: 'A'
+            },
+            {
+              stateKey: 'second_route',
+              equals: 'B'
+            }
+          ],
+          nextCutId: '00000000-0000-4000-8000-000000000012',
+          label: 'A 루트'
+        }
+      ],
+      stateFallbackCutId: '00000000-0000-4000-8000-000000000013',
       contentBlocks: [
         {
           id: 'block-1',
@@ -97,11 +126,120 @@ describe('promptoon cut schemas', () => {
     });
     const choiceResult = createChoiceSchema.safeParse({
       label: '다음으로',
-      afterSelectReactionText: '잠시만요'
+      afterSelectReactionText: '잠시만요',
+      stateWrites: [
+        {
+          key: 'first_route',
+          value: 'A'
+        }
+      ]
     });
 
     expect(cutResult.success).toBe(true);
     expect(choiceResult.success).toBe(true);
+  });
+
+  it('accepts state router cuts', () => {
+    const result = createCutSchema.safeParse({
+      kind: 'stateRouter',
+      title: '상태 분기',
+      stateRoutes: [
+        {
+          id: 'route-a',
+          stateKey: 'first_route',
+          equals: 'A',
+          nextCutId: '00000000-0000-4000-8000-000000000021'
+        }
+      ],
+      stateFallbackCutId: '00000000-0000-4000-8000-000000000022'
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts state router routes with up to two conditions', () => {
+    const result = createCutSchema.safeParse({
+      kind: 'stateRouter',
+      title: '상태 분기',
+      stateRoutes: [
+        {
+          id: 'route-aa',
+          conditions: [
+            {
+              stateKey: 'first_route',
+              equals: 'A'
+            },
+            {
+              stateKey: 'second_route',
+              equals: 'A'
+            }
+          ],
+          nextCutId: '00000000-0000-4000-8000-000000000021'
+        }
+      ],
+      stateFallbackCutId: '00000000-0000-4000-8000-000000000022'
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects incomplete state writes and invalid state variant targets', () => {
+    const choiceResult = createChoiceSchema.safeParse({
+      label: '다음으로',
+      stateWrites: [
+        {
+          key: 'first route',
+          value: 'A'
+        }
+      ]
+    });
+    const cutResult = patchCutSchema.safeParse({
+      stateVariants: [
+        {
+          id: 'variant-1',
+          stateKey: 'first_route',
+          equals: 'A',
+          variantCutId: 'not-a-uuid'
+        }
+      ]
+    });
+    const routeResult = patchCutSchema.safeParse({
+      stateRoutes: [
+        {
+          id: 'route-1',
+          stateKey: 'first_route',
+          equals: 'A',
+          nextCutId: 'not-a-uuid'
+        }
+      ]
+    });
+    const tooManyRouteConditionsResult = patchCutSchema.safeParse({
+      stateRoutes: [
+        {
+          id: 'route-1',
+          conditions: [
+            {
+              stateKey: 'first_route',
+              equals: 'A'
+            },
+            {
+              stateKey: 'second_route',
+              equals: 'A'
+            },
+            {
+              stateKey: 'third_route',
+              equals: 'A'
+            }
+          ],
+          nextCutId: '00000000-0000-4000-8000-000000000021'
+        }
+      ]
+    });
+
+    expect(choiceResult.success).toBe(false);
+    expect(cutResult.success).toBe(false);
+    expect(routeResult.success).toBe(false);
+    expect(tooManyRouteConditionsResult.success).toBe(false);
   });
 
   it('accepts batch cut layout updates', () => {
