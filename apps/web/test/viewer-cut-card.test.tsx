@@ -1,10 +1,15 @@
 import type { PublishManifest } from '@promptoon/shared';
 import { DEFAULT_CUT_EFFECT_DURATION_MS } from '@promptoon/shared';
-import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { saveResultCardAsWebp } from '../src/shared/lib/result-card-export';
 import { CutContentBlocksView } from '../src/widgets/content-blocks/CutContentBlocksView';
 import { ViewerCutCard } from '../src/widgets/public-viewer/ViewerCutCard';
+
+vi.mock('../src/shared/lib/result-card-export', () => ({
+  saveResultCardAsWebp: vi.fn().mockResolvedValue(undefined)
+}));
 
 type TriggerableIntersectionObserverGlobal = typeof globalThis & {
   __triggerIntersection?: (element: Element, ratio?: number) => void;
@@ -12,6 +17,7 @@ type TriggerableIntersectionObserverGlobal = typeof globalThis & {
 
 afterEach(() => {
   cleanup();
+  vi.clearAllMocks();
   vi.restoreAllMocks();
   vi.useRealTimers();
 });
@@ -618,5 +624,62 @@ describe('ViewerCutCard', () => {
     );
 
     expect(screen.getByTestId('dialogue-typewriter-visible-typewriter-cut:overlay:typewriter-dialogue:Prompt-like line').textContent).toContain('Prompt-like line');
+  });
+
+  it('saves result card cuts as WebP without calling share', async () => {
+    const onShare = vi.fn();
+    const cut = buildViewerCut({
+      kind: 'resultCard',
+      title: 'THE REPLACE',
+      isEnding: true,
+      assetUrl: '/uploads/result-poster.webp',
+      contentBlocks: [
+        {
+          id: 'result-card-1',
+          type: 'resultCard',
+          templateId: 'the-replace-final',
+          theme: 'red',
+          badge: 'TYPE 04',
+          resultName: '본능의 선택자',
+          tagline: '생존은 가장 빠른 대답이었다',
+          lines: ['당신은 오래 생각하지 않았다.', '몸이 먼저 방향을 정했다.'],
+          inflowLabel: 'CHECK IN',
+          inflowUrl: 'promtoon.ai',
+          inflowBrand: 'PROMTOON',
+          inflowTagline: '반응형 웹툰'
+        }
+      ]
+    });
+
+    render(
+      <ViewerCutCard
+        cut={cut}
+        onReset={vi.fn()}
+        onShare={onShare}
+        showChoices={false}
+        showEndingActions
+        visibleChoices={[]}
+      />
+    );
+
+    expect(screen.getByTestId('result-card')).toBeTruthy();
+    expect(screen.getByText('본능의 선택자')).toBeTruthy();
+    expect(screen.getByText('이미지 저장하기')).toBeTruthy();
+    expect(screen.queryByText('결과 공유하기')).toBeNull();
+    expect(screen.queryByRole('link', { name: '공유하기' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '이미지 저장하기' }));
+
+    await waitFor(() => {
+      expect(saveResultCardAsWebp).toHaveBeenCalledWith({
+        assetUrl: '/uploads/result-poster.webp',
+        block: expect.objectContaining({
+          resultName: '본능의 선택자',
+          type: 'resultCard'
+        })
+      });
+    });
+    expect(screen.getByRole('link', { name: '공유하기' }).getAttribute('href')).toBe('https://www.instagram.com/promptoon_ai/');
+    expect(onShare).not.toHaveBeenCalled();
   });
 });

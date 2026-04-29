@@ -1,11 +1,39 @@
 import { startTransition, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import type { PromptoonBackupExport } from '@promptoon/shared';
 
 import { useUploadAsset } from '../features/editor/hooks/use-episode-query';
-import { useCreateEpisode, useCreateProject, useProjects, useUpdateEpisode } from '../features/project/hooks/use-project-query';
+import { useCreateEpisode, useCreateProject, useExportBackup, useProjects, useUpdateEpisode } from '../features/project/hooks/use-project-query';
 
 function createEpisodeInputId(projectId: string): string {
   return `episode-title-${projectId}`;
+}
+
+function getBackupFileName(exportedAt: string): string {
+  return `promptoon-backup-${exportedAt.replace(/[:.]/g, '-')}.json`;
+}
+
+function downloadBackupJson(backup: PromptoonBackupExport): void {
+  const json = JSON.stringify(backup, null, 2);
+  const fileName = getBackupFileName(backup.exportedAt);
+  const anchor = document.createElement('a');
+
+  anchor.download = fileName;
+
+  if (typeof URL.createObjectURL === 'function') {
+    const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+    anchor.href = url;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    return;
+  }
+
+  anchor.href = `data:application/json;charset=utf-8,${encodeURIComponent(json)}`;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
 }
 
 export function PromptoonProjectListPage() {
@@ -14,6 +42,7 @@ export function PromptoonProjectListPage() {
   const createProject = useCreateProject();
   const createEpisode = useCreateEpisode();
   const updateEpisode = useUpdateEpisode();
+  const exportBackup = useExportBackup();
   const uploadAsset = useUploadAsset();
 
   const [newProjectTitle, setNewProjectTitle] = useState('');
@@ -21,6 +50,7 @@ export function PromptoonProjectListPage() {
   const [episodeTitlesByProjectId, setEpisodeTitlesByProjectId] = useState<Record<string, string>>({});
   const [uploadingEpisodeId, setUploadingEpisodeId] = useState<string | null>(null);
   const [uploadErrorByEpisodeId, setUploadErrorByEpisodeId] = useState<Record<string, string>>({});
+  const [backupError, setBackupError] = useState<string | null>(null);
 
   async function handleCreateProject() {
     const title = newProjectTitle.trim();
@@ -93,6 +123,17 @@ export function PromptoonProjectListPage() {
     }
   }
 
+  async function handleExportBackup() {
+    setBackupError(null);
+
+    try {
+      const backup = await exportBackup.mutateAsync();
+      downloadBackupJson(backup);
+    } catch {
+      setBackupError('Backup failed.');
+    }
+  }
+
   if (projectsQuery.isLoading) {
     return (
       <main className="w-full px-4 py-12 sm:px-6">
@@ -124,6 +165,19 @@ export function PromptoonProjectListPage() {
             <p className="mt-3 text-sm leading-7 text-zinc-400">
               Create projects, add episodes, and enter the authoring editor from a single dashboard.
             </p>
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              <button
+                className="rounded-2xl border border-editor-border px-5 py-3 text-sm font-medium text-zinc-100 transition hover:border-zinc-500 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={exportBackup.isPending}
+                onClick={() => {
+                  void handleExportBackup();
+                }}
+                type="button"
+              >
+                {exportBackup.isPending ? 'Backing up...' : 'Backup JSON'}
+              </button>
+              {backupError ? <p className="text-sm text-red-300">{backupError}</p> : null}
+            </div>
           </div>
 
           <div className="grid w-full max-w-2xl gap-3 md:grid-cols-[1.2fr_1fr_auto]">

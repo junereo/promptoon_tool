@@ -4,10 +4,15 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { getEdgeFadeOverlayClassNames, getEdgeFadeStyle } from '../../shared/lib/cut-effects';
 import { getContentSpacingClassName, getContentSpacingMinHeight, getCutContentBlocksByPlacement } from '../../shared/lib/cut-content';
+import { saveResultCardAsWebp } from '../../shared/lib/result-card-export';
+import { getResultCardBlock } from '../../shared/lib/result-card';
 import { CutContentBlocksView } from '../content-blocks/CutContentBlocksView';
+import { ResultCard } from '../result-card/ResultCard';
 
 type ViewerCut = PublishManifest['cuts'][number];
 type ViewerChoice = ViewerCut['choices'][number];
+
+const PROMPTOON_INSTAGRAM_URL = 'https://www.instagram.com/promptoon_ai/';
 
 interface ViewerCutCardProps {
   canGoBack?: boolean;
@@ -17,7 +22,7 @@ interface ViewerCutCardProps {
   onChoiceClick?: (choice: ViewerChoice) => void;
   onReset?: () => void;
   onUserNameChange?: (value: string) => void;
-  onShare?: () => void;
+  onShare?: () => void | Promise<void>;
   pendingChoice?: { choiceId: string; reactionText: string | null } | null;
   showChoices: boolean;
   showEndingActions: boolean;
@@ -152,6 +157,9 @@ export function ViewerCutCard({
   visibleChoices
 }: ViewerCutCardProps) {
   const [isImageFailed, setIsImageFailed] = useState(false);
+  const [isCapturingResultCard, setIsCapturingResultCard] = useState(false);
+  const [hasSavedResultCard, setHasSavedResultCard] = useState(false);
+  const resultCardBlock = getResultCardBlock(cut);
   const hasImage = Boolean(cut.assetUrl) && !isImageFailed;
   const hasOverlayContent = getCutContentBlocksByPlacement(cut, 'overlay').length > 0;
   const hasFlowContent = getCutContentBlocksByPlacement(cut, 'flow').length > 0;
@@ -160,7 +168,27 @@ export function ViewerCutCard({
 
   useEffect(() => {
     setIsImageFailed(false);
+    setHasSavedResultCard(false);
   }, [cut.assetUrl, cut.id]);
+
+  async function handleResultCardSave() {
+    if (!resultCardBlock) {
+      return;
+    }
+
+    setIsCapturingResultCard(true);
+    try {
+      await saveResultCardAsWebp({
+        assetUrl: cut.assetUrl,
+        block: resultCardBlock
+      });
+      setHasSavedResultCard(true);
+    } catch {
+      // The save action is best-effort because browser canvas export can fail for cross-origin images.
+    } finally {
+      setIsCapturingResultCard(false);
+    }
+  }
 
   function renderFooter() {
     if (showEndingActions) {
@@ -177,7 +205,9 @@ export function ViewerCutCard({
             {onShare ? (
               <button
                 className="rounded-2xl border border-white/15 bg-white/10 px-5 py-4 text-base font-semibold text-white transition hover:bg-white/15"
-                onClick={onShare}
+                onClick={() => {
+                  void onShare();
+                }}
                 type="button"
               >
                 결과 공유하기
@@ -234,6 +264,50 @@ export function ViewerCutCard({
   }
 
   const footer = renderFooter();
+
+  if (cut.kind === 'resultCard' && resultCardBlock) {
+    return (
+      <article
+        className="relative flex min-h-full shrink-0 flex-col justify-center bg-[#050506] px-5 py-8 sm:px-8"
+        data-viewer-layout={compact ? 'compact' : 'fullscreen'}
+      >
+        <div className="mx-auto flex w-full max-w-[30rem] flex-col items-center">
+          <ResultCard assetUrl={cut.assetUrl} block={resultCardBlock} />
+          {showEndingActions ? (
+            <div className="mt-6 grid w-full gap-3 sm:grid-cols-2">
+              <button
+                className="rounded-2xl bg-editor-accent px-5 py-4 text-base font-semibold text-white transition hover:brightness-110"
+                onClick={onReset}
+                type="button"
+              >
+                다시 보기
+              </button>
+              <button
+                className="rounded-2xl border border-white/15 bg-white/10 px-5 py-4 text-base font-semibold text-white transition hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isCapturingResultCard}
+                onClick={() => {
+                  void handleResultCardSave();
+                }}
+                type="button"
+              >
+                {isCapturingResultCard ? '이미지 저장 중...' : '이미지 저장하기'}
+              </button>
+              {hasSavedResultCard ? (
+                <a
+                  className="rounded-2xl border border-editor-accentSoft/70 bg-editor-accent/15 px-5 py-4 text-center text-base font-semibold text-white transition hover:bg-editor-accent/25 sm:col-span-2"
+                  href={PROMPTOON_INSTAGRAM_URL}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  공유하기
+                </a>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </article>
+    );
+  }
 
   function renderOverlayContent() {
     if (!hasOverlayContent) {

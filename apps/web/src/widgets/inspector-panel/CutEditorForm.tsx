@@ -3,6 +3,8 @@ import {
   getCutStateRouteConditions,
   type Cut,
   type CutContentBlock,
+  type PromptoonResultCardContentBlock,
+  type PromptoonResultCardTheme,
   type CutStateCondition,
   type CutStateRoute,
   type CutStateVariant,
@@ -13,6 +15,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { CONTENT_SPACING_OPTIONS, deriveContentBlocksBody, normalizeCutContentBlocks } from '../../shared/lib/cut-content';
+import { RESULT_CARD_THEME_OPTIONS, createResultCardBlock, getResultCardBlock, upsertResultCardBlock } from '../../shared/lib/result-card';
 import { useDebounce } from '../../shared/lib/use-debounce';
 import {
   CUT_EFFECT_OPTIONS,
@@ -105,10 +108,19 @@ interface CutFormState {
   isEnding: boolean;
 }
 
+function getInitialContentBlocks(cut: Cut): CutContentBlock[] {
+  if (cut.kind !== 'resultCard') {
+    return normalizeCutContentBlocks(cut);
+  }
+
+  const resultCardBlock = getResultCardBlock(cut) ?? createResultCardBlock('blue', { resultName: cut.title });
+  return [resultCardBlock];
+}
+
 function toFormState(cut: Cut): CutFormState {
   return {
     title: cut.title,
-    contentBlocks: normalizeCutContentBlocks(cut),
+    contentBlocks: getInitialContentBlocks(cut),
     contentViewMode: cut.contentViewMode ?? 'default',
     kind: cut.kind,
     dialogAnchorX: cut.dialogAnchorX,
@@ -129,7 +141,7 @@ function toFormState(cut: Cut): CutFormState {
     stateRoutes: (cut.stateRoutes ?? []).map(toFormStateRoute),
     stateFallbackCutId: cut.stateFallbackCutId ?? '',
     isStart: cut.isStart,
-    isEnding: cut.isEnding
+    isEnding: cut.kind === 'resultCard' ? true : cut.isEnding
   };
 }
 
@@ -137,8 +149,24 @@ function clampEffectDuration(value: number): number {
   return Math.min(MAX_CUT_EFFECT_DURATION_MS, Math.max(0, value));
 }
 
+function sortJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(sortJsonValue);
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+        .map(([key, nestedValue]) => [key, sortJsonValue(nestedValue)])
+    );
+  }
+
+  return value;
+}
+
 function serializeContentBlocks(blocks: CutContentBlock[]): string {
-  return JSON.stringify(blocks);
+  return JSON.stringify(sortJsonValue(blocks));
 }
 
 function createClientId(prefix: string): string {
@@ -255,15 +283,16 @@ function normalizeStateRoutes(stateRoutes: CutStateRoute[], sourceCutId: string)
 function buildCutPatch(cut: Cut, formState: CutFormState): PatchCutRequest | null {
   const patch: PatchCutRequest = {};
   const isStateRouter = formState.kind === 'stateRouter';
+  const isResultCard = formState.kind === 'resultCard';
 
   if (formState.title !== cut.title) {
     patch.title = formState.title;
   }
 
-  const normalizedContentBlocks = normalizeCutContentBlocks(cut);
+  const normalizedContentBlocks = cut.kind === 'resultCard' ? getInitialContentBlocks(cut) : normalizeCutContentBlocks(cut);
   if (!isStateRouter && serializeContentBlocks(formState.contentBlocks) !== serializeContentBlocks(normalizedContentBlocks)) {
     patch.contentBlocks = formState.contentBlocks;
-    patch.body = deriveContentBlocksBody(formState.contentBlocks, cut.body);
+    patch.body = deriveContentBlocksBody(formState.contentBlocks, '');
   }
 
   if (formState.contentViewMode !== (cut.contentViewMode ?? 'default')) {
@@ -326,7 +355,7 @@ function buildCutPatch(cut: Cut, formState: CutFormState): PatchCutRequest | nul
     patch.marginBottomToken = formState.marginBottomToken;
   }
 
-  const nextStateVariants = isStateRouter ? [] : normalizeStateVariants(formState.stateVariants, cut.id);
+  const nextStateVariants = isStateRouter || isResultCard ? [] : normalizeStateVariants(formState.stateVariants, cut.id);
   const currentStateVariants = normalizeStateVariants(cut.stateVariants ?? [], cut.id);
   if (serializeStateVariants(nextStateVariants) !== serializeStateVariants(currentStateVariants)) {
     patch.stateVariants = nextStateVariants;
@@ -398,6 +427,7 @@ export function CutEditorForm({
     onKindPreviewChange(nextState.kind);
   }, [
     cut.id,
+    cut.body,
     cut.title,
     cut.contentBlocks,
     cut.contentViewMode,
@@ -439,6 +469,31 @@ export function CutEditorForm({
   );
   const displayAssetUrl = localAssetPreviewUrl ?? formState.assetUrl;
   const isStateRouter = formState.kind === 'stateRouter';
+  const isResultCard = formState.kind === 'resultCard';
+  const resultCardBlock =
+    getResultCardBlock({
+      id: cut.id,
+      kind: formState.kind,
+      title: formState.title,
+      contentBlocks: formState.contentBlocks
+    }) ?? createResultCardBlock('blue', { resultName: formState.title });
+
+  function updateResultCardBlock(updater: (block: PromptoonResultCardContentBlock) => PromptoonResultCardContentBlock) {
+    setFormState((current) => {
+      const currentBlock =
+        getResultCardBlock({
+          id: cut.id,
+          kind: current.kind,
+          title: current.title,
+          contentBlocks: current.contentBlocks
+        }) ?? createResultCardBlock('blue', { resultName: current.title });
+
+      return {
+        ...current,
+        contentBlocks: upsertResultCardBlock(current.contentBlocks, updater(currentBlock))
+      };
+    });
+  }
 
   useEffect(() => {
     if (debouncedDraft.cutId !== cut.id) {
@@ -622,6 +677,128 @@ export function CutEditorForm({
       onViewModeChange={(contentViewMode) => setFormState((current) => ({ ...current, contentViewMode }))}
       viewMode={formState.contentViewMode}
     />
+  );
+  const resultCardEditor = (
+    <div className="col-span-full rounded-2xl border border-editor-border bg-black/10 p-3">
+      <GroupTitle>결과 카드</GroupTitle>
+      <div className="mt-3 space-y-3">
+        <div>
+          <FieldLabel>테마</FieldLabel>
+          <select
+            className={inputClassName()}
+            onChange={(event) => {
+              const theme = event.target.value as PromptoonResultCardTheme;
+              const preset = createResultCardBlock(theme, {
+                id: resultCardBlock.id,
+                inflowLabel: resultCardBlock.inflowLabel,
+                inflowUrl: resultCardBlock.inflowUrl,
+                inflowBrand: resultCardBlock.inflowBrand,
+                inflowTagline: resultCardBlock.inflowTagline
+              });
+              updateResultCardBlock(() => preset);
+            }}
+            value={resultCardBlock.theme}
+          >
+            {RESULT_CARD_THEME_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="grid grid-cols-[minmax(0,0.55fr)_minmax(0,1fr)] gap-2">
+          <div className="min-w-0">
+            <FieldLabel>배지</FieldLabel>
+            <input
+              className={inputClassName()}
+              onChange={(event) => updateResultCardBlock((block) => ({ ...block, badge: event.target.value }))}
+              type="text"
+              value={resultCardBlock.badge}
+            />
+          </div>
+          <div className="min-w-0">
+            <FieldLabel>결과명</FieldLabel>
+            <input
+              className={inputClassName()}
+              onChange={(event) => updateResultCardBlock((block) => ({ ...block, resultName: event.target.value }))}
+              type="text"
+              value={resultCardBlock.resultName}
+            />
+          </div>
+        </div>
+
+        <div>
+          <FieldLabel>한 줄 설명</FieldLabel>
+          <input
+            className={inputClassName()}
+            onChange={(event) => updateResultCardBlock((block) => ({ ...block, tagline: event.target.value }))}
+            type="text"
+            value={resultCardBlock.tagline}
+          />
+        </div>
+
+        <div>
+          <FieldLabel>본문 문구</FieldLabel>
+          <textarea
+            className={`${inputClassName()} min-h-28 resize-y whitespace-pre-wrap`}
+            onChange={(event) =>
+              updateResultCardBlock((block) => ({
+                ...block,
+                lines: event.target.value
+                  .split('\n')
+                  .map((line) => line.trim())
+                  .filter((line) => line.length > 0)
+                  .slice(0, 6)
+              }))
+            }
+            value={resultCardBlock.lines.join('\n')}
+          />
+        </div>
+
+        <div className="grid grid-cols-[minmax(0,0.55fr)_minmax(0,1fr)] gap-2">
+          <div className="min-w-0">
+            <FieldLabel>유입 라벨</FieldLabel>
+            <input
+              className={inputClassName()}
+              onChange={(event) => updateResultCardBlock((block) => ({ ...block, inflowLabel: event.target.value }))}
+              type="text"
+              value={resultCardBlock.inflowLabel}
+            />
+          </div>
+          <div className="min-w-0">
+            <FieldLabel>유입 URL</FieldLabel>
+            <input
+              className={inputClassName()}
+              onChange={(event) => updateResultCardBlock((block) => ({ ...block, inflowUrl: event.target.value }))}
+              type="text"
+              value={resultCardBlock.inflowUrl}
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-[minmax(0,0.55fr)_minmax(0,1fr)] gap-2">
+          <div className="min-w-0">
+            <FieldLabel>브랜드</FieldLabel>
+            <input
+              className={inputClassName()}
+              onChange={(event) => updateResultCardBlock((block) => ({ ...block, inflowBrand: event.target.value }))}
+              type="text"
+              value={resultCardBlock.inflowBrand}
+            />
+          </div>
+          <div className="min-w-0">
+            <FieldLabel>브랜드 설명</FieldLabel>
+            <input
+              className={inputClassName()}
+              onChange={(event) => updateResultCardBlock((block) => ({ ...block, inflowTagline: event.target.value }))}
+              type="text"
+              value={resultCardBlock.inflowTagline}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
   );
   const assetEditor = (
     <div>
@@ -1055,9 +1232,9 @@ export function CutEditorForm({
             />
           </div>
 
-          {!isStateRouter && !contentBlocksPortalEnabled ? contentBlocksEditor : null}
+          {!isStateRouter && !isResultCard && !contentBlocksPortalEnabled ? contentBlocksEditor : null}
 
-          {!isStateRouter && !dialoguePositionPortalTarget ? dialoguePositionEditor : null}
+          {!isStateRouter && !isResultCard && !dialoguePositionPortalTarget ? dialoguePositionEditor : null}
 
           <div className="inspector-form-grid grid gap-3">
             <div className="inspector-field-grid grid gap-3">
@@ -1075,7 +1252,14 @@ export function CutEditorForm({
                     setFormState((current) => ({
                       ...current,
                       kind,
-                      isEnding: kind === 'ending' ? true : kind === 'stateRouter' ? false : current.isEnding
+                      contentBlocks:
+                        kind === 'resultCard'
+                          ? [createResultCardBlock('blue', { resultName: current.title })]
+                          : current.kind === 'resultCard'
+                            ? []
+                            : current.contentBlocks,
+                      stateVariants: kind === 'resultCard' || kind === 'stateRouter' ? [] : current.stateVariants,
+                      isEnding: kind === 'ending' || kind === 'resultCard' ? true : kind === 'stateRouter' ? false : current.isEnding
                     }));
                     onKindPreviewChange(kind);
                   }}
@@ -1085,11 +1269,14 @@ export function CutEditorForm({
                   <option value="choice">선택</option>
                   <option value="transition">전환</option>
                   <option value="stateRouter">상태 분기</option>
+                  <option value="resultCard">결과 카드</option>
                   <option value="ending">엔딩</option>
                 </select>
               </div>
 
-              {!isStateRouter ? (
+              {isResultCard ? (
+                resultCardEditor
+              ) : !isStateRouter ? (
                 <>
                   <div className="col-span-full mt-1">
                     <GroupTitle>전환 효과</GroupTitle>
@@ -1281,7 +1468,7 @@ export function CutEditorForm({
                 <span className="min-w-0 truncate">시작 컷으로 지정</span>
               </label>
 
-              {!isStateRouter ? (
+              {!isStateRouter && !isResultCard ? (
                 <label className="flex min-w-0 items-center gap-2 rounded-xl border border-editor-border bg-black/10 px-3 py-2 text-sm text-zinc-300">
                   <input
                     checked={formState.isEnding}
@@ -1296,8 +1483,8 @@ export function CutEditorForm({
           </div>
         </div>
       </section>
-      {!isStateRouter && contentBlocksPortalEnabled && contentBlocksPortalTarget ? createPortal(contentBlocksEditor, contentBlocksPortalTarget) : null}
-      {!isStateRouter && dialoguePositionPortalTarget ? createPortal(dialoguePositionEditor, dialoguePositionPortalTarget) : null}
+      {!isStateRouter && !isResultCard && contentBlocksPortalEnabled && contentBlocksPortalTarget ? createPortal(contentBlocksEditor, contentBlocksPortalTarget) : null}
+      {!isStateRouter && !isResultCard && dialoguePositionPortalTarget ? createPortal(dialoguePositionEditor, dialoguePositionPortalTarget) : null}
     </>
   );
 }

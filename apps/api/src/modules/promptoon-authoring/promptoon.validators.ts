@@ -1,5 +1,9 @@
 import { getCutStateRouteConditions, type Choice, type Cut, type EpisodeDraftResponse, type ValidateEpisodeResponse, type ValidationIssue } from '@promptoon/shared';
 
+function isEndingLikeCut(cut: Pick<Cut, 'isEnding' | 'kind'>): boolean {
+  return cut.isEnding || cut.kind === 'ending' || cut.kind === 'resultCard';
+}
+
 function buildOutgoingEdges(cuts: Cut[], choices: Choice[]): Map<string, string[]> {
   const adjacency = new Map<string, string[]>();
 
@@ -107,7 +111,7 @@ export function validateEpisodeGraph(draft: EpisodeDraftResponse): ValidateEpiso
 
   const cutsById = new Map(draft.cuts.map((cut) => [cut.id, cut]));
   const startCuts = draft.cuts.filter((cut) => cut.isStart);
-  const endingCuts = draft.cuts.filter((cut) => cut.isEnding || cut.kind === 'ending');
+  const endingCuts = draft.cuts.filter(isEndingLikeCut);
 
   if (!draft.episode.coverImageUrl) {
     warnings.push({

@@ -6,6 +6,7 @@ import { asyncHandler } from '../../lib/async-handler';
 import { getRequiredAuthUser, requireAuth } from '../../lib/auth';
 import { HttpError } from '../../lib/http-error';
 import {
+  analyticsQuerySchema,
   createChoiceSchema,
   createCutSchema,
   deleteCutSchema,
@@ -17,6 +18,7 @@ import {
   patchCutSchema,
   patchEpisodeCutLayoutSchema,
   reorderEpisodeCutsSchema,
+  resetEpisodeAnalyticsSchema,
   publishSchema,
   telemetryEventSchema
 } from './promptoon.schemas';
@@ -42,6 +44,10 @@ function getBaseOrigin(request: Request): string {
   }
 
   return `${request.protocol}://${host}`;
+}
+
+function getBackupFileName(): string {
+  return `promptoon-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
 }
 
 export function createPromptoonRouter(): Router {
@@ -83,6 +89,11 @@ export function createPromptoonRouter(): Router {
     response.json(await service.listProjects(getRequiredAuthUser(request).sub));
   }));
 
+  protectedRouter.get('/backup/export', asyncHandler(async (request, response) => {
+    response.setHeader('Content-Disposition', `attachment; filename="${getBackupFileName()}"`);
+    response.json(await service.exportUserBackup(getRequiredAuthUser(request).sub));
+  }));
+
   protectedRouter.post('/projects/:projectId/assets', upload.single('file'), asyncHandler(async (request, response) => {
     if (!request.file) {
       throw new HttpError(400, 'Image file is required.');
@@ -94,7 +105,24 @@ export function createPromptoonRouter(): Router {
   }));
 
   protectedRouter.get('/analytics/episodes/:episodeId', asyncHandler(async (request, response) => {
-    response.json(await service.getEpisodeAnalytics(getParam(request.params.episodeId, 'episodeId'), getRequiredAuthUser(request).sub));
+    const query = analyticsQuerySchema.parse(request.query);
+    response.json(
+      await service.getEpisodeAnalytics(
+        getParam(request.params.episodeId, 'episodeId'),
+        getRequiredAuthUser(request).sub,
+        query.viewsGranularity,
+        {
+          from: query.viewsFrom,
+          to: query.viewsTo
+        }
+      )
+    );
+  }));
+
+  protectedRouter.post('/analytics/episodes/:episodeId/reset', asyncHandler(async (request, response) => {
+    const body = resetEpisodeAnalyticsSchema.parse(request.body);
+    await service.resetEpisodeAnalytics(getParam(request.params.episodeId, 'episodeId'), getRequiredAuthUser(request).sub, body);
+    response.status(204).send();
   }));
 
   protectedRouter.post('/projects', asyncHandler(async (request, response) => {

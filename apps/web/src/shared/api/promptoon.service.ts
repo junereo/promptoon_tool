@@ -1,6 +1,9 @@
 import type {
   AssetUploadResponse,
   AnalyticsEpisodeResponse,
+  AnalyticsResetScope,
+  AnalyticsViewGranularity,
+  AnalyticsViewRange,
   Choice,
   CreateChoiceRequest,
   CreateCutRequest,
@@ -15,6 +18,7 @@ import type {
   Publish,
   ReorderEpisodeCutsRequest,
   ReorderEpisodeCutsResponse,
+  ResetEpisodeAnalyticsRequest,
   TelemetryEventRequest,
   ValidateEpisodeResponse
 } from '@promptoon/shared';
@@ -115,8 +119,23 @@ export const promptoonService = {
     await publicApiClient.post('/telemetry/events', payload);
   },
 
-  async getEpisodeAnalytics(episodeId: string): Promise<AnalyticsEpisodeResponse> {
-    const { data } = await apiClient.get(`/analytics/episodes/${episodeId}`);
+  async getEpisodeAnalytics(
+    episodeId: string,
+    viewsGranularity: AnalyticsViewGranularity,
+    viewsRange: AnalyticsViewRange = {}
+  ): Promise<AnalyticsEpisodeResponse> {
+    const { data } = await apiClient.get(`/analytics/episodes/${episodeId}`, {
+      params: {
+        viewsGranularity,
+        viewsFrom: viewsRange.from,
+        viewsTo: viewsRange.to
+      }
+    });
     return data;
+  },
+
+  async resetEpisodeAnalytics(episodeId: string, scope: AnalyticsResetScope): Promise<void> {
+    const payload: ResetEpisodeAnalyticsRequest = { scope };
+    await apiClient.post(`/analytics/episodes/${episodeId}/reset`, payload);
   }
 };

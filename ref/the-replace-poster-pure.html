@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>THE REPLACE — Pure Movie Poster</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #050505;
+    color: #fff;
+    font-family: 'Helvetica Neue', sans-serif;
+    padding: 60px 20px;
+    min-height: 100vh;
+  }
+
+  .header {
+    text-align: center;
+    margin-bottom: 50px;
+  }
+
+  .header h1 {
+    font-size: 14px;
+    font-weight: 300;
+    letter-spacing: 6px;
+    color: #888;
+    margin-bottom: 6px;
+  }
+
+  .header p {
+    font-size: 11px;
+    color: #555;
+    letter-spacing: 2px;
+  }
+
+  /* === HERO POSTER === */
+  .hero-wrap {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 60px;
+  }
+
+  .poster {
+    position: relative;
+    width: 380px;
+    aspect-ratio: 2 / 3;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.05);
+    overflow: hidden;
+  }
+
+  .image-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+  }
+
+  .image-layer svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  /* Subtle film grain feel */
+  .grain {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    background:
+      radial-gradient(ellipse at center, transparent 20%, rgba(0,0,0,0.7) 100%),
+      linear-gradient(180deg, rgba(0,0,0,0.4) 0%, transparent 30%, transparent 60%, rgba(0,0,0,0.95) 100%);
+  }
+
+  .content {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    padding: 30px 28px 24px;
+    color: #fff;
+  }
+
+  /* Top section: tagline (where movie posters put critic quotes) */
+  .top-tagline {
+    text-align: center;
+    font-size: 11px;
+    letter-spacing: 1px;
+    font-style: italic;
+    color: rgba(255,255,255,0.85);
+    line-height: 1.6;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.9);
+    max-width: 240px;
+    margin: 0 auto;
+  }
+
+  .top-tagline .quote {
+    font-size: 20px;
+    color: rgba(255,255,255,0.4);
+    line-height: 0;
+    vertical-align: -8px;
+    margin: 0 4px;
+  }
+
+  .spacer { flex: 1; }
+
+  /* Main title block (bottom-anchored, like real posters) */
+  .title-block {
+    text-align: center;
+    margin-bottom: 16px;
+  }
+
+  .title-en {
+    font-size: 10px;
+    letter-spacing: 8px;
+    color: rgba(255,255,255,0.6);
+    margin-bottom: 8px;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.9);
+  }
+
+  .title-ko {
+    font-size: 44px;
+    font-weight: 900;
+    line-height: 0.9;
+    letter-spacing: -1.5px;
+    font-family: 'Noto Serif KR', 'Nanum Myeongjo', serif;
+    text-shadow: 0 2px 12px rgba(0,0,0,1);
+    margin-bottom: 14px;
+  }
+
+  .synopsis {
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    color: rgba(255,255,255,0.75);
+    line-height: 1.6;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.9);
+  }
+
+  /* Credit block */
+  .credit-block {
+    text-align: center;
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid rgba(255,255,255,0.15);
+  }
+
+  .credit {
+    font-size: 9px;
+    letter-spacing: 4px;
+    color: rgba(255,255,255,0.8);
+    margin-bottom: 6px;
+  }
+
+  .footer-text {
+    font-size: 7.5px;
+    letter-spacing: 0.5px;
+    color: rgba(255,255,255,0.45);
+    line-height: 1.6;
+    font-style: italic;
+    margin-bottom: 8px;
+  }
+
+  .brand {
+    font-size: 8px;
+    letter-spacing: 5px;
+    color: rgba(255,255,255,0.5);
+    font-weight: 700;
+    margin-top: 4px;
+  }
+
+  /* === Tagline variants below === */
+  .variants-section {
+    max-width: 700px;
+    margin: 0 auto;
+  }
+
+  .section-title {
+    text-align: center;
+    color: #666;
+    font-size: 11px;
+    letter-spacing: 3px;
+    margin-bottom: 24px;
+    font-weight: 300;
+  }
+
+  .variants-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+  }
+
+  .variant {
+    background: #0e0e0e;
+    border: 1px solid #1a1a1a;
+    padding: 20px;
+    border-radius: 2px;
+  }
+
+  .variant-label {
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: #555;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+  }
+
+  .variant-tagline {
+    font-size: 13px;
+    color: #ddd;
+    font-style: italic;
+    line-height: 1.6;
+    font-family: 'Noto Serif KR', serif;
+  }
+
+  .note {
+    max-width: 700px;
+    margin: 60px auto 20px;
+    padding: 24px;
+    background: #0a0a0a;
+    border-left: 2px solid #555;
+    color: #aaa;
+    font-size: 12px;
+    line-height: 1.8;
+  }
+
+  .note strong { color: #fff; }
+  .note .highlight { color: #d4a85c; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>THE REPLACE</h1>
+  <p>PURE MOVIE POSTER · 1 IMAGE · TAGLINE VARIES</p>
+</div>
+
+<!-- HERO POSTER -->
+<div class="hero-wrap">
+  <div class="poster">
+    <div class="image-layer">
+      <svg viewBox="0 0 400 600" preserveAspectRatio="xMidYMid slice">
+        <defs>
+          <linearGradient id="sky" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stop-color="#1a1822"/>
+            <stop offset="50%" stop-color="#0f0e16"/>
+            <stop offset="100%" stop-color="#050408"/>
+          </linearGradient>
+          <linearGradient id="fog" x1="0" x2="0" y1="0.4" y2="1">
+            <stop offset="0%" stop-color="rgba(140,140,160,0)"/>
+            <stop offset="60%" stop-color="rgba(140,140,160,0.25)"/>
+            <stop offset="100%" stop-color="rgba(160,160,180,0.5)"/>
+          </linearGradient>
+          <radialGradient id="windowGlow" cx="0.5" cy="0.5" r="0.5">
+            <stop offset="0%" stop-color="rgba(255,210,130,0.6)"/>
+            <stop offset="100%" stop-color="rgba(255,210,130,0)"/>
+          </radialGradient>
+        </defs>
+
+        <!-- Sky -->
+        <rect width="400" height="600" fill="url(#sky)"/>
+
+        <!-- Distant mountains -->
+        <polygon points="0,360 60,260 120,310 200,200 280,290 340,240 400,300 400,400 0,400" fill="#0a0a14" opacity="0.8"/>
+        <polygon points="0,400 80,310 160,360 240,280 320,340 400,300 400,440 0,440" fill="#06060c"/>
+
+        <!-- Trees silhouette -->
+        <g fill="#030308">
+          <polygon points="40,440 50,400 60,440"/>
+          <polygon points="65,445 75,410 85,445"/>
+          <polygon points="320,440 332,395 344,440"/>
+          <polygon points="350,445 360,415 370,445"/>
+          <polygon points="375,448 383,420 391,448"/>
+        </g>
+
+        <!-- Hotel building (centered, dominant) -->
+        <rect x="125" y="290" width="150" height="220" fill="#08080e"/>
+        <!-- Hotel roof -->
+        <polygon points="115,295 200,260 285,295 285,300 115,300" fill="#0a0a12"/>
+        <!-- Hotel side detail -->
+        <rect x="120" y="290" width="160" height="6" fill="#15151e"/>
+
+        <!-- Window glow halos (large soft glow per lit window) -->
+        <ellipse cx="148" cy="324" rx="22" ry="16" fill="url(#windowGlow)"/>
+        <ellipse cx="208" cy="324" rx="22" ry="16" fill="url(#windowGlow)"/>
+        <ellipse cx="252" cy="324" rx="22" ry="16" fill="url(#windowGlow)"/>
+        <ellipse cx="178" cy="362" rx="22" ry="16" fill="url(#windowGlow)"/>
+        <ellipse cx="238" cy="362" rx="22" ry="16" fill="url(#windowGlow)"/>
+        <ellipse cx="148" cy="400" rx="22" ry="16" fill="url(#windowGlow)"/>
+        <ellipse cx="222" cy="400" rx="22" ry="16" fill="url(#windowGlow)"/>
+
+        <!-- Windows (on top of glows) -->
+        <g>
+          <!-- Row 1 -->
+          <rect x="142" y="316" width="12" height="16" fill="#f4c870"/>
+          <rect x="162" y="316" width="12" height="16" fill="#0a0a10"/>
+          <rect x="182" y="316" width="12" height="16" fill="#0a0a10"/>
+          <rect x="202" y="316" width="12" height="16" fill="#f4c870"/>
+          <rect x="222" y="316" width="12" height="16" fill="#0a0a10"/>
+          <rect x="242" y="316" width="12" height="16" fill="#f4c870" opacity="0.85"/>
+          <!-- Row 2 -->
+          <rect x="142" y="354" width="12" height="16" fill="#0a0a10"/>
+          <rect x="162" y="354" width="12" height="16" fill="#0a0a10"/>
+          <rect x="182" y="354" width="12" height="16" fill="#f4c870"/>
+          <rect x="202" y="354" width="12" height="16" fill="#0a0a10"/>
+          <rect x="222" y="354" width="12" height="16" fill="#0a0a10"/>
+          <rect x="242" y="354" width="12" height="16" fill="#f4c870" opacity="0.6"/>
+          <!-- Row 3 -->
+          <rect x="142" y="392" width="12" height="16" fill="#f4c870" opacity="0.9"/>
+          <rect x="162" y="392" width="12" height="16" fill="#0a0a10"/>
+          <rect x="182" y="392" width="12" height="16" fill="#0a0a10"/>
+          <rect x="202" y="392" width="12" height="16" fill="#0a0a10"/>
+          <rect x="222" y="392" width="12" height="16" fill="#f4c870"/>
+          <rect x="242" y="392" width="12" height="16" fill="#0a0a10"/>
+          <!-- Row 4 -->
+          <rect x="142" y="430" width="12" height="16" fill="#0a0a10"/>
+          <rect x="162" y="430" width="12" height="16" fill="#f4c870" opacity="0.4"/>
+          <rect x="182" y="430" width="12" height="16" fill="#0a0a10"/>
+          <rect x="202" y="430" width="12" height="16" fill="#0a0a10"/>
+          <rect x="222" y="430" width="12" height="16" fill="#0a0a10"/>
+          <rect x="242" y="430" width="12" height="16" fill="#0a0a10"/>
+        </g>
+
+        <!-- Entrance door -->
+        <rect x="186" y="470" width="28" height="42" fill="#15100a"/>
+        <ellipse cx="200" cy="495" rx="14" ry="8" fill="rgba(255,210,130,0.3)"/>
+
+        <!-- Fog overlay -->
+        <rect width="400" height="600" fill="url(#fog)"/>
+      </svg>
+    </div>
+    <div class="grain"></div>
+    <div class="content">
+      <div class="top-tagline">
+        <span class="quote">"</span>알면서도<br>손을 들었다<span class="quote">"</span>
+      </div>
+      <div class="spacer"></div>
+      <div class="title-block">
+        <div class="title-en">THE REPLACE</div>
+        <div class="title-ko">호텔<br>리플레이스</div>
+        <div class="synopsis">6명의 작가. 7일의 체류.<br>모두가 돌아오지는 못했다.</div>
+      </div>
+      <div class="credit-block">
+        <div class="credit">A STORY BY 김작가</div>
+        <div class="footer-text">이것은 게임의 결과가 아닙니다.<br>당신이 선택해온 방식의 기록입니다.</div>
+        <div class="brand">PROMTOON</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Tagline variants -->
+<div class="variants-section">
+  <div class="section-title">— TAGLINE VARIES BY ENDING —</div>
+  <div class="variants-grid">
+    <div class="variant">
+      <div class="variant-label">ENDING 01</div>
+      <div class="variant-tagline">"알면서도<br>손을 들었다"</div>
+    </div>
+    <div class="variant">
+      <div class="variant-label">ENDING 02</div>
+      <div class="variant-tagline">"몰랐다는 게<br>면죄부가 되나요?"</div>
+    </div>
+    <div class="variant">
+      <div class="variant-label">ENDING 03</div>
+      <div class="variant-tagline">"알았기 때문에<br>멈출 수 있었다"</div>
+    </div>
+    <div class="variant">
+      <div class="variant-label">ENDING 04</div>
+      <div class="variant-tagline">"이유는 몰랐지만,<br>손은 올리지 않았다"</div>
+    </div>
+  </div>
+</div>
+
+<div class="note">
+  <strong>📌 이 포스터의 원칙</strong><br><br>
+  • <strong>이미지 1종</strong>: 모든 엔딩에 동일한 호텔 이미지<br>
+  • <strong>변하는 건 카피뿐</strong>: 상단 tagline (4종) + <span class="highlight">A STORY BY [userName]</span><br>
+  • <strong>NO typeBadge, NO 컬러 그레이딩</strong>: "결과 UI"가 아니라 "영화 포스터"이기 위함<br>
+  • <strong>tagline은 영화 비평 인용처럼</strong>: 상단에 작게, 따옴표 처리 — 진짜 영화 포스터의 critic quote 위치<br>
+  • <strong>tagline의 격</strong>: "내가 했던 선택을 영화가 한 줄로 인용한 것" 같은 느낌<br><br>
+  <strong>역할:</strong> 이 포스터는 <span class="highlight">소장용 ART</span>입니다. 액자에 걸 만한 것.<br>
+  <strong>SNS 공유용</strong>은 따로 <span class="highlight">결과카드</span>가 담당합니다 (다음 목업에서).
+</div>
+
+</body>
+</html>

@@ -19,9 +19,12 @@ let analyticsData: {
   cutEngagement: Array<{ cutId: string; dropOffCount: number; avgDurationMs: number }>;
   choiceStats: Record<string, Array<{ choiceId: string; label: string; count: number; percentage: number; avgHesitationMs?: number }>>;
   endingDistribution: Array<{ cutId: string; count: number; percentage: number }>;
-  dailyViews: Array<{ date: string; views: number }>;
+  viewGranularity: 'daily' | 'weekly' | 'monthly';
+  viewsByPeriod: Array<{ periodStart: string; views: number; uniqueViewers: number }>;
   feedEntry: { impressions: number; choiceClicks: number; conversionRate: number };
 };
+const useEpisodeAnalyticsMock = vi.fn();
+const resetAnalyticsMutate = vi.fn<(_: 'all' | 'views' | 'choiceStats' | 'endingDistribution' | 'cutEngagement' | 'feedEntry') => Promise<void>>();
 const validateMutate = vi.fn<(_: string) => Promise<ValidateEpisodeResponse>>();
 const publishMutate = vi.fn<(_: { projectId: string; episodeId: string }) => Promise<Publish>>();
 const updatePublishMutate = vi.fn<(_: { projectId: string; episodeId: string }) => Promise<Publish>>();
@@ -36,10 +39,10 @@ const updateChoiceMutate = vi.fn();
 const queueCutPatch = vi.fn();
 
 vi.mock('../src/features/analytics/hooks/use-episode-analytics', () => ({
-  useEpisodeAnalytics: () => ({
-    isLoading: false,
-    isError: false,
-    data: analyticsData
+  useEpisodeAnalytics: (...args: unknown[]) => useEpisodeAnalyticsMock(...args),
+  useResetEpisodeAnalytics: () => ({
+    isPending: false,
+    mutateAsync: resetAnalyticsMutate
   })
 }));
 
@@ -134,6 +137,14 @@ beforeEach(() => {
   updateCutMutate.mockReset();
   updateChoiceMutate.mockReset();
   queueCutPatch.mockReset();
+  resetAnalyticsMutate.mockReset();
+  resetAnalyticsMutate.mockResolvedValue(undefined);
+  useEpisodeAnalyticsMock.mockReset();
+  useEpisodeAnalyticsMock.mockImplementation(() => ({
+    isLoading: false,
+    isError: false,
+    data: analyticsData
+  }));
   draftResponse = {
     episode: {
       id: 'episode-1',
@@ -312,9 +323,10 @@ beforeEach(() => {
     endingDistribution: [
       { cutId: 'cut-2', count: 549, percentage: 100 }
     ],
-    dailyViews: [
-      { date: '2026-03-12', views: 20 },
-      { date: '2026-03-13', views: 35 }
+    viewGranularity: 'daily',
+    viewsByPeriod: [
+      { periodStart: '2026-03-12', views: 20, uniqueViewers: 14 },
+      { periodStart: '2026-03-13', views: 35, uniqueViewers: 27 }
     ],
     feedEntry: {
       impressions: 900,
@@ -781,6 +793,7 @@ describe('publish flow', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '분석' }));
 
+    expect(useEpisodeAnalyticsMock).toHaveBeenLastCalledWith('episode-1', 'daily', {});
     expect(await screen.findByText('총 조회수')).toBeTruthy();
     expect(screen.getByText('1,250')).toBeTruthy();
     expect(screen.getByText('840')).toBeTruthy();
@@ -788,9 +801,84 @@ describe('publish flow', () => {
     expect(screen.getByText('12.5%')).toBeTruthy();
     expect(screen.getByText('선택지 비율 · Opening')).toBeTruthy();
     expect(screen.queryByText('선택지 비율 · cut-single')).toBeNull();
-    expect(screen.getByText('Ending Distribution')).toBeTruthy();
-    expect(screen.getByText('Cut Engagement')).toBeTruthy();
+    expect(screen.getByTestId('choice-stats-card-body-cut-1').className).not.toContain('h-[320px]');
+    expect(screen.getByTestId('choice-stats-card-body-cut-1').className).toContain('grid');
+    expect(screen.getAllByText('Ending Distribution').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Cut Engagement').length).toBeGreaterThan(0);
     expect(screen.getByText(/2.4s/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '주별' }));
+
+    await waitFor(() => {
+      expect(useEpisodeAnalyticsMock).toHaveBeenLastCalledWith('episode-1', 'weekly', {});
+    });
+    expect(screen.getByText('주별 조회수')).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText('조회 시작일'), { target: { value: '2026-03-01' } });
+    await waitFor(() => {
+      expect(useEpisodeAnalyticsMock).toHaveBeenLastCalledWith('episode-1', 'weekly', { from: '2026-03-01' });
+    });
+
+    fireEvent.change(screen.getByLabelText('조회 종료일'), { target: { value: '2026-03-31' } });
+    await waitFor(() => {
+      expect(useEpisodeAnalyticsMock).toHaveBeenLastCalledWith('episode-1', 'weekly', { from: '2026-03-01', to: '2026-03-31' });
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '최근 기간' }));
+    await waitFor(() => {
+      expect(useEpisodeAnalyticsMock).toHaveBeenLastCalledWith('episode-1', 'weekly', {});
+    });
+  });
+
+  it('confirms full and partial analytics resets', async () => {
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: '분석' }));
+    fireEvent.click(await screen.findByRole('button', { name: '전체 분석 초기화' }));
+
+    let dialog = await screen.findByRole('dialog', { name: '분석 초기화' });
+    fireEvent.click(within(dialog).getByRole('button', { name: '초기화' }));
+
+    await waitFor(() => {
+      expect(resetAnalyticsMutate).toHaveBeenCalledWith('all');
+    });
+
+    fireEvent.change(screen.getByRole('combobox'), {
+      target: {
+        value: 'choiceStats'
+      }
+    });
+    fireEvent.click(screen.getByRole('button', { name: '선택지 비율 부분 초기화' }));
+
+    dialog = await screen.findByRole('dialog', { name: '분석 초기화' });
+    fireEvent.click(within(dialog).getByRole('button', { name: '초기화' }));
+
+    await waitFor(() => {
+      expect(resetAnalyticsMutate).toHaveBeenCalledWith('choiceStats');
+    });
+  });
+
+  it('routes analytics section reset buttons to their scopes', async () => {
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: '분석' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Ending Distribution 전체 초기화' }));
+
+    let dialog = await screen.findByRole('dialog', { name: '분석 초기화' });
+    fireEvent.click(within(dialog).getByRole('button', { name: '초기화' }));
+
+    await waitFor(() => {
+      expect(resetAnalyticsMutate).toHaveBeenCalledWith('endingDistribution');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cut Engagement 전체 초기화' }));
+
+    dialog = await screen.findByRole('dialog', { name: '분석 초기화' });
+    fireEvent.click(within(dialog).getByRole('button', { name: '초기화' }));
+
+    await waitFor(() => {
+      expect(resetAnalyticsMutate).toHaveBeenCalledWith('cutEngagement');
+    });
   });
 
   it('uploads images with the current project id', async () => {

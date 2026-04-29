@@ -25,7 +25,7 @@ function mergeCutPatch(cut: Cut, patch: PatchCutRequest): Cut {
     ...cut,
     ...patch,
     assetUrl: Object.prototype.hasOwnProperty.call(patch, 'assetUrl') ? patch.assetUrl ?? null : cut.assetUrl,
-    isEnding: patch.isEnding !== undefined ? patch.isEnding : patch.kind === 'ending' ? true : cut.isEnding
+    isEnding: patch.isEnding !== undefined ? patch.isEnding : patch.kind === 'ending' || patch.kind === 'resultCard' ? true : cut.isEnding
   };
 }
 

@@ -1,8 +1,10 @@
 import type {
   AssetUploadResponse,
   AnalyticsChoiceStat,
-  AnalyticsDailyView,
   AnalyticsEpisodeResponse,
+  AnalyticsViewRange,
+  AnalyticsViewGranularity,
+  AnalyticsViewPoint,
   Choice,
   ChoiceStateWrite,
   CutContentBlock,
@@ -25,11 +27,13 @@ import type {
   PatchCutRequest,
   Project,
   ProjectWithEpisodes,
+  PromptoonBackupExport,
   Publish,
   PublishManifest,
   PublishRequest,
   ReorderEpisodeCutsRequest,
   ReorderEpisodeCutsResponse,
+  ResetEpisodeAnalyticsRequest,
   TelemetryEventRequest,
   ValidateEpisodeResponse
 } from '@promptoon/shared';
@@ -185,6 +189,32 @@ async function ensureCutOwnedByUser(cutId: string, userId: string): Promise<void
   if (ownerId !== userId) {
     throw new HttpError(403, 'You do not have access to this cut.');
   }
+}
+
+function getBackupTotals(projects: PromptoonBackupExport['projects']): PromptoonBackupExport['totals'] {
+  return projects.reduce(
+    (totals, projectBackup) => {
+      totals.projects += 1;
+      totals.episodes += projectBackup.episodes.length;
+
+      for (const episodeBackup of projectBackup.episodes) {
+        totals.cuts += episodeBackup.cuts.length;
+        totals.choices += episodeBackup.choices.length;
+        totals.publishes += episodeBackup.publishes.length;
+        totals.viewerEvents += episodeBackup.viewerEvents.length;
+      }
+
+      return totals;
+    },
+    {
+      projects: 0,
+      episodes: 0,
+      cuts: 0,
+      choices: 0,
+      publishes: 0,
+      viewerEvents: 0
+    }
+  );
 }
 
 async function ensureChoiceOwnedByUser(choiceId: string, userId: string): Promise<void> {
@@ -527,11 +557,15 @@ function summarizeDescription(value: string | null | undefined, fallback: string
   return normalized.length > 180 ? `${normalized.slice(0, 177)}...` : normalized;
 }
 
+function isEndingLikeCut(cut: { isEnding?: boolean; kind: string }): boolean {
+  return Boolean(cut.isEnding) || cut.kind === 'ending' || cut.kind === 'resultCard';
+}
+
 function getShareImageUrl(publish: Publish, endingCutId: string | undefined, baseOrigin: string): string | null {
   const manifest = publish.manifest;
   const endingCut =
     endingCutId
-      ? manifest.cuts.find((cut) => cut.id === endingCutId && (cut.isEnding || cut.kind === 'ending')) ?? null
+      ? manifest.cuts.find((cut) => cut.id === endingCutId && isEndingLikeCut(cut)) ?? null
       : null;
   const fallbackCutWithImage = manifest.cuts.find((cut) => Boolean(cut.assetUrl)) ?? null;
 
@@ -547,7 +581,7 @@ function buildSharePageMeta(publish: Publish, endingCutId: string | undefined, b
   const manifest = publish.manifest;
   const validEndingCut =
     endingCutId
-      ? manifest.cuts.find((cut) => cut.id === endingCutId && (cut.isEnding || cut.kind === 'ending')) ?? null
+      ? manifest.cuts.find((cut) => cut.id === endingCutId && isEndingLikeCut(cut)) ?? null
       : null;
   const querySuffix = validEndingCut ? `?e=${encodeURIComponent(validEndingCut.id)}` : '';
   const redirectUrl = `${trimTrailingSlash(baseOrigin)}/v/${publish.id}${querySuffix}`;
@@ -638,23 +672,111 @@ function getStartCutId(draft: EpisodeDraftResponse): string | null {
   return draft.episode.startCutId ?? draft.cuts.find((cut) => cut.isStart)?.id ?? draft.cuts[0]?.id ?? null;
 }
 
-function fillDailyViews(rows: AnalyticsDailyView[], days: number): AnalyticsDailyView[] {
-  const byDate = new Map(rows.map((row) => [row.date, row.views]));
-  const result: AnalyticsDailyView[] = [];
+function getUtcStartOfDay(date: Date): Date {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+}
 
-  for (let index = days - 1; index >= 0; index -= 1) {
-    const date = new Date();
-    date.setUTCHours(0, 0, 0, 0);
-    date.setUTCDate(date.getUTCDate() - index);
-    const isoDate = date.toISOString().slice(0, 10);
+function getUtcIsoWeekStart(date: Date): Date {
+  const start = getUtcStartOfDay(date);
+  const daysSinceMonday = (start.getUTCDay() + 6) % 7;
+  start.setUTCDate(start.getUTCDate() - daysSinceMonday);
+  return start;
+}
 
-    result.push({
-      date: isoDate,
-      views: byDate.get(isoDate) ?? 0
-    });
+function formatUtcDate(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function parseAnalyticsDate(value: string): Date {
+  return new Date(`${value}T00:00:00.000Z`);
+}
+
+function getUtcPeriodStart(date: Date, granularity: AnalyticsViewGranularity): Date {
+  if (granularity === 'weekly') {
+    return getUtcIsoWeekStart(date);
+  }
+
+  if (granularity === 'monthly') {
+    return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
+  }
+
+  return getUtcStartOfDay(date);
+}
+
+function addAnalyticsPeriod(date: Date, granularity: AnalyticsViewGranularity, amount: number): Date {
+  const result = new Date(date.getTime());
+
+  if (granularity === 'monthly') {
+    result.setUTCMonth(result.getUTCMonth() + amount, 1);
+  } else {
+    result.setUTCDate(result.getUTCDate() + (granularity === 'weekly' ? amount * 7 : amount));
   }
 
   return result;
+}
+
+function getDefaultAnalyticsPeriodStarts(granularity: AnalyticsViewGranularity, referenceDate = new Date()): string[] {
+  const periodCount = granularity === 'daily' ? 14 : 12;
+  const anchor = getUtcPeriodStart(referenceDate, granularity);
+  const result: string[] = [];
+
+  for (let index = periodCount - 1; index >= 0; index -= 1) {
+    result.push(formatUtcDate(addAnalyticsPeriod(anchor, granularity, -index)));
+  }
+
+  return result;
+}
+
+function getAnalyticsViewWindow(
+  granularity: AnalyticsViewGranularity,
+  range?: AnalyticsViewRange
+): { periodStarts: string[]; fromDate: string; toDate?: string } {
+  const defaultStarts = getDefaultAnalyticsPeriodStarts(granularity);
+  const hasRange = Boolean(range?.from || range?.to);
+
+  if (!hasRange) {
+    return {
+      periodStarts: defaultStarts,
+      fromDate: `${defaultStarts[0] ?? formatUtcDate(getUtcStartOfDay(new Date()))}T00:00:00.000Z`
+    };
+  }
+
+  const today = formatUtcDate(getUtcStartOfDay(new Date()));
+  if (range?.to && !range?.from) {
+    const periodStarts = getDefaultAnalyticsPeriodStarts(granularity, parseAnalyticsDate(range.to));
+
+    return {
+      periodStarts,
+      fromDate: `${periodStarts[0] ?? range.to}T00:00:00.000Z`,
+      toDate: addAnalyticsPeriod(parseAnalyticsDate(range.to), 'daily', 1).toISOString()
+    };
+  }
+
+  const fromDateValue = range?.from ?? defaultStarts[0] ?? today;
+  const toDateValue = range?.to ?? (range?.from && range.from > today ? range.from : today);
+  const start = getUtcPeriodStart(parseAnalyticsDate(fromDateValue), granularity);
+  const end = getUtcPeriodStart(parseAnalyticsDate(toDateValue), granularity);
+  const periodStarts: string[] = [];
+
+  for (let date = start; date.getTime() <= end.getTime(); date = addAnalyticsPeriod(date, granularity, 1)) {
+    periodStarts.push(formatUtcDate(date));
+  }
+
+  return {
+    periodStarts,
+    fromDate: `${fromDateValue}T00:00:00.000Z`,
+    toDate: addAnalyticsPeriod(parseAnalyticsDate(toDateValue), 'daily', 1).toISOString()
+  };
+}
+
+function fillViewsByPeriod(rows: AnalyticsViewPoint[], periodStarts: string[]): AnalyticsViewPoint[] {
+  const byPeriodStart = new Map(rows.map((row) => [row.periodStart, row]));
+
+  return periodStarts.map((periodStart) => ({
+    periodStart,
+    views: byPeriodStart.get(periodStart)?.views ?? 0,
+    uniqueViewers: byPeriodStart.get(periodStart)?.uniqueViewers ?? 0
+  }));
 }
 
 function encodeFeedCursor(payload: FeedCursorPayload): string {
@@ -797,6 +919,18 @@ async function getValidatedDraft(episodeId: string, dbClient?: PoolClient): Prom
 
 export async function listProjects(userId: string): Promise<ProjectWithEpisodes[]> {
   return repository.listProjectsWithEpisodes(db, userId);
+}
+
+export async function exportUserBackup(userId: string): Promise<PromptoonBackupExport> {
+  const projects = await repository.getUserBackupProjects(db, userId);
+
+  return {
+    schemaVersion: 1,
+    exportedAt: new Date().toISOString(),
+    ownerId: userId,
+    projects,
+    totals: getBackupTotals(projects)
+  };
 }
 
 export async function createProject(request: CreateProjectRequest, userId: string): Promise<Project> {
@@ -1151,7 +1285,7 @@ export async function trackViewerEvent(request: TelemetryEventRequest): Promise<
     throw new HttpError(400, 'Telemetry cut must exist in the published manifest.');
   }
 
-  if ((request.eventType === 'ending_reach' || request.eventType === 'ending_share') && !(targetCut.isEnding || targetCut.kind === 'ending')) {
+  if ((request.eventType === 'ending_reach' || request.eventType === 'ending_share') && !isEndingLikeCut(targetCut)) {
     throw new HttpError(400, 'ending events must target an ending cut.');
   }
 
@@ -1175,10 +1309,16 @@ export async function trackViewerEvent(request: TelemetryEventRequest): Promise<
   });
 }
 
-export async function getEpisodeAnalytics(episodeId: string, userId: string): Promise<AnalyticsEpisodeResponse> {
+export async function getEpisodeAnalytics(
+  episodeId: string,
+  userId: string,
+  viewsGranularity: AnalyticsViewGranularity = 'daily',
+  viewsRange?: AnalyticsViewRange
+): Promise<AnalyticsEpisodeResponse> {
   await ensureEpisodeOwnedByUser(episodeId, userId);
   const draft = assertExists(await repository.getEpisodeDraft(db, episodeId), 'Episode not found.');
   const startCutId = getStartCutId(draft);
+  const viewWindow = getAnalyticsViewWindow(viewsGranularity, viewsRange);
 
   const [
     choiceEngaged,
@@ -1187,7 +1327,7 @@ export async function getEpisodeAnalytics(episodeId: string, userId: string): Pr
     cutEngagementMap,
     endingDistribution,
     replayViewers,
-    rawDailyViews,
+    rawViewsByPeriod,
     totalViews,
     uniqueViewers,
     feedImpressions,
@@ -1199,7 +1339,15 @@ export async function getEpisodeAnalytics(episodeId: string, userId: string): Pr
     repository.getCutEngagementStats(db, episodeId),
     repository.getEndingDistributionStats(db, episodeId),
     startCutId ? repository.countReplayViewers(db, { episodeId, startCutId }) : Promise.resolve(0),
-    startCutId ? repository.getDailyStartViews(db, { episodeId, startCutId, days: 14 }) : Promise.resolve([]),
+    startCutId
+      ? repository.getStartViewsByPeriod(db, {
+          episodeId,
+          startCutId,
+          granularity: viewsGranularity,
+          fromDate: viewWindow.fromDate,
+          toDate: viewWindow.toDate
+        })
+      : Promise.resolve([]),
     startCutId ? repository.countViewerEvents(db, { episodeId, eventType: 'cut_view', cutId: startCutId }) : Promise.resolve(0),
     startCutId
       ? repository.countViewerEvents(db, { episodeId, eventType: 'cut_view', cutId: startCutId, distinctAnonymous: true })
@@ -1225,13 +1373,29 @@ export async function getEpisodeAnalytics(episodeId: string, userId: string): Pr
     })),
     choiceStats: buildChoiceStats(draft, choiceStatsMap),
     endingDistribution,
-    dailyViews: fillDailyViews(rawDailyViews, 14),
+    viewGranularity: viewsGranularity,
+    viewsByPeriod: fillViewsByPeriod(rawViewsByPeriod, viewWindow.periodStarts),
     feedEntry: {
       impressions: feedImpressions,
       choiceClicks: feedChoiceClicks,
       conversionRate: feedImpressions === 0 ? 0 : Number(((feedChoiceClicks / feedImpressions) * 100).toFixed(1))
     }
   };
+}
+
+export async function resetEpisodeAnalytics(
+  episodeId: string,
+  userId: string,
+  request: ResetEpisodeAnalyticsRequest
+): Promise<void> {
+  await ensureEpisodeOwnedByUser(episodeId, userId);
+  const draft = request.scope === 'views' ? assertExists(await repository.getEpisodeDraft(db, episodeId), 'Episode not found.') : null;
+
+  await repository.deleteViewerEventsForAnalyticsScope(db, {
+    episodeId,
+    scope: request.scope,
+    startCutId: draft ? getStartCutId(draft) : null
+  });
 }
 
 export async function reorderEpisodeCuts(

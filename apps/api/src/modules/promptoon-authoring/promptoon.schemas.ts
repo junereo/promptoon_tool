@@ -15,6 +15,7 @@ const edgeFadeIntensitySchema = z.enum(['minimal', 'barely-soft', 'ultra-soft', 
 const edgeFadeColorSchema = z.enum(['black', 'white']);
 const dialogAnchorYSchema = z.enum(['top', 'upper', 'center', 'lower', 'bottom']);
 const bindingKeySchema = z.enum(['userName']);
+const resultCardThemeSchema = z.enum(['blue', 'gold', 'violet', 'red']);
 const stateKeySchema = z.string().trim().min(1).max(64).regex(/^[A-Za-z0-9_.-]+$/);
 const stateValueSchema = z.string().trim().min(1).max(128);
 const choiceStateWriteSchema = z.object({
@@ -102,6 +103,19 @@ const nameInputContentBlockSchema = contentBlockBaseSchema.extend({
   required: z.boolean(),
   bindingKey: bindingKeySchema
 });
+const resultCardContentBlockSchema = contentBlockBaseSchema.extend({
+  type: z.literal('resultCard'),
+  templateId: z.literal('the-replace-final'),
+  theme: resultCardThemeSchema,
+  badge: z.string().trim().max(40),
+  resultName: z.string().trim().max(80),
+  tagline: z.string().trim().max(160),
+  lines: z.array(z.string().trim().max(160)).max(6),
+  inflowLabel: z.string().trim().max(40),
+  inflowUrl: z.string().trim().max(120),
+  inflowBrand: z.string().trim().max(40),
+  inflowTagline: z.string().trim().max(80)
+});
 const contentBlockSchema = z.discriminatedUnion('type', [
   headingContentBlockSchema,
   narrationContentBlockSchema,
@@ -109,7 +123,8 @@ const contentBlockSchema = z.discriminatedUnion('type', [
   emphasisContentBlockSchema,
   dialogueContentBlockSchema,
   imageContentBlockSchema,
-  nameInputContentBlockSchema
+  nameInputContentBlockSchema,
+  resultCardContentBlockSchema
 ]);
 const cutEffectDurationSchema = z.number().int().min(0).max(10000);
 
@@ -132,7 +147,7 @@ export const patchEpisodeSchema = z.object({
 });
 
 export const createCutSchema = z.object({
-  kind: z.enum(['scene', 'choice', 'ending', 'transition', 'stateRouter']),
+  kind: z.enum(['scene', 'choice', 'ending', 'transition', 'stateRouter', 'resultCard']),
   title: z.string().trim().min(1),
   body: z.string().optional(),
   contentBlocks: z.array(contentBlockSchema).optional(),
@@ -224,6 +239,29 @@ export const telemetryEventSchema = z.object({
       path: ['choiceId']
     });
   }
+});
+
+const analyticsDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}, 'Expected a valid YYYY-MM-DD date.');
+
+export const analyticsQuerySchema = z.object({
+  viewsGranularity: z.enum(['daily', 'weekly', 'monthly']).default('daily'),
+  viewsFrom: analyticsDateSchema.optional(),
+  viewsTo: analyticsDateSchema.optional()
+}).superRefine((value, context) => {
+  if (value.viewsFrom && value.viewsTo && value.viewsFrom > value.viewsTo) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'viewsFrom must be before or equal to viewsTo.',
+      path: ['viewsFrom']
+    });
+  }
+});
+
+export const resetEpisodeAnalyticsSchema = z.object({
+  scope: z.enum(['all', 'views', 'choiceStats', 'endingDistribution', 'cutEngagement', 'feedEntry'])
 });
 
 export const feedQuerySchema = z.object({

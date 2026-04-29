@@ -1,6 +1,7 @@
 import type { PublishManifest, TelemetryEventRequest } from '@promptoon/shared';
 import { useEffect, useRef } from 'react';
 
+import { isPromptoonEndingCut } from '../../../shared/lib/promptoon-ending';
 import { createPromptoonSessionId, getPromptoonAnonymousId, sendPromptoonTelemetryEvent } from '../../../shared/lib/promptoon-telemetry';
 
 type ViewerCut = PublishManifest['cuts'][number];
@@ -107,7 +108,7 @@ export function useViewerTelemetry({
       }
     }
 
-    const endingCut = visibleCuts.find((cut) => cut.isEnding || cut.kind === 'ending') ?? null;
+    const endingCut = visibleCuts.find(isPromptoonEndingCut) ?? null;
     if (endingCut && lastEndingCutIdRef.current !== endingCut.id) {
       lastEndingCutIdRef.current = endingCut.id;
       sendSessionTelemetryEvent({

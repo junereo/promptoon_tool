@@ -157,6 +157,32 @@ describe('promptoon cut schemas', () => {
     expect(result.success).toBe(true);
   });
 
+  it('accepts result card cuts with template content', () => {
+    const result = createCutSchema.safeParse({
+      kind: 'resultCard',
+      title: 'THE REPLACE',
+      assetUrl: '/uploads/result-poster.webp',
+      contentBlocks: [
+        {
+          id: 'result-card-1',
+          type: 'resultCard',
+          templateId: 'the-replace-final',
+          theme: 'blue',
+          badge: 'TYPE 01',
+          resultName: '합리적인 가해자',
+          tagline: '알면서도 손을 들었다',
+          lines: ['당신은 명확히 보았다.', '그리고 판단했다.'],
+          inflowLabel: 'CHECK IN',
+          inflowUrl: 'promtoon.ai',
+          inflowBrand: 'PROMTOON',
+          inflowTagline: '반응형 웹툰'
+        }
+      ]
+    });
+
+    expect(result.success).toBe(true);
+  });
+
   it('accepts state router routes with up to two conditions', () => {
     const result = createCutSchema.safeParse({
       kind: 'stateRouter',

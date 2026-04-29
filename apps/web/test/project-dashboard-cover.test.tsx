@@ -1,4 +1,4 @@
-import type { ProjectWithEpisodes } from '@promptoon/shared';
+import type { ProjectWithEpisodes, PromptoonBackupExport } from '@promptoon/shared';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -8,6 +8,7 @@ import { PromptoonProjectListPage } from '../src/pages/promptoon-project-list-pa
 let projects: ProjectWithEpisodes[];
 const uploadMutate = vi.fn<(_: { projectId: string; file: File }) => Promise<{ assetUrl: string }>>();
 const updateEpisodeMutate = vi.fn<(_: { episodeId: string; payload: { coverImageUrl: string | null } }) => Promise<unknown>>();
+const exportBackupMutate = vi.fn<() => Promise<PromptoonBackupExport>>();
 
 vi.mock('../src/features/editor/hooks/use-episode-query', () => ({
   useUploadAsset: () => ({
@@ -29,6 +30,10 @@ vi.mock('../src/features/project/hooks/use-project-query', () => ({
     isPending: false,
     mutateAsync: vi.fn()
   }),
+  useExportBackup: () => ({
+    isPending: false,
+    mutateAsync: exportBackupMutate
+  }),
   useUpdateEpisode: () => ({
     isPending: false,
     mutateAsync: updateEpisodeMutate
@@ -42,8 +47,23 @@ afterEach(() => {
 beforeEach(() => {
   uploadMutate.mockReset();
   updateEpisodeMutate.mockReset();
+  exportBackupMutate.mockReset();
   uploadMutate.mockResolvedValue({ assetUrl: '/uploads/cover.webp' });
   updateEpisodeMutate.mockResolvedValue({});
+  exportBackupMutate.mockResolvedValue({
+    schemaVersion: 1,
+    exportedAt: '2026-04-29T10:00:00.000Z',
+    ownerId: 'user-1',
+    projects: [],
+    totals: {
+      projects: 0,
+      episodes: 0,
+      cuts: 0,
+      choices: 0,
+      publishes: 0,
+      viewerEvents: 0
+    }
+  });
   projects = [
     {
       id: 'project-1',
@@ -72,6 +92,25 @@ beforeEach(() => {
 });
 
 describe('PromptoonProjectListPage cover upload', () => {
+  it('downloads the current account backup as JSON', async () => {
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+
+    render(
+      <MemoryRouter>
+        <PromptoonProjectListPage />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Backup JSON' }));
+
+    await waitFor(() => {
+      expect(exportBackupMutate).toHaveBeenCalled();
+    });
+    expect(clickSpy).toHaveBeenCalled();
+
+    clickSpy.mockRestore();
+  });
+
   it('renders the 9:16 cover empty state and saves uploaded covers', async () => {
     render(
       <MemoryRouter>

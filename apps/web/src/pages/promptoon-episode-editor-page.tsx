@@ -1,4 +1,7 @@
 import type {
+  AnalyticsResetScope,
+  AnalyticsViewGranularity,
+  AnalyticsViewRange,
   Choice,
   Cut,
   CreateChoiceRequest,
@@ -21,7 +24,7 @@ import {
   getSelectedCut,
   sortCutsByLocalOrder
 } from '../entities/promptoon/selectors';
-import { useEpisodeAnalytics } from '../features/analytics/hooks/use-episode-analytics';
+import { useEpisodeAnalytics, useResetEpisodeAnalytics } from '../features/analytics/hooks/use-episode-analytics';
 import { useChoiceAutosave } from '../features/editor/hooks/use-choice-autosave';
 import { useCutAutosave } from '../features/editor/hooks/use-cut-autosave';
 import {
@@ -46,6 +49,7 @@ import { AnalyticsDashboard } from '../widgets/analytics-dashboard/AnalyticsDash
 import { EpisodeEditorShell } from '../widgets/episode-editor-shell/episode-editor-shell';
 import { ScriptEditorModal } from '../widgets/episode-editor-shell/ScriptEditorModal';
 import type { ScriptCutPatch } from '../shared/lib/script-sync';
+import { isPromptoonEndingCut } from '../shared/lib/promptoon-ending';
 import { PublishSuccessToast } from '../widgets/publish-flow/PublishSuccessToast';
 import { ToolbarNoticeToast } from '../widgets/publish-flow/ToolbarNoticeToast';
 import { ValidationModal } from '../widgets/publish-flow/ValidationModal';
@@ -121,7 +125,10 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
   const navigate = useNavigate();
   const draftQuery = useEpisodeDraft(episodeId);
   const latestPublishedEpisodeQuery = useLatestPublishedEpisode(episodeId);
-  const analyticsQuery = useEpisodeAnalytics(episodeId);
+  const [analyticsViewGranularity, setAnalyticsViewGranularity] = useState<AnalyticsViewGranularity>('daily');
+  const [analyticsViewRange, setAnalyticsViewRange] = useState<AnalyticsViewRange>({});
+  const analyticsQuery = useEpisodeAnalytics(episodeId, analyticsViewGranularity, analyticsViewRange);
+  const resetEpisodeAnalytics = useResetEpisodeAnalytics(episodeId);
   const createCut = useCreateCut(episodeId);
   const deleteCut = useDeleteCut(episodeId);
   const createChoice = useCreateChoice(episodeId);
@@ -175,6 +182,10 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
     });
   }
 
+  async function handleResetAnalytics(scope: AnalyticsResetScope) {
+    await resetEpisodeAnalytics.mutateAsync(scope);
+  }
+
   useEffect(() => {
     resetForEpisode();
     setValidationResult(null);
@@ -184,6 +195,7 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
     setIsValidationOpen(false);
     setHighlightSaveOrder(false);
     setActiveTab('editor');
+    setAnalyticsViewGranularity('daily');
     setIsScriptEditorOpen(false);
     setPreviewCutId(null);
     setPreviewSelectedChoiceId(null);
@@ -536,7 +548,7 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
     }
 
     const branchEndCut = getBranchEndCut(graphCuts, draftQuery.data.choices, cutId) ?? graphCuts.find((cut) => cut.id === cutId) ?? null;
-    if (!branchEndCut || branchEndCut.isEnding || branchEndCut.kind === 'stateRouter') {
+    if (!branchEndCut || isPromptoonEndingCut(branchEndCut) || branchEndCut.kind === 'stateRouter') {
       setToolbarNotice('연결할 수 있는 마지막 컷을 선택해 주세요');
       return;
     }
@@ -781,6 +793,12 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
             error={analyticsQuery.error instanceof Error ? analyticsQuery.error.message : undefined}
             isError={analyticsQuery.isError}
             isLoading={analyticsQuery.isLoading}
+            isResetting={resetEpisodeAnalytics.isPending}
+            onResetAnalytics={handleResetAnalytics}
+            onViewGranularityChange={setAnalyticsViewGranularity}
+            onViewRangeChange={setAnalyticsViewRange}
+            viewGranularity={analyticsViewGranularity}
+            viewRange={analyticsViewRange}
           />
         </main>
       </>

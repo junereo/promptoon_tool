@@ -9,13 +9,15 @@ import {
   getStateFallbackSourceHandleId,
   getStateRouteSourceHandleId
 } from './graph-mapping';
+import { isPromptoonEndingCut } from '../../shared/lib/promptoon-ending';
 
 const KIND_BADGE_STYLES: Record<Cut['kind'], string> = {
   scene: 'border-zinc-700 bg-zinc-900/80 text-zinc-200',
   choice: 'border-amber-500/40 bg-amber-500/10 text-amber-200',
   ending: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200',
   transition: 'border-sky-500/40 bg-sky-500/10 text-sky-200',
-  stateRouter: 'border-violet-500/40 bg-violet-500/10 text-violet-200'
+  stateRouter: 'border-violet-500/40 bg-violet-500/10 text-violet-200',
+  resultCard: 'border-rose-500/40 bg-rose-500/10 text-rose-200'
 };
 
 function ChoiceHandle({
@@ -87,7 +89,7 @@ function StateRouteHandle({
 export function CutNode({ data }: NodeProps<CutFlowNode>) {
   const { cut, choicesForCut, selected, selectedChoiceId } = data;
   const isStateRouter = cut.kind === 'stateRouter';
-  const canCreateOutput = !cut.isEnding && !isStateRouter;
+  const canCreateOutput = !isPromptoonEndingCut(cut) && !isStateRouter;
   const stateRoutes = cut.stateRoutes ?? [];
   const hasStateRouterOutputs = stateRoutes.length > 0 || Boolean(cut.stateFallbackCutId);
 
@@ -137,7 +139,7 @@ export function CutNode({ data }: NodeProps<CutFlowNode>) {
 
       <div className="mt-3 flex items-center gap-1.5 text-[11px] uppercase tracking-[0.18em] text-zinc-500">
         {cut.isStart ? <span className="rounded-full border border-editor-accent/30 px-2 py-0.5 text-editor-accentSoft">Start</span> : null}
-        {cut.isEnding ? <span className="rounded-full border border-emerald-500/25 px-2 py-0.5 text-emerald-200">End</span> : null}
+        {isPromptoonEndingCut(cut) ? <span className="rounded-full border border-emerald-500/25 px-2 py-0.5 text-emerald-200">End</span> : null}
         <span className="rounded-full border border-editor-border px-2 py-0.5">#{cut.orderIndex + 1}</span>
       </div>
 

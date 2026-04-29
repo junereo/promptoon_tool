@@ -30,6 +30,7 @@ import {
   type BranchFlowNode,
   type AddCutPlaceholderFlowNode
 } from './graph-mapping';
+import { isPromptoonEndingCut } from '../../shared/lib/promptoon-ending';
 
 const nodeTypes = {
   cutNode: CutNode,
@@ -45,7 +46,7 @@ function buildFlowNodes(
   const cutNodes = mapCutsToFlowNodes(cuts, choices, selected);
   const branchEndCut = getSelectedBranchEndCut(cuts, choices, selected);
 
-  if (!branchEndCut || branchEndCut.isEnding || branchEndCut.kind === 'stateRouter') {
+  if (!branchEndCut || isPromptoonEndingCut(branchEndCut) || branchEndCut.kind === 'stateRouter') {
     return cutNodes;
   }
 

@@ -172,6 +172,9 @@ describe('MainFeedPage', () => {
     expect(screen.getByRole('link', { name: 'Promptoon Instagram' }).getAttribute('href')).toBe(
       'https://www.instagram.com/promptoon_ai/'
     );
+    expect(screen.getByRole('link', { name: '프롬툰 설문 조사' }).getAttribute('href')).toBe(
+      'https://forms.gle/WhsQ9jH7WVg9UUjK6'
+    );
 
     await waitFor(() => {
       expect(trackImpressionMock).toHaveBeenCalledTimes(1);

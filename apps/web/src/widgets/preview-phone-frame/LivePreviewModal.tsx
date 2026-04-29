@@ -8,6 +8,7 @@ import {
   resolveManifestStateVariantCut,
   type PromptoonViewerState
 } from '../../shared/lib/promptoon-state-variants';
+import { isPromptoonEndingCut } from '../../shared/lib/promptoon-ending';
 import { ViewerCutCard } from '../public-viewer/ViewerCutCard';
 
 type ViewerCut = PublishManifest['cuts'][number];
@@ -359,7 +360,7 @@ export function LivePreviewModal({
                             setPreviewState((current) => applyChoiceStateWrites(current, choice))
                           }
                           onUserNameChange={setUserName}
-                          showChoices={viewerCutEntry.baseCut.kind !== 'scene' && !(viewerCutEntry.baseCut.isEnding || viewerCutEntry.baseCut.kind === 'ending')}
+                          showChoices={viewerCutEntry.baseCut.kind !== 'scene' && !isPromptoonEndingCut(viewerCutEntry.baseCut)}
                           showEndingActions={false}
                           userName={userName}
                           visibleChoices={getSortedChoices(viewerCutEntry.baseCut.choices)}

@@ -373,6 +373,10 @@ export function CutContentBlocksView({
           );
         }
 
+        if (block.type === 'resultCard') {
+          return null;
+        }
+
         const textStyle: CSSProperties = {
           ...getTextAlignStyle(textAlignOverride ?? block.textAlign),
           fontFamily: getContentFontFamily(block.fontToken)

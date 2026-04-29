@@ -6,6 +6,7 @@ import { usePublishedEpisode } from '../features/viewer/hooks/use-published-epis
 import { useViewerTelemetry } from '../features/viewer/hooks/use-viewer-telemetry';
 import { useViewerStore } from '../features/viewer/store/use-viewer-store';
 import { getCutEffectDurationMs } from '../shared/lib/cut-effects';
+import { isPromptoonEndingCut } from '../shared/lib/promptoon-ending';
 import {
   applyChoiceStateWrites,
   clearPromptoonViewerState,
@@ -119,7 +120,7 @@ function buildViewerPathSteps(
       visibleChoices: currentCut.kind === 'scene' ? [] : sortedChoices
     });
 
-    if (currentCut.isEnding || currentCut.kind === 'ending' || currentCut.kind !== 'scene') {
+    if (isPromptoonEndingCut(currentCut) || currentCut.kind !== 'scene') {
       break;
     }
 
@@ -182,7 +183,7 @@ export function PromptoonViewerPage() {
   const sharedEndingCut = useMemo(
     () =>
       sharedEndingCutId
-        ? manifest?.cuts.find((cut) => cut.id === sharedEndingCutId && (cut.isEnding || cut.kind === 'ending')) ?? null
+        ? manifest?.cuts.find((cut) => cut.id === sharedEndingCutId && isPromptoonEndingCut(cut)) ?? null
         : null,
     [manifest, sharedEndingCutId]
   );
@@ -386,7 +387,7 @@ export function PromptoonViewerPage() {
   }
 
   async function handleShare() {
-    if (!manifest || !(terminalCut.isEnding || terminalCut.kind === 'ending')) {
+    if (!manifest || !isPromptoonEndingCut(terminalCut)) {
       return;
     }
 

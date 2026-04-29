@@ -1,4 +1,4 @@
-export type PromptoonCutKind = 'scene' | 'choice' | 'ending' | 'transition' | 'stateRouter';
+export type PromptoonCutKind = 'scene' | 'choice' | 'ending' | 'transition' | 'stateRouter' | 'resultCard';
 export type PromptoonCutEffect =
   | 'none'
   | 'fade'
@@ -30,7 +30,17 @@ export type PromptoonEdgeFadeIntensity =
 export type PromptoonEdgeFadeColor = 'black' | 'white';
 export type PromptoonContentBindingKey = 'userName';
 export type PromptoonContentPlacement = 'overlay' | 'flow';
-export type PromptoonContentBlockType = 'heading' | 'narration' | 'quote' | 'emphasis' | 'image' | 'nameInput' | 'dialogue';
+export type PromptoonContentBlockType =
+  | 'heading'
+  | 'narration'
+  | 'quote'
+  | 'emphasis'
+  | 'image'
+  | 'nameInput'
+  | 'dialogue'
+  | 'resultCard';
+export type PromptoonResultCardTemplateId = 'the-replace-final';
+export type PromptoonResultCardTheme = 'blue' | 'gold' | 'violet' | 'red';
 
 export type PromptoonProjectStatus = 'draft' | 'published';
 export type PromptoonEpisodeStatus = 'draft' | 'published';
@@ -101,6 +111,21 @@ export interface PromptoonNameInputContentBlock {
   bindingKey: PromptoonContentBindingKey;
 }
 
+export interface PromptoonResultCardContentBlock {
+  id: string;
+  type: 'resultCard';
+  templateId: PromptoonResultCardTemplateId;
+  theme: PromptoonResultCardTheme;
+  badge: string;
+  resultName: string;
+  tagline: string;
+  lines: string[];
+  inflowLabel: string;
+  inflowUrl: string;
+  inflowBrand: string;
+  inflowTagline: string;
+}
+
 export type CutContentBlock =
   | PromptoonHeadingContentBlock
   | PromptoonNarrationContentBlock
@@ -108,7 +133,8 @@ export type CutContentBlock =
   | PromptoonEmphasisContentBlock
   | PromptoonDialogueContentBlock
   | PromptoonImageContentBlock
-  | PromptoonNameInputContentBlock;
+  | PromptoonNameInputContentBlock
+  | PromptoonResultCardContentBlock;
 
 export interface Project {
   id: string;
@@ -244,6 +270,10 @@ export interface Choice {
   stateWrites?: ChoiceStateWrite[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface PromptoonBackupChoice extends Choice {
+  afterSelectDelayMs: number | null;
 }
 
 export type EditorSelection =
@@ -478,9 +508,64 @@ export interface AnalyticsEndingStat {
   percentage: number;
 }
 
-export interface AnalyticsDailyView {
-  date: string;
+export type AnalyticsViewGranularity = 'daily' | 'weekly' | 'monthly';
+
+export interface AnalyticsViewPoint {
+  periodStart: string;
   views: number;
+  uniqueViewers: number;
+}
+
+export interface AnalyticsViewRange {
+  from?: string;
+  to?: string;
+}
+
+export type AnalyticsResetScope = 'all' | 'views' | 'choiceStats' | 'endingDistribution' | 'cutEngagement' | 'feedEntry';
+
+export interface ResetEpisodeAnalyticsRequest {
+  scope: AnalyticsResetScope;
+}
+
+export interface PromptoonBackupViewerEvent {
+  id: string;
+  publishId: string;
+  episodeId: string;
+  anonymousId: string;
+  sessionId: string | null;
+  eventType: TelemetryEventType;
+  cutId: string;
+  choiceId?: string;
+  durationMs?: number;
+  createdAt: string;
+}
+
+export interface PromptoonBackupEpisode {
+  episode: Episode;
+  cuts: Cut[];
+  choices: PromptoonBackupChoice[];
+  publishes: Publish[];
+  viewerEvents: PromptoonBackupViewerEvent[];
+}
+
+export interface PromptoonBackupProject {
+  project: Project;
+  episodes: PromptoonBackupEpisode[];
+}
+
+export interface PromptoonBackupExport {
+  schemaVersion: 1;
+  exportedAt: string;
+  ownerId: string;
+  projects: PromptoonBackupProject[];
+  totals: {
+    projects: number;
+    episodes: number;
+    cuts: number;
+    choices: number;
+    publishes: number;
+    viewerEvents: number;
+  };
 }
 
 export interface AnalyticsFeedEntry {
@@ -498,7 +583,8 @@ export interface AnalyticsEpisodeResponse {
   cutEngagement: AnalyticsCutEngagement[];
   choiceStats: Record<string, AnalyticsChoiceStat[]>;
   endingDistribution: AnalyticsEndingStat[];
-  dailyViews: AnalyticsDailyView[];
+  viewGranularity: AnalyticsViewGranularity;
+  viewsByPeriod: AnalyticsViewPoint[];
   feedEntry: AnalyticsFeedEntry;
 }
 
@@ -621,6 +707,8 @@ export function deriveCutBody(contentBlocks: CutContentBlock[], fallback = ''): 
         case 'image':
         case 'nameInput':
           return [];
+        case 'resultCard':
+          return [block.resultName.trim(), block.tagline.trim(), ...block.lines.map((line) => line.trim())];
         default:
           return [];
       }

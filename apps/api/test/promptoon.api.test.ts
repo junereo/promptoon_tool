@@ -51,6 +51,13 @@ maybeDescribe('promptoon api integration', () => {
     return requestBuilder.set('Authorization', `Bearer ${token}`);
   }
 
+  function getDateDaysAgo(daysAgo: number): string {
+    const date = new Date();
+    date.setUTCHours(0, 0, 0, 0);
+    date.setUTCDate(date.getUTCDate() - daysAgo);
+    return date.toISOString().slice(0, 10);
+  }
+
   async function uploadFileExists(relativePath: string): Promise<boolean> {
     const candidates = [
       resolveFromWorkspaceRoot('.data/uploads', relativePath),
@@ -995,6 +1002,44 @@ maybeDescribe('promptoon api integration', () => {
     expect(eventResult.rows[0].duration_ms).toBe(1500);
   });
 
+  it('exports the authenticated user data as a JSON backup', async () => {
+    const anonymousId = randomUUID();
+    const sessionId = randomUUID();
+    const fixture = await createPublishedEpisodeFixture();
+
+    await request(app)
+      .post('/api/promptoon/telemetry/events')
+      .send({
+        publishId: fixture.publish.body.id,
+        anonymousId,
+        sessionId,
+        eventType: 'cut_view',
+        cutId: fixture.startCut.body.id
+      });
+
+    const response = await withAuth(request(app).get('/api/promptoon/backup/export'), fixture.auth.token);
+
+    expect(response.status).toBe(200);
+    expect(response.headers['content-disposition']).toContain('promptoon-backup-');
+    expect(response.body.schemaVersion).toBe(1);
+    expect(response.body.ownerId).toBe(fixture.auth.user.id);
+    expect(response.body.totals.projects).toBe(1);
+    expect(response.body.totals.episodes).toBe(1);
+    expect(response.body.totals.cuts).toBe(2);
+    expect(response.body.totals.choices).toBe(1);
+    expect(response.body.totals.publishes).toBe(1);
+    expect(response.body.totals.viewerEvents).toBe(1);
+    expect(response.body.projects[0].episodes[0].episode.id).toBe(fixture.episode.body.id);
+    expect(response.body.projects[0].episodes[0].cuts.map((cut: { id: string }) => cut.id)).toContain(fixture.startCut.body.id);
+    expect(response.body.projects[0].episodes[0].choices[0].afterSelectDelayMs).toEqual(expect.any(Number));
+    expect(response.body.projects[0].episodes[0].publishes[0].id).toBe(fixture.publish.body.id);
+    expect(response.body.projects[0].episodes[0].viewerEvents[0]).toEqual(expect.objectContaining({
+      anonymousId,
+      eventType: 'cut_view',
+      sessionId
+    }));
+  });
+
   it('returns analytics for an episode with choice split and completion rate', async () => {
     const auth = await registerUser();
     const project = await withAuth(request(app).post('/api/promptoon/projects'), auth.token).send({ title: 'Analytics Project' });
@@ -1145,5 +1190,193 @@ maybeDescribe('promptoon api integration', () => {
     expect(response.body.feedEntry.impressions).toBe(80);
     expect(response.body.feedEntry.choiceClicks).toBe(30);
     expect(response.body.feedEntry.conversionRate).toBe(37.5);
+    expect(response.body.viewGranularity).toBe('daily');
+    expect(response.body.viewsByPeriod).toHaveLength(14);
+    expect(response.body.viewsByPeriod.at(-1).views).toBe(110);
+    expect(response.body.viewsByPeriod.at(-1).uniqueViewers).toBe(100);
+
+    const weeklyResponse = await withAuth(
+      request(app).get(`/api/promptoon/analytics/episodes/${episode.body.id}`).query({ viewsGranularity: 'weekly' }),
+      auth.token
+    );
+    expect(weeklyResponse.status).toBe(200);
+    expect(weeklyResponse.body.viewGranularity).toBe('weekly');
+    expect(weeklyResponse.body.viewsByPeriod).toHaveLength(12);
+    expect(weeklyResponse.body.viewsByPeriod.at(-1).views).toBe(110);
+    expect(weeklyResponse.body.viewsByPeriod.at(-1).uniqueViewers).toBe(100);
+
+    const monthlyResponse = await withAuth(
+      request(app).get(`/api/promptoon/analytics/episodes/${episode.body.id}`).query({ viewsGranularity: 'monthly' }),
+      auth.token
+    );
+    expect(monthlyResponse.status).toBe(200);
+    expect(monthlyResponse.body.viewGranularity).toBe('monthly');
+    expect(monthlyResponse.body.viewsByPeriod).toHaveLength(12);
+    expect(monthlyResponse.body.viewsByPeriod.at(-1).views).toBe(110);
+    expect(monthlyResponse.body.viewsByPeriod.at(-1).uniqueViewers).toBe(100);
+  });
+
+  it('filters view chart periods by date range and includes unique viewers', async () => {
+    const { auth, episode, publish, startCut } = await createPublishedEpisodeFixture();
+    const rangeStart = getDateDaysAgo(5);
+    const rangeEnd = getDateDaysAgo(3);
+    const outsideRange = getDateDaysAgo(1);
+    const anonymousA = randomUUID();
+    const anonymousB = randomUUID();
+    const anonymousC = randomUUID();
+
+    for (const payload of [
+      { anonymousId: anonymousA, sessionId: randomUUID() },
+      { anonymousId: anonymousA, sessionId: randomUUID() },
+      { anonymousId: anonymousB, sessionId: randomUUID() },
+      { anonymousId: anonymousC, sessionId: randomUUID() }
+    ]) {
+      await request(app)
+        .post('/api/promptoon/telemetry/events')
+        .send({
+          publishId: publish.body.id,
+          anonymousId: payload.anonymousId,
+          sessionId: payload.sessionId,
+          eventType: 'cut_view',
+          cutId: startCut.body.id
+        });
+    }
+
+    await query(
+      `UPDATE promptoon_viewer_event
+       SET created_at = $1::timestamptz
+       WHERE episode_id = $2 AND anonymous_id = $3 AND event_type = 'cut_view'`,
+      [`${rangeStart}T12:00:00.000Z`, episode.body.id, anonymousA]
+    );
+    await query(
+      `UPDATE promptoon_viewer_event
+       SET created_at = $1::timestamptz
+       WHERE episode_id = $2 AND anonymous_id = $3 AND event_type = 'cut_view'`,
+      [`${rangeEnd}T12:00:00.000Z`, episode.body.id, anonymousB]
+    );
+    await query(
+      `UPDATE promptoon_viewer_event
+       SET created_at = $1::timestamptz
+       WHERE episode_id = $2 AND anonymous_id = $3 AND event_type = 'cut_view'`,
+      [`${outsideRange}T12:00:00.000Z`, episode.body.id, anonymousC]
+    );
+
+    const response = await withAuth(
+      request(app).get(`/api/promptoon/analytics/episodes/${episode.body.id}`).query({
+        viewsFrom: rangeStart,
+        viewsTo: rangeEnd
+      }),
+      auth.token
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body.viewsByPeriod).toHaveLength(3);
+    expect(response.body.viewsByPeriod[0]).toMatchObject({ periodStart: rangeStart, views: 2, uniqueViewers: 1 });
+    expect(response.body.viewsByPeriod[1]).toMatchObject({ views: 0, uniqueViewers: 0 });
+    expect(response.body.viewsByPeriod[2]).toMatchObject({ periodStart: rangeEnd, views: 1, uniqueViewers: 1 });
+  });
+
+  it('resets analytics by section and recalculates derived metrics', async () => {
+    const { auth, episode, endingCut, publish, startCut } = await createPublishedEpisodeFixture();
+    const anonymousId = randomUUID();
+    const sessionId = randomUUID();
+
+    await request(app)
+      .post('/api/promptoon/telemetry/events')
+      .send({
+        publishId: publish.body.id,
+        anonymousId,
+        sessionId,
+        eventType: 'cut_view',
+        cutId: startCut.body.id
+      });
+    await request(app)
+      .post('/api/promptoon/telemetry/events')
+      .send({
+        publishId: publish.body.id,
+        anonymousId,
+        sessionId,
+        eventType: 'cut_leave',
+        cutId: startCut.body.id,
+        durationMs: 900
+      });
+    await request(app)
+      .post('/api/promptoon/telemetry/events')
+      .send({
+        publishId: publish.body.id,
+        anonymousId,
+        sessionId,
+        eventType: 'ending_reach',
+        cutId: endingCut.body.id
+      });
+
+    const resetEnding = await withAuth(
+      request(app).post(`/api/promptoon/analytics/episodes/${episode.body.id}/reset`),
+      auth.token
+    ).send({ scope: 'endingDistribution' });
+    expect(resetEnding.status).toBe(204);
+
+    const afterEndingReset = await withAuth(request(app).get(`/api/promptoon/analytics/episodes/${episode.body.id}`), auth.token);
+    expect(afterEndingReset.body.endingDistribution).toEqual([]);
+    expect(afterEndingReset.body.completionRate).toBe(0);
+    expect(afterEndingReset.body.totalViews).toBe(1);
+
+    const resetCutEngagement = await withAuth(
+      request(app).post(`/api/promptoon/analytics/episodes/${episode.body.id}/reset`),
+      auth.token
+    ).send({ scope: 'cutEngagement' });
+    expect(resetCutEngagement.status).toBe(204);
+
+    const afterCutEngagementReset = await withAuth(request(app).get(`/api/promptoon/analytics/episodes/${episode.body.id}`), auth.token);
+    expect(afterCutEngagementReset.body.totalViews).toBe(0);
+    expect(afterCutEngagementReset.body.uniqueViewers).toBe(0);
+    expect(afterCutEngagementReset.body.viewsByPeriod.every((period: { views: number }) => period.views === 0)).toBe(true);
+    expect(
+      afterCutEngagementReset.body.cutEngagement.every(
+        (stat: { avgDurationMs: number; dropOffCount: number }) => stat.avgDurationMs === 0 && stat.dropOffCount === 0
+      )
+    ).toBe(true);
+  });
+
+  it('resets all analytics events for an owned episode', async () => {
+    const { auth, episode, endingCut, publish, startCut } = await createPublishedEpisodeFixture();
+    const anonymousId = randomUUID();
+    const sessionId = randomUUID();
+
+    for (const eventType of ['feed_impression', 'cut_view', 'ending_reach'] as const) {
+      await request(app)
+        .post('/api/promptoon/telemetry/events')
+        .send({
+          publishId: publish.body.id,
+          anonymousId,
+          sessionId,
+          eventType,
+          cutId: eventType === 'ending_reach' ? endingCut.body.id : startCut.body.id
+        });
+    }
+
+    const resetAll = await withAuth(
+      request(app).post(`/api/promptoon/analytics/episodes/${episode.body.id}/reset`),
+      auth.token
+    ).send({ scope: 'all' });
+    expect(resetAll.status).toBe(204);
+
+    const response = await withAuth(request(app).get(`/api/promptoon/analytics/episodes/${episode.body.id}`), auth.token);
+    expect(response.body.totalViews).toBe(0);
+    expect(response.body.uniqueViewers).toBe(0);
+    expect(response.body.feedEntry.impressions).toBe(0);
+    expect(response.body.endingDistribution).toEqual([]);
+  });
+
+  it('rejects analytics reset for episodes owned by another user', async () => {
+    const { episode } = await createPublishedEpisodeFixture();
+    const otherAuth = await registerUser();
+
+    const response = await withAuth(
+      request(app).post(`/api/promptoon/analytics/episodes/${episode.body.id}/reset`),
+      otherAuth.token
+    ).send({ scope: 'all' });
+
+    expect(response.status).toBe(403);
   });
 });

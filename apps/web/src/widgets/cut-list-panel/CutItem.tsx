@@ -6,7 +6,8 @@ const KIND_STYLES: Record<Cut['kind'], string> = {
   choice: 'border-amber-500/40 bg-amber-500/10 text-amber-200',
   ending: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200',
   transition: 'border-sky-500/40 bg-sky-500/10 text-sky-200',
-  stateRouter: 'border-violet-500/40 bg-violet-500/10 text-violet-200'
+  stateRouter: 'border-violet-500/40 bg-violet-500/10 text-violet-200',
+  resultCard: 'border-rose-500/40 bg-rose-500/10 text-rose-200'
 };
 
 function TrashIcon() {

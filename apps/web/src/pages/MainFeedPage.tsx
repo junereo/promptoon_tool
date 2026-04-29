@@ -9,6 +9,7 @@ import { FeedSlide } from '../widgets/public-feed/FeedSlide';
 
 const FEED_BANNER_INSERT_AFTER_INDEX = 4;
 const FEED_BANNER_LINK_URL = 'https://www.instagram.com/promptoon_ai/';
+const FEED_SURVEY_LINK_URL = 'https://forms.gle/WhsQ9jH7WVg9UUjK6';
 const VIEWER_NAVIGATION_DELAY_MS = 120;
 
 function flattenFeedItems(pages: Array<{ items: FeedItem[] }> | undefined) {
@@ -38,7 +39,7 @@ function FeedBannerSlide() {
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.08),transparent_42%)]" />
 
       <div
-        className="feed-viewport-frame relative z-10 flex h-full w-full flex-col justify-center overflow-hidden bg-[#08080a] px-6 shadow-[0_0_80px_rgba(0,0,0,0.5)]"
+        className="feed-viewport-frame relative z-10 flex h-full w-full flex-col justify-center gap-4 overflow-hidden bg-[#08080a] px-6 shadow-[0_0_80px_rgba(0,0,0,0.5)]"
         data-testid="feed-banner-slide"
       >
         <a
@@ -59,6 +60,20 @@ function FeedBannerSlide() {
           </p>
           <p className="mt-3 text-sm leading-6 text-white/60">
             짧게 넘기며 보고, 마음에 드는 에피소드는 탭해서 바로 시작할 수 있습니다.
+          </p>
+        </a>
+
+        <a
+          aria-label="프롬툰 설문 조사"
+          className="block rounded-[24px] border border-editor-accentSoft/35 bg-editor-accent/15 p-5 shadow-xl shadow-black/20 transition hover:border-editor-accentSoft hover:bg-editor-accent/20 focus:outline-none focus:ring-2 focus:ring-editor-accentSoft focus:ring-offset-2 focus:ring-offset-black"
+          href={FEED_SURVEY_LINK_URL}
+          rel="noreferrer"
+          target="_blank"
+        >
+          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-editor-accentSoft">Survey</p>
+          <p className="mt-2 font-display text-xl font-semibold leading-tight text-white">프롬툰 설문 조사</p>
+          <p className="mt-2 text-sm leading-6 text-white/65">
+            더 나은 선택형 이야기를 만들 수 있도록 짧은 의견을 들려주세요.
           </p>
         </a>
       </div>

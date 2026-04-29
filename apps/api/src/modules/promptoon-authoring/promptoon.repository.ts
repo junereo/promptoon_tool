@@ -1,8 +1,10 @@
 import type {
   AnalyticsChoiceStat,
   AnalyticsCutEngagement,
-  AnalyticsDailyView,
   AnalyticsEndingStat,
+  AnalyticsResetScope,
+  AnalyticsViewGranularity,
+  AnalyticsViewPoint,
   Choice,
   ChoiceStateWrite,
   Cut,
@@ -16,6 +18,9 @@ import type {
   Publish,
   PublishManifest,
   PatchEpisodeCutLayoutRequest,
+  PromptoonBackupChoice,
+  PromptoonBackupProject,
+  PromptoonBackupViewerEvent,
   ReorderEpisodeCutsRequest,
   TelemetryEventType
 } from '@promptoon/shared';
@@ -119,13 +124,31 @@ interface ViewerEventInsertRow {
   id: string;
 }
 
+interface ViewerEventRow {
+  id: string;
+  publish_id: string;
+  episode_id: string;
+  anonymous_id: string;
+  session_id: string | null;
+  event_type: TelemetryEventType;
+  cut_id: string;
+  choice_id: string | null;
+  duration_ms: number | null;
+  created_at: Date;
+}
+
 interface ViewerEventCountRow {
   count: string;
 }
 
-interface DailyViewsRow {
-  date: string;
+interface ChoiceBackupRow extends ChoiceRow {
+  episode_id: string;
+}
+
+interface ViewsByPeriodRow {
+  period_start: string;
   views: string;
+  unique_viewers: string;
 }
 
 interface ChoiceStatRow {
@@ -233,6 +256,13 @@ function mapChoice(row: ChoiceRow): Choice {
   };
 }
 
+function mapBackupChoice(row: ChoiceRow): PromptoonBackupChoice {
+  return {
+    ...mapChoice(row),
+    afterSelectDelayMs: row.after_select_delay_ms
+  };
+}
+
 function mapPublish(row: PublishRow): Publish {
   return {
     id: row.id,
@@ -242,6 +272,21 @@ function mapPublish(row: PublishRow): Publish {
     status: row.status,
     manifest: row.manifest,
     createdBy: row.created_by,
+    createdAt: toIsoString(row.created_at)
+  };
+}
+
+function mapViewerEvent(row: ViewerEventRow): PromptoonBackupViewerEvent {
+  return {
+    id: row.id,
+    publishId: row.publish_id,
+    episodeId: row.episode_id,
+    anonymousId: row.anonymous_id,
+    sessionId: row.session_id,
+    eventType: row.event_type,
+    cutId: row.cut_id,
+    choiceId: row.choice_id ?? undefined,
+    durationMs: row.duration_ms ?? undefined,
     createdAt: toIsoString(row.created_at)
   };
 }
@@ -300,6 +345,96 @@ export async function listProjectsWithEpisodes(db: DbExecutor, ownerId?: string)
     ...mapProject(row),
     episodes: row.episodes
   }));
+}
+
+function groupByKey<T>(items: T[], getKey: (item: T) => string): Map<string, T[]> {
+  const grouped = new Map<string, T[]>();
+
+  for (const item of items) {
+    const key = getKey(item);
+    const list = grouped.get(key) ?? [];
+    list.push(item);
+    grouped.set(key, list);
+  }
+
+  return grouped;
+}
+
+export async function getUserBackupProjects(db: DbExecutor, ownerId: string): Promise<PromptoonBackupProject[]> {
+  const [projectsResult, episodesResult, cutsResult, choicesResult, publishesResult, viewerEventsResult] = await Promise.all([
+    db.query<ProjectRow>('SELECT * FROM promptoon_project WHERE created_by = $1 ORDER BY updated_at DESC, created_at DESC', [ownerId]),
+    db.query<EpisodeRow>(
+      `SELECT episode.*
+       FROM promptoon_episode AS episode
+       INNER JOIN promptoon_project AS project ON project.id = episode.project_id
+       WHERE project.created_by = $1
+       ORDER BY episode.project_id ASC, episode.episode_no ASC, episode.created_at ASC`,
+      [ownerId]
+    ),
+    db.query<CutRow>(
+      `SELECT cut.*
+       FROM promptoon_cut AS cut
+       INNER JOIN promptoon_episode AS episode ON episode.id = cut.episode_id
+       INNER JOIN promptoon_project AS project ON project.id = episode.project_id
+       WHERE project.created_by = $1
+       ORDER BY cut.episode_id ASC, cut.order_index ASC, cut.created_at ASC`,
+      [ownerId]
+    ),
+    db.query<ChoiceBackupRow>(
+      `SELECT choice.*, cut.episode_id
+       FROM promptoon_choice AS choice
+       INNER JOIN promptoon_cut AS cut ON cut.id = choice.cut_id
+       INNER JOIN promptoon_episode AS episode ON episode.id = cut.episode_id
+       INNER JOIN promptoon_project AS project ON project.id = episode.project_id
+       WHERE project.created_by = $1
+       ORDER BY cut.episode_id ASC, choice.cut_id ASC, choice.order_index ASC, choice.created_at ASC`,
+      [ownerId]
+    ),
+    db.query<PublishRow>(
+      `SELECT publish.*
+       FROM promptoon_publish AS publish
+       INNER JOIN promptoon_project AS project ON project.id = publish.project_id
+       WHERE project.created_by = $1
+       ORDER BY publish.project_id ASC, publish.episode_id ASC, publish.version_no ASC, publish.created_at ASC`,
+      [ownerId]
+    ),
+    db.query<ViewerEventRow>(
+      `SELECT event.*
+       FROM promptoon_viewer_event AS event
+       INNER JOIN promptoon_episode AS episode ON episode.id = event.episode_id
+       INNER JOIN promptoon_project AS project ON project.id = episode.project_id
+       WHERE project.created_by = $1
+       ORDER BY event.episode_id ASC, event.created_at ASC, event.id ASC`,
+      [ownerId]
+    )
+  ]);
+  const episodesByProjectId = groupByKey(episodesResult.rows.map(mapEpisode), (episode) => episode.projectId);
+  const cutsByEpisodeId = groupByKey(cutsResult.rows.map(mapCut), (cut) => cut.episodeId);
+  const choicesByEpisodeId = groupByKey(
+    choicesResult.rows.map((row) => ({
+      episodeId: row.episode_id,
+      choice: mapBackupChoice(row)
+    })),
+    (entry) => entry.episodeId
+  );
+  const publishesByEpisodeId = groupByKey(publishesResult.rows.map(mapPublish), (publish) => publish.episodeId);
+  const viewerEventsByEpisodeId = groupByKey(viewerEventsResult.rows.map(mapViewerEvent), (event) => event.episodeId);
+
+  return projectsResult.rows.map((projectRow) => {
+    const project = mapProject(projectRow);
+    const episodes = episodesByProjectId.get(project.id) ?? [];
+
+    return {
+      project,
+      episodes: episodes.map((episode) => ({
+        episode,
+        cuts: cutsByEpisodeId.get(episode.id) ?? [],
+        choices: (choicesByEpisodeId.get(episode.id) ?? []).map((entry) => entry.choice),
+        publishes: publishesByEpisodeId.get(episode.id) ?? [],
+        viewerEvents: viewerEventsByEpisodeId.get(episode.id) ?? []
+      }))
+    };
+  });
 }
 
 export async function createProject(
@@ -532,7 +667,7 @@ export async function createCut(
       input.positionY ?? defaultPositionY,
       input.orderIndex ?? defaultOrderIndex,
       input.isStart ?? false,
-      input.isEnding ?? input.kind === 'ending'
+      input.isEnding ?? (input.kind === 'ending' || input.kind === 'resultCard')
     ]
   );
 
@@ -591,7 +726,11 @@ export async function updateCut(
     ? patch.stateFallbackCutId ?? null
     : existing.stateFallbackCutId ?? null;
   const nextIsEnding =
-    patch.isEnding !== undefined ? patch.isEnding : patch.kind === 'ending' ? true : existing.isEnding;
+    patch.isEnding !== undefined
+      ? patch.isEnding
+      : patch.kind === 'ending' || patch.kind === 'resultCard'
+        ? true
+        : existing.isEnding;
   const result = await db.query<CutRow>(
     `UPDATE promptoon_cut
      SET kind = $1,
@@ -1176,28 +1315,90 @@ export async function countReplayViewers(db: DbExecutor, input: { episodeId: str
   return Number(result.rows[0]?.count ?? 0);
 }
 
-export async function getDailyStartViews(
+function getAnalyticsDateTruncUnit(granularity: AnalyticsViewGranularity): 'day' | 'week' | 'month' {
+  if (granularity === 'weekly') {
+    return 'week';
+  }
+
+  if (granularity === 'monthly') {
+    return 'month';
+  }
+
+  return 'day';
+}
+
+export async function getStartViewsByPeriod(
   db: DbExecutor,
-  input: { episodeId: string; startCutId: string; days: number }
-): Promise<AnalyticsDailyView[]> {
-  const result = await db.query<DailyViewsRow>(
+  input: { episodeId: string; startCutId: string; granularity: AnalyticsViewGranularity; fromDate: string; toDate?: string | null }
+): Promise<AnalyticsViewPoint[]> {
+  const truncUnit = getAnalyticsDateTruncUnit(input.granularity);
+  const result = await db.query<ViewsByPeriodRow>(
     `SELECT
-       TO_CHAR(DATE_TRUNC('day', created_at), 'YYYY-MM-DD') AS date,
-       COUNT(*)::text AS views
+       TO_CHAR(DATE_TRUNC('${truncUnit}', created_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS period_start,
+       COUNT(*)::text AS views,
+       COUNT(DISTINCT anonymous_id)::text AS unique_viewers
      FROM promptoon_viewer_event
      WHERE episode_id = $1
        AND event_type = 'cut_view'
        AND cut_id = $2
-       AND created_at >= NOW() - ($3::text || ' days')::interval
-     GROUP BY DATE_TRUNC('day', created_at)
-     ORDER BY DATE_TRUNC('day', created_at) ASC`,
-    [input.episodeId, input.startCutId, input.days]
+       AND created_at >= $3::timestamptz
+       AND ($4::timestamptz IS NULL OR created_at < $4::timestamptz)
+     GROUP BY DATE_TRUNC('${truncUnit}', created_at AT TIME ZONE 'UTC')
+     ORDER BY DATE_TRUNC('${truncUnit}', created_at AT TIME ZONE 'UTC') ASC`,
+    [input.episodeId, input.startCutId, input.fromDate, input.toDate ?? null]
   );
 
   return result.rows.map((row) => ({
-    date: row.date,
-    views: Number(row.views)
+    periodStart: row.period_start,
+    views: Number(row.views),
+    uniqueViewers: Number(row.unique_viewers)
   }));
+}
+
+export async function deleteViewerEventsForAnalyticsScope(
+  db: DbExecutor,
+  input: { episodeId: string; scope: AnalyticsResetScope; startCutId?: string | null }
+): Promise<number> {
+  const values: unknown[] = [input.episodeId];
+  let filter = '';
+
+  switch (input.scope) {
+    case 'all':
+      break;
+    case 'views':
+      if (!input.startCutId) {
+        return 0;
+      }
+      values.push(input.startCutId);
+      filter = ` AND event_type = 'cut_view' AND cut_id = $${values.length}`;
+      break;
+    case 'choiceStats':
+      filter = " AND event_type = 'choice_click'";
+      break;
+    case 'endingDistribution':
+      filter = " AND event_type = 'ending_reach'";
+      break;
+    case 'cutEngagement':
+      filter = " AND event_type IN ('cut_view', 'cut_leave')";
+      break;
+    case 'feedEntry':
+      filter = " AND event_type IN ('feed_impression', 'feed_choice_click')";
+      break;
+    default:
+      return 0;
+  }
+
+  const result = await db.query<{ count: string }>(
+    `WITH deleted AS (
+       DELETE FROM promptoon_viewer_event
+       WHERE episode_id = $1${filter}
+       RETURNING 1
+     )
+     SELECT COUNT(*)::text AS count FROM deleted`,
+    values
+  );
+
+  return Number(result.rows[0]?.count ?? 0);
 }
 
 export async function createPublish(

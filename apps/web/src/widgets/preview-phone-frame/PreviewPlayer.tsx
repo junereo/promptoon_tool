@@ -5,7 +5,10 @@ import { AnimatePresence, motion } from 'framer-motion';
 
 import { buildCutEffectMotionCustom, cutEffectVariants, getEdgeFadeOverlayClassNames, getEdgeFadeStyle } from '../../shared/lib/cut-effects';
 import { getContentSpacingMinHeight, getCutContentBlocksByPlacement } from '../../shared/lib/cut-content';
+import { isPromptoonEndingCut } from '../../shared/lib/promptoon-ending';
+import { getResultCardBlock } from '../../shared/lib/result-card';
 import { CutContentBlocksView } from '../content-blocks/CutContentBlocksView';
+import { ResultCard } from '../result-card/ResultCard';
 
 const PREVIEW_BASE_WIDTH = 320;
 const PREVIEW_BASE_HEIGHT = (PREVIEW_BASE_WIDTH * 16) / 9;
@@ -151,13 +154,15 @@ export function PreviewPlayer({
   const previewViewportRef = useRef<HTMLDivElement | null>(null);
   const phoneFrameRef = useRef<HTMLDivElement | null>(null);
   const previewContentRef = useRef<HTMLDivElement | null>(null);
+  const resultCardBlock = cut ? getResultCardBlock(cut) : null;
+  const isResultCardPreview = cut?.kind === 'resultCard' && resultCardBlock;
   const showChoices =
-    cut !== null && !cut.isEnding && cut.kind !== 'ending' && (cut.kind === 'scene' ? choices.length > 1 : choices.length > 0);
-  const showEndingButton = cut?.kind === 'ending';
+    cut !== null && !isPromptoonEndingCut(cut) && (cut.kind === 'scene' ? choices.length > 1 : choices.length > 0);
+  const showEndingButton = Boolean(cut && isPromptoonEndingCut(cut) && cut.kind !== 'resultCard');
   const hasPreviewFooterContent = showChoices || Boolean(reactionText) || showEndingButton;
   const activeSelectedChoiceId = pendingChoiceId ?? selectedChoiceId;
-  const hasOverlayContent = cut ? getCutContentBlocksByPlacement(cut, 'overlay').length > 0 : false;
-  const hasFlowContent = cut ? getCutContentBlocksByPlacement(cut, 'flow').length > 0 : false;
+  const hasOverlayContent = cut && !isResultCardPreview ? getCutContentBlocksByPlacement(cut, 'overlay').length > 0 : false;
+  const hasFlowContent = cut && !isResultCardPreview ? getCutContentBlocksByPlacement(cut, 'flow').length > 0 : false;
   const flowContentMinHeight = cut ? getContentSpacingMinHeight(cut.marginBottomToken) : undefined;
   const previewImageBottomSpacingHeight = cut?.assetUrl && !imageFailed && !hasFlowContent ? getContentSpacingMinHeight(cut.marginBottomToken) : undefined;
   const previewBottomContentHeight = hasFlowContent ? flowContentMinHeight : previewImageBottomSpacingHeight;
@@ -407,35 +412,43 @@ export function PreviewPlayer({
                     data-testid="preview-image-area"
                     style={{ height: `${PREVIEW_BASE_HEIGHT}px` }}
                   >
-                    <div className="absolute inset-0 bg-gradient-to-br from-zinc-800 via-zinc-900 to-[#09090d]" />
+                    {isResultCardPreview && resultCardBlock ? (
+                      <div className="absolute inset-0 flex items-center justify-center bg-[#050506] p-5">
+                        <ResultCard assetUrl={cut.assetUrl} block={resultCardBlock} className="max-w-[280px]" />
+                      </div>
+                    ) : (
+                      <>
+                        <div className="absolute inset-0 bg-gradient-to-br from-zinc-800 via-zinc-900 to-[#09090d]" />
 
-                    {cut.assetUrl && !imageFailed ? (
-                      <img
-                        alt={cut.title}
-                        className={[
-                          'absolute inset-0 h-full w-full object-cover transition-opacity duration-300',
-                          imageLoaded ? 'opacity-100' : 'opacity-0'
-                        ].join(' ')}
-                        onError={() => setImageFailed(true)}
-                        onLoad={() => setImageLoaded(true)}
-                        src={cut.assetUrl}
-                        style={getEdgeFadeStyle(cut.edgeFade, cut.edgeFadeIntensity)}
-                      />
-                    ) : null}
-                    {cut.assetUrl && !imageFailed
-                      ? getEdgeFadeOverlayClassNames(cut.edgeFade, cut.edgeFadeIntensity, cut.edgeFadeColor).map((className) => (
-                          <div className={className} key={className} />
-                        ))
-                      : null}
+                        {cut.assetUrl && !imageFailed ? (
+                          <img
+                            alt={cut.title}
+                            className={[
+                              'absolute inset-0 h-full w-full object-cover transition-opacity duration-300',
+                              imageLoaded ? 'opacity-100' : 'opacity-0'
+                            ].join(' ')}
+                            onError={() => setImageFailed(true)}
+                            onLoad={() => setImageLoaded(true)}
+                            src={cut.assetUrl}
+                            style={getEdgeFadeStyle(cut.edgeFade, cut.edgeFadeIntensity)}
+                          />
+                        ) : null}
+                        {cut.assetUrl && !imageFailed
+                          ? getEdgeFadeOverlayClassNames(cut.edgeFade, cut.edgeFadeIntensity, cut.edgeFadeColor).map((className) => (
+                              <div className={className} key={className} />
+                            ))
+                          : null}
 
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/45 to-transparent" />
-                    <div className="absolute left-1/2 top-3 h-1.5 w-20 -translate-x-1/2 rounded-full bg-white/10" />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/45 to-transparent" />
+                        <div className="absolute left-1/2 top-3 h-1.5 w-20 -translate-x-1/2 rounded-full bg-white/10" />
 
-                    <div className="absolute left-0 right-0 top-5 z-10 flex justify-center">
-                      <span className="rounded-full border border-white/10 bg-black/45 px-3 py-1 text-[10px] uppercase tracking-[0.24em] text-white/75 backdrop-blur-md">
-                        {cut.kind} cut
-                      </span>
-                    </div>
+                        <div className="absolute left-0 right-0 top-5 z-10 flex justify-center">
+                          <span className="rounded-full border border-white/10 bg-black/45 px-3 py-1 text-[10px] uppercase tracking-[0.24em] text-white/75 backdrop-blur-md">
+                            {cut.kind} cut
+                          </span>
+                        </div>
+                      </>
+                    )}
 
                     {hasOverlayContent ? (
                       <div className={getDialogPlacementClasses(cut)}>

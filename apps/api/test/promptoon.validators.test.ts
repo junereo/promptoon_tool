@@ -89,6 +89,47 @@ describe('validateEpisodeGraph', () => {
     expect(result.errors).toHaveLength(0);
   });
 
+  it('treats resultCard cuts as endings even without isEnding set', () => {
+    const baseDraft = buildDraft();
+    const resultCardCut = {
+      ...baseDraft.cuts[1],
+      kind: 'resultCard' as const,
+      title: 'Result Card',
+      isEnding: false,
+      contentBlocks: [
+        {
+          id: 'result-card-1',
+          type: 'resultCard' as const,
+          templateId: 'the-replace-final' as const,
+          theme: 'blue' as const,
+          badge: 'TYPE 01',
+          resultName: '합리적인 가해자',
+          tagline: '알면서도 손을 들었다',
+          lines: ['당신은 명확히 보았다.'],
+          inflowLabel: 'CHECK IN',
+          inflowUrl: 'promtoon.ai',
+          inflowBrand: 'PROMTOON',
+          inflowTagline: '반응형 웹툰'
+        }
+      ]
+    };
+
+    const result = validateEpisodeGraph(
+      buildDraft({
+        cuts: [baseDraft.cuts[0], resultCardCut],
+        choices: [
+          {
+            ...baseDraft.choices[0],
+            nextCutId: resultCardCut.id
+          }
+        ]
+      })
+    );
+
+    expect(result.isValid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+
   it('warns when the episode cover image is missing without blocking validation', () => {
     const result = validateEpisodeGraph(
       buildDraft({

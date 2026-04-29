@@ -4,6 +4,7 @@ import type { TouchEvent, WheelEvent } from 'react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { buildCutEffectMotionCustom, cutEffectVariants } from '../../shared/lib/cut-effects';
+import { isPromptoonEndingCut } from '../../shared/lib/promptoon-ending';
 import { ViewerContent } from './ViewerContent';
 import { ViewerControls } from './ViewerControls';
 
@@ -29,7 +30,7 @@ interface ViewerShellProps {
   onPathEnterComplete: (pathStartCutId: string) => void;
   onReset: () => void;
   onUserNameChange: (value: string) => void;
-  onShare?: () => void;
+  onShare?: () => void | Promise<void>;
   pathSteps: ViewerPathStep[];
   pendingChoice: { cutId: string; choiceId: string; reactionText: string | null } | null;
   shareBanner: string | null;
@@ -253,7 +254,7 @@ export function ViewerShell({
                             onChoiceClick={(choice) => onChoiceClick(choice, step.cut.id)}
                             onReset={onReset}
                             onUserNameChange={onUserNameChange}
-                            onShare={isTerminalStep && (terminalCut.isEnding || terminalCut.kind === 'ending') ? onShare : undefined}
+                            onShare={isTerminalStep && isPromptoonEndingCut(terminalCut) ? onShare : undefined}
                             pendingChoice={pendingChoice && pendingChoice.cutId === step.cut.id ? pendingChoice : null}
                             userName={userName}
                             visibleChoices={step.visibleChoices}

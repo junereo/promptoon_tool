@@ -1,4 +1,4 @@
-import type { Choice, Cut } from '@promptoon/shared';
+import type { Choice, Cut, PromptoonResultCardContentBlock } from '@promptoon/shared';
 import { DEFAULT_CUT_EFFECT_DURATION_MS } from '@promptoon/shared';
 import { act } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -286,6 +286,160 @@ describe('CutEditorForm', () => {
       ]
     });
 
+    vi.useRealTimers();
+  });
+
+  it('clears the legacy body when deleting the last content block', () => {
+    vi.useFakeTimers();
+    const onQueuePatch = vi.fn();
+    const cut = buildCut('cut-1');
+
+    render(
+      <CutEditorForm
+        cut={cut}
+        onCommitPatch={vi.fn().mockResolvedValue(undefined)}
+        onDeleteCut={vi.fn()}
+        onKindPreviewChange={vi.fn()}
+        onQueuePatch={onQueuePatch}
+        onUploadAsset={vi.fn()}
+        pendingAutosaveCount={0}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete block' }));
+
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+
+    expect(onQueuePatch).toHaveBeenCalledWith('cut-1', {
+      body: '',
+      contentBlocks: []
+    });
+
+    vi.useRealTimers();
+  });
+
+  it('does not resave after the server echoes a deleted legacy content block', () => {
+    vi.useFakeTimers();
+    const onQueuePatch = vi.fn();
+    const cut = buildCut('cut-1');
+
+    const { rerender } = render(
+      <CutEditorForm
+        cut={cut}
+        onCommitPatch={vi.fn().mockResolvedValue(undefined)}
+        onDeleteCut={vi.fn()}
+        onKindPreviewChange={vi.fn()}
+        onQueuePatch={onQueuePatch}
+        onUploadAsset={vi.fn()}
+        pendingAutosaveCount={0}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete block' }));
+
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+
+    expect(onQueuePatch).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <CutEditorForm
+        cut={{
+          ...cut,
+          body: '',
+          contentBlocks: []
+        }}
+        onCommitPatch={vi.fn().mockResolvedValue(undefined)}
+        onDeleteCut={vi.fn()}
+        onKindPreviewChange={vi.fn()}
+        onQueuePatch={onQueuePatch}
+        onUploadAsset={vi.fn()}
+        pendingAutosaveCount={0}
+      />
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+
+    expect(onQueuePatch).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it('does not resave when a content block server echo only changes field order', () => {
+    vi.useFakeTimers();
+    const onQueuePatch = vi.fn();
+    const cut = buildCut('cut-1', {
+      body: 'Original',
+      contentBlocks: [
+        {
+          id: 'block-1',
+          type: 'narration',
+          text: 'Original',
+          textAlign: 'left',
+          fontToken: 'sans-kr',
+          placement: 'flow'
+        }
+      ]
+    });
+
+    const { rerender } = render(
+      <CutEditorForm
+        cut={cut}
+        onCommitPatch={vi.fn().mockResolvedValue(undefined)}
+        onDeleteCut={vi.fn()}
+        onKindPreviewChange={vi.fn()}
+        onQueuePatch={onQueuePatch}
+        onUploadAsset={vi.fn()}
+        pendingAutosaveCount={0}
+      />
+    );
+
+    fireEvent.change(screen.getByDisplayValue('Original'), {
+      target: {
+        value: 'Updated'
+      }
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+
+    expect(onQueuePatch).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <CutEditorForm
+        cut={{
+          ...cut,
+          body: 'Updated',
+          contentBlocks: [
+            {
+              fontToken: 'sans-kr',
+              textAlign: 'left',
+              text: 'Updated',
+              type: 'narration',
+              placement: 'flow',
+              id: 'block-1'
+            }
+          ]
+        }}
+        onCommitPatch={vi.fn().mockResolvedValue(undefined)}
+        onDeleteCut={vi.fn()}
+        onKindPreviewChange={vi.fn()}
+        onQueuePatch={onQueuePatch}
+        onUploadAsset={vi.fn()}
+        pendingAutosaveCount={0}
+      />
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+
+    expect(onQueuePatch).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
   });
 
@@ -821,6 +975,134 @@ describe('CutEditorForm', () => {
     });
 
     expect(onQueuePatch).toHaveBeenCalledWith('cut-1', { kind: 'choice' });
+    vi.useRealTimers();
+  });
+
+  it('creates a template result card block when the cut kind changes to result card', () => {
+    vi.useFakeTimers();
+    const onQueuePatch = vi.fn();
+
+    render(
+      <CutEditorForm
+        cut={buildCut('cut-1', { kind: 'scene', title: 'THE REPLACE' })}
+        onCommitPatch={vi.fn().mockResolvedValue(undefined)}
+        onDeleteCut={vi.fn()}
+        onKindPreviewChange={vi.fn()}
+        onQueuePatch={onQueuePatch}
+        onUploadAsset={vi.fn()}
+        pendingAutosaveCount={0}
+      />
+    );
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Kind' }), {
+      target: {
+        value: 'resultCard'
+      }
+    });
+
+    expect(screen.getAllByText('결과 카드').length).toBeGreaterThan(1);
+
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+
+    expect(onQueuePatch).toHaveBeenCalledWith(
+      'cut-1',
+      expect.objectContaining({
+        kind: 'resultCard',
+        isEnding: true,
+        contentBlocks: [
+          expect.objectContaining({
+            type: 'resultCard',
+            templateId: 'the-replace-final',
+            resultName: 'THE REPLACE'
+          })
+        ]
+      })
+    );
+    vi.useRealTimers();
+  });
+
+  it('does not keep resaving normalized result card blocks after a server echo', () => {
+    vi.useFakeTimers();
+    const onQueuePatch = vi.fn();
+    const resultCardBlock: PromptoonResultCardContentBlock = {
+      inflowUrl: 'promtoon.ai',
+      type: 'resultCard',
+      resultName: '합리적인 가해자',
+      id: 'result-card-1',
+      lines: ['당신은 명확히 보았다.', '그리고 판단했다.'],
+      theme: 'blue',
+      badge: 'TYPE 01',
+      templateId: 'the-replace-final',
+      inflowBrand: 'PROMTOON',
+      tagline: '알면서도 손을 들었다',
+      inflowLabel: 'CHECK IN',
+      inflowTagline: '반응형 웹툰'
+    };
+    const cut = buildCut('cut-1', {
+      kind: 'resultCard',
+      isEnding: true,
+      body: '합리적인 가해자\n\n알면서도 손을 들었다\n\n당신은 명확히 보았다.\n\n그리고 판단했다.',
+      contentBlocks: [resultCardBlock]
+    });
+
+    const { rerender } = render(
+      <CutEditorForm
+        cut={cut}
+        onCommitPatch={vi.fn().mockResolvedValue(undefined)}
+        onDeleteCut={vi.fn()}
+        onKindPreviewChange={vi.fn()}
+        onQueuePatch={onQueuePatch}
+        onUploadAsset={vi.fn()}
+        pendingAutosaveCount={0}
+      />
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+
+    expect(onQueuePatch).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByDisplayValue('합리적인 가해자'), {
+      target: {
+        value: '새 결과'
+      }
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+
+    expect(onQueuePatch).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <CutEditorForm
+        cut={{
+          ...cut,
+          body: '새 결과\n\n알면서도 손을 들었다\n\n당신은 명확히 보았다.\n\n그리고 판단했다.',
+          contentBlocks: [
+            {
+              ...resultCardBlock,
+              resultName: '새 결과'
+            }
+          ]
+        }}
+        onCommitPatch={vi.fn().mockResolvedValue(undefined)}
+        onDeleteCut={vi.fn()}
+        onKindPreviewChange={vi.fn()}
+        onQueuePatch={onQueuePatch}
+        onUploadAsset={vi.fn()}
+        pendingAutosaveCount={0}
+      />
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+
+    expect(onQueuePatch).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
   });
 

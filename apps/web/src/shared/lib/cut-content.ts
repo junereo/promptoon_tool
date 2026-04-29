@@ -11,7 +11,8 @@ import type {
   PromptoonNarrationContentBlock,
   PublishManifest,
   PromptoonQuoteContentBlock,
-  PromptoonEmphasisContentBlock
+  PromptoonEmphasisContentBlock,
+  PromptoonResultCardContentBlock
 } from '@promptoon/shared';
 
 const DEFAULT_NAME_INPUT_MAX_LENGTH = 20;
@@ -78,7 +79,7 @@ export const CONTENT_PLACEMENT_OPTIONS: Array<{ label: string; value: PromptoonC
   { label: '화면 겹침', value: 'overlay' }
 ];
 
-export const CONTENT_BLOCK_TYPE_OPTIONS: Array<{ label: string; value: CutContentBlock['type'] }> = [
+export const CONTENT_BLOCK_TYPE_OPTIONS: Array<{ label: string; value: Exclude<CutContentBlock['type'], 'resultCard'> }> = [
   { label: '제목', value: 'heading' },
   { label: '서술', value: 'narration' },
   { label: '대사', value: 'dialogue' },
@@ -289,6 +290,8 @@ export function deriveContentBlocksBody(contentBlocks: CutContentBlock[], fallba
         case 'image':
         case 'nameInput':
           return [];
+        case 'resultCard':
+          return [block.resultName.trim(), block.tagline.trim(), ...block.lines.map((line) => line.trim())];
         default:
           return [];
       }
@@ -396,6 +399,21 @@ export function createContentBlock(type: CutContentBlock['type']): CutContentBlo
         required: true,
         bindingKey: 'userName'
       };
+    case 'resultCard':
+      return {
+        id: createBlockId(),
+        type,
+        templateId: 'the-replace-final',
+        theme: 'blue',
+        badge: 'TYPE 01',
+        resultName: '합리적인 가해자',
+        tagline: '알면서도 손을 들었다',
+        lines: ['당신은 명확히 보았다.', '그리고 판단했다.', '그 판단은 누군가를 대체했다.'],
+        inflowLabel: 'CHECK IN',
+        inflowUrl: 'promtoon.ai',
+        inflowBrand: 'PROMTOON',
+        inflowTagline: '반응형 웹툰'
+      } satisfies PromptoonResultCardContentBlock;
     case 'narration':
     default:
       return createTextBlock({
