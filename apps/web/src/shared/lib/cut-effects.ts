@@ -1,4 +1,4 @@
-import type { PromptoonCutEffect, PromptoonEdgeFade, PromptoonEdgeFadeIntensity } from '@promptoon/shared';
+import type { PromptoonCutEffect, PromptoonEdgeFade, PromptoonEdgeFadeColor, PromptoonEdgeFadeIntensity } from '@promptoon/shared';
 import type { CSSProperties } from 'react';
 import type { Variants } from 'framer-motion';
 
@@ -7,31 +7,41 @@ export const DEFAULT_CUT_EFFECT_DURATION_MS = 320;
 export const MAX_CUT_EFFECT_DURATION_MS = 10000;
 
 export const CUT_EFFECT_OPTIONS: Array<{ label: string; value: PromptoonCutEffect }> = [
-  { label: 'None', value: 'none' },
-  { label: 'Fade', value: 'fade' },
-  { label: 'Slide Left', value: 'slide-left' },
-  { label: 'Slide Right', value: 'slide-right' },
-  { label: 'Slide Up', value: 'slide-up' },
-  { label: 'Slide Down', value: 'slide-down' },
-  { label: 'Zoom In', value: 'zoom-in' },
-  { label: 'Zoom Out', value: 'zoom-out' }
+  { label: '없음', value: 'none' },
+  { label: '페이드', value: 'fade' },
+  { label: '왼쪽 슬라이드', value: 'slide-left' },
+  { label: '오른쪽 슬라이드', value: 'slide-right' },
+  { label: '위로 슬라이드', value: 'slide-up' },
+  { label: '아래로 슬라이드', value: 'slide-down' },
+  { label: '확대', value: 'zoom-in' },
+  { label: '축소', value: 'zoom-out' }
 ];
 
 export const EDGE_FADE_OPTIONS: Array<{ label: string; value: PromptoonEdgeFade }> = [
-  { label: 'None', value: 'none' },
-  { label: 'Top', value: 'top' },
-  { label: 'Bottom', value: 'bottom' },
-  { label: 'Both', value: 'both' }
+  { label: '없음', value: 'none' },
+  { label: '상단', value: 'top' },
+  { label: '하단', value: 'bottom' },
+  { label: '상하단', value: 'both' }
 ];
 
 export const EDGE_FADE_INTENSITY_OPTIONS: Array<{ label: string; value: PromptoonEdgeFadeIntensity }> = [
-  { label: 'Soft', value: 'soft' },
-  { label: 'Normal', value: 'normal' },
-  { label: 'Strong', value: 'strong' }
+  { label: '최소', value: 'minimal' },
+  { label: '아주 약하게', value: 'barely-soft' },
+  { label: '매우 약하게', value: 'ultra-soft' },
+  { label: '약하게', value: 'very-soft' },
+  { label: '부드럽게', value: 'soft' },
+  { label: '중간 약하게', value: 'semi-soft' },
+  { label: '보통', value: 'normal' },
+  { label: '강하게', value: 'strong' }
+];
+
+export const EDGE_FADE_COLOR_OPTIONS: Array<{ label: string; value: PromptoonEdgeFadeColor }> = [
+  { label: '검정', value: 'black' },
+  { label: '흰색', value: 'white' }
 ];
 
 export const CUT_EFFECT_TRANSITION = {
-  ease: [0.22, 1, 0.36, 1] as const
+  ease: [0.4, 0, 0.2, 1] as const
 };
 
 interface CutEffectMotionCustom {
@@ -133,8 +143,18 @@ export function buildCutEffectMotionCustom(
 
 function getEdgeFadeStops(edgeFadeIntensity?: PromptoonEdgeFadeIntensity | null) {
   switch (edgeFadeIntensity ?? 'normal') {
+    case 'minimal':
+      return { topVisibleStart: 0.5, bottomVisibleEnd: 99.5 };
+    case 'barely-soft':
+      return { topVisibleStart: 1, bottomVisibleEnd: 99 };
+    case 'ultra-soft':
+      return { topVisibleStart: 3, bottomVisibleEnd: 97 };
+    case 'very-soft':
+      return { topVisibleStart: 5, bottomVisibleEnd: 95 };
     case 'soft':
       return { topVisibleStart: 8, bottomVisibleEnd: 92 };
+    case 'semi-soft':
+      return { topVisibleStart: 11, bottomVisibleEnd: 89 };
     case 'strong':
       return { topVisibleStart: 28, bottomVisibleEnd: 72 };
     case 'normal':
@@ -145,8 +165,18 @@ function getEdgeFadeStops(edgeFadeIntensity?: PromptoonEdgeFadeIntensity | null)
 
 function getEdgeFadeOverlayHeightClassName(edgeFadeIntensity?: PromptoonEdgeFadeIntensity | null): string {
   switch (edgeFadeIntensity ?? 'normal') {
+    case 'minimal':
+      return 'h-6';
+    case 'barely-soft':
+      return 'h-8';
+    case 'ultra-soft':
+      return 'h-10';
+    case 'very-soft':
+      return 'h-12';
     case 'soft':
       return 'h-16';
+    case 'semi-soft':
+      return 'h-20';
     case 'strong':
       return 'h-36';
     case 'normal':
@@ -174,18 +204,27 @@ export function getEdgeFadeStyle(edgeFade?: PromptoonEdgeFade | null, edgeFadeIn
   return maskImage ? { maskImage, WebkitMaskImage: maskImage } : {};
 }
 
-export function getEdgeFadeOverlayClassNames(edgeFade?: PromptoonEdgeFade | null, edgeFadeIntensity?: PromptoonEdgeFadeIntensity | null): string[] {
+function getEdgeFadeOverlayColorClassName(edgeFadeColor?: PromptoonEdgeFadeColor | null): string {
+  return (edgeFadeColor ?? 'black') === 'white' ? 'from-white' : 'from-[#101015]';
+}
+
+export function getEdgeFadeOverlayClassNames(
+  edgeFade?: PromptoonEdgeFade | null,
+  edgeFadeIntensity?: PromptoonEdgeFadeIntensity | null,
+  edgeFadeColor?: PromptoonEdgeFadeColor | null
+): string[] {
   const heightClassName = getEdgeFadeOverlayHeightClassName(edgeFadeIntensity);
+  const colorClassName = getEdgeFadeOverlayColorClassName(edgeFadeColor);
 
   switch (edgeFade ?? 'none') {
     case 'top':
-      return [`pointer-events-none absolute inset-x-0 top-0 z-[1] ${heightClassName} bg-gradient-to-b from-[#101015] to-transparent`];
+      return [`pointer-events-none absolute inset-x-0 top-0 z-[1] ${heightClassName} bg-gradient-to-b ${colorClassName} to-transparent`];
     case 'bottom':
-      return [`pointer-events-none absolute inset-x-0 bottom-0 z-[1] ${heightClassName} bg-gradient-to-t from-[#101015] to-transparent`];
+      return [`pointer-events-none absolute inset-x-0 bottom-0 z-[1] ${heightClassName} bg-gradient-to-t ${colorClassName} to-transparent`];
     case 'both':
       return [
-        `pointer-events-none absolute inset-x-0 top-0 z-[1] ${heightClassName} bg-gradient-to-b from-[#101015] to-transparent`,
-        `pointer-events-none absolute inset-x-0 bottom-0 z-[1] ${heightClassName} bg-gradient-to-t from-[#101015] to-transparent`
+        `pointer-events-none absolute inset-x-0 top-0 z-[1] ${heightClassName} bg-gradient-to-b ${colorClassName} to-transparent`,
+        `pointer-events-none absolute inset-x-0 bottom-0 z-[1] ${heightClassName} bg-gradient-to-t ${colorClassName} to-transparent`
       ];
     case 'none':
     default:

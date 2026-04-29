@@ -1,5 +1,10 @@
 import type { PublishManifest } from '@promptoon/shared';
-import { AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
+import type { TouchEvent, WheelEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+
+import { buildCutEffectMotionCustom, cutEffectVariants } from '../../shared/lib/cut-effects';
+import { isPromptoonEndingCut } from '../../shared/lib/promptoon-ending';
 import { ViewerContent } from './ViewerContent';
 import { ViewerControls } from './ViewerControls';
 
@@ -8,6 +13,7 @@ type ViewerChoice = ViewerCut['choices'][number];
 
 interface ViewerPathStep {
   cut: ViewerCut;
+  renderCut: ViewerCut;
   visibleChoices: ViewerChoice[];
 }
 
@@ -15,14 +21,16 @@ interface ViewerShellProps {
   canGoBack: boolean;
   episodeTitle: string;
   isChromeVisible: boolean;
+  isPathCompact: boolean;
   onBack: () => void;
   onChoiceClick: (choice: ViewerChoice, cutId: string) => void;
   onClose: () => void;
   onDismissShareBanner: () => void;
   onInteraction: () => void;
+  onPathEnterComplete: (pathStartCutId: string) => void;
   onReset: () => void;
   onUserNameChange: (value: string) => void;
-  onShare?: () => void;
+  onShare?: () => void | Promise<void>;
   pathSteps: ViewerPathStep[];
   pendingChoice: { cutId: string; choiceId: string; reactionText: string | null } | null;
   shareBanner: string | null;
@@ -35,11 +43,13 @@ export function ViewerShell({
   canGoBack,
   episodeTitle,
   isChromeVisible,
+  isPathCompact,
   onBack,
   onChoiceClick,
   onClose,
   onDismissShareBanner,
   onInteraction,
+  onPathEnterComplete,
   onReset,
   onUserNameChange,
   onShare,
@@ -50,22 +60,111 @@ export function ViewerShell({
   terminalCut,
   userName
 }: ViewerShellProps) {
-  const useCompactLayout = pathSteps.length > 1;
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const forwardedTouchYRef = useRef<number | null>(null);
+  const [isScrollBoundary, setIsScrollBoundary] = useState(true);
   const terminalStep = pathSteps[pathSteps.length - 1] ?? null;
-  const leadingSteps = terminalStep ? pathSteps.slice(0, -1) : [];
+  const pathStartStep = pathSteps[0] ?? null;
+  const areControlsVisible = isChromeVisible && isScrollBoundary;
+  const pathStepKey = pathSteps.map((step) => `${step.cut.id}:${step.renderCut.id}`).join('|');
+  const pathStartKey = pathStartStep ? `${pathStartStep.cut.id}:${pathStartStep.renderCut.id}` : 'empty-path';
+
+  const updateScrollBoundary = useCallback(() => {
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) {
+      setIsScrollBoundary(true);
+      return true;
+    }
+
+    const boundaryThreshold = 2;
+    const isAtTop = scrollContainer.scrollTop <= boundaryThreshold;
+    const isAtBottom =
+      scrollContainer.scrollTop + scrollContainer.clientHeight >= scrollContainer.scrollHeight - boundaryThreshold;
+    const isAtBoundary = isAtTop || isAtBottom;
+
+    setIsScrollBoundary(isAtBoundary);
+    return isAtBoundary;
+  }, []);
+
+  useEffect(() => {
+    const animationFrameId = window.requestAnimationFrame(() => {
+      updateScrollBoundary();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(animationFrameId);
+    };
+  }, [pathSteps, updateScrollBoundary]);
+
+  useLayoutEffect(() => {
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) {
+      return;
+    }
+
+    scrollContainer.scrollTop = 0;
+    setIsScrollBoundary(true);
+  }, [pathStartKey]);
+
+  function handleViewerScroll() {
+    if (updateScrollBoundary()) {
+      onInteraction();
+    }
+  }
+
+  function isInsideScrollContainer(target: EventTarget | null) {
+    const scrollContainer = scrollContainerRef.current;
+    return Boolean(scrollContainer && target instanceof Node && scrollContainer.contains(target));
+  }
+
+  function handleViewerSurfaceWheel(event: WheelEvent<HTMLElement>) {
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer || isInsideScrollContainer(event.target)) {
+      return;
+    }
+
+    scrollContainer.scrollTop += event.deltaY;
+    updateScrollBoundary();
+  }
+
+  function handleViewerSurfaceTouchStart(event: TouchEvent<HTMLElement>) {
+    if (isInsideScrollContainer(event.target)) {
+      forwardedTouchYRef.current = null;
+      return;
+    }
+
+    forwardedTouchYRef.current = event.touches[0]?.clientY ?? null;
+  }
+
+  function handleViewerSurfaceTouchMove(event: TouchEvent<HTMLElement>) {
+    const scrollContainer = scrollContainerRef.current;
+    const previousY = forwardedTouchYRef.current;
+    const nextY = event.touches[0]?.clientY ?? null;
+
+    if (!scrollContainer || previousY === null || nextY === null) {
+      return;
+    }
+
+    scrollContainer.scrollTop += previousY - nextY;
+    forwardedTouchYRef.current = nextY;
+    updateScrollBoundary();
+  }
+
+  function handleViewerSurfaceTouchEnd() {
+    forwardedTouchYRef.current = null;
+  }
 
   return (
     <section
       className="relative min-h-dvh overflow-hidden bg-black text-white"
       onClick={onInteraction}
-      onPointerMove={onInteraction}
     >
       <div className="absolute inset-0 bg-gradient-to-br from-[#18181d] via-[#111115] to-black" />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(122,48,64,0.18),transparent_42%)]" />
 
       <ViewerControls
         canGoBack={canGoBack}
-        isVisible={isChromeVisible}
+        isVisible={areControlsVisible}
         onBack={onBack}
         onClose={onClose}
         onReset={onReset}
@@ -90,44 +189,79 @@ export function ViewerShell({
         </div>
       ) : null}
 
-      <div className="relative flex min-h-dvh items-stretch justify-stretch sm:items-center sm:justify-center sm:px-[max(1rem,env(safe-area-inset-left))] sm:pb-[max(1rem,env(safe-area-inset-bottom))] sm:pr-[max(1rem,env(safe-area-inset-right))] sm:pt-[max(1rem,env(safe-area-inset-top))]">
-        <div className="flex min-h-dvh w-full items-stretch justify-stretch sm:min-h-0 sm:items-center sm:justify-center sm:py-24">
-          <div className="relative h-dvh w-full overflow-hidden bg-black sm:h-auto sm:max-w-[420px] sm:rounded-[34px] sm:border sm:border-white/10 sm:shadow-[0_32px_120px_rgba(0,0,0,0.55)]">
-            <div className="relative h-full w-full bg-[#101015] sm:aspect-[9/16] sm:h-auto">
-              <div className="scrollbar-hidden relative z-10 h-full overflow-x-hidden overflow-y-auto">
-                {leadingSteps.map((step) => (
-                  <ViewerContent
-                    canGoBack={canGoBack}
-                    compact={useCompactLayout}
-                    cut={step.cut}
-                    isTerminal={false}
-                    key={step.cut.id}
-                    onChoiceClick={(choice) => onChoiceClick(choice, step.cut.id)}
-                    onReset={onReset}
-                    onUserNameChange={onUserNameChange}
-                    pendingChoice={pendingChoice && pendingChoice.cutId === step.cut.id ? pendingChoice : null}
-                    userName={userName}
-                    visibleChoices={step.visibleChoices}
-                  />
-                ))}
-
+      <div
+        className="relative flex h-dvh overflow-hidden items-stretch justify-stretch sm:items-center sm:justify-center"
+        data-testid="viewer-scroll-surface"
+        onTouchCancel={handleViewerSurfaceTouchEnd}
+        onTouchEnd={handleViewerSurfaceTouchEnd}
+        onTouchMove={handleViewerSurfaceTouchMove}
+        onTouchStart={handleViewerSurfaceTouchStart}
+        onWheel={handleViewerSurfaceWheel}
+      >
+        <div className="flex h-full w-full items-stretch justify-stretch overflow-hidden sm:items-center sm:justify-center">
+          <div
+            className="relative h-dvh w-full overflow-hidden bg-black sm:h-[min(100dvh,calc(100vw*16/9))] sm:w-[min(100vw,calc(100dvh*9/16))] sm:rounded-[34px] sm:border sm:border-white/10 sm:shadow-[0_32px_120px_rgba(0,0,0,0.55)]"
+            data-testid="viewer-frame"
+          >
+            <div className="relative h-full w-full bg-[#101015]">
+              <div
+                className="scrollbar-hidden relative z-10 h-full overflow-x-hidden overflow-y-auto"
+                data-testid="viewer-scroll-container"
+                onScroll={handleViewerScroll}
+                ref={scrollContainerRef}
+              >
                 <AnimatePresence mode="wait">
-                  {terminalStep ? (
-                    <ViewerContent
-                      animated
-                      canGoBack={canGoBack}
-                      compact={useCompactLayout}
-                      cut={terminalStep.cut}
-                      isTerminal
-                      key={terminalStep.cut.id}
-                      onChoiceClick={(choice) => onChoiceClick(choice, terminalStep.cut.id)}
-                      onReset={onReset}
-                      onUserNameChange={onUserNameChange}
-                      onShare={terminalCut.isEnding || terminalCut.kind === 'ending' ? onShare : undefined}
-                      pendingChoice={pendingChoice && pendingChoice.cutId === terminalStep.cut.id ? pendingChoice : null}
-                      userName={userName}
-                      visibleChoices={terminalStep.visibleChoices}
-                    />
+                  {pathStartStep && terminalStep ? (
+                    <motion.div
+                      animate="animate"
+                      className="w-full overflow-hidden will-change-transform"
+                      custom={buildCutEffectMotionCustom(
+                        pathStartStep.renderCut.startEffect,
+                        terminalStep.renderCut.endEffect,
+                        pathStartStep.renderCut.startEffectDurationMs,
+                        terminalStep.renderCut.endEffectDurationMs
+                      )}
+                      data-active-cut-end-effect={terminalStep.renderCut.endEffect ?? 'none'}
+                      data-active-cut-end-duration-ms={terminalStep.renderCut.endEffectDurationMs ?? ''}
+                      data-active-cut-id={pathStartStep.cut.id}
+                      data-active-cut-start-effect={pathStartStep.renderCut.startEffect ?? 'none'}
+                      data-active-cut-start-duration-ms={pathStartStep.renderCut.startEffectDurationMs ?? ''}
+                      data-cut-id={pathStartStep.cut.id}
+                      data-end-effect={terminalStep.renderCut.endEffect ?? 'none'}
+                      data-path-step-key={pathStepKey}
+                      data-render-cut-id={pathStartStep.renderCut.id}
+                      data-start-effect={pathStartStep.renderCut.startEffect ?? 'none'}
+                      exit="exit"
+                      initial="initial"
+                      key={pathStartKey}
+                      onAnimationComplete={(definition) => {
+                        if (definition === 'animate') {
+                          onPathEnterComplete(pathStartStep.cut.id);
+                        }
+                      }}
+                      variants={cutEffectVariants}
+                    >
+                      {pathSteps.map((step, index) => {
+                        const isTerminalStep = index === pathSteps.length - 1;
+
+                        return (
+                          <ViewerContent
+                            canGoBack={canGoBack}
+                            compact={isPathCompact}
+                            cut={step.renderCut}
+                            isTerminal={isTerminalStep}
+                            key={`${step.cut.id}:${step.renderCut.id}`}
+                            onChoiceClick={(choice) => onChoiceClick(choice, step.cut.id)}
+                            onReset={onReset}
+                            onUserNameChange={onUserNameChange}
+                            onShare={isTerminalStep && isPromptoonEndingCut(terminalCut) ? onShare : undefined}
+                            pendingChoice={pendingChoice && pendingChoice.cutId === step.cut.id ? pendingChoice : null}
+                            userName={userName}
+                            visibleChoices={step.visibleChoices}
+                          />
+                        );
+                      })}
+                    </motion.div>
                   ) : null}
                 </AnimatePresence>
               </div>

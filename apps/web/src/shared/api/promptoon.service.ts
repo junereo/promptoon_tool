@@ -1,17 +1,24 @@
 import type {
   AssetUploadResponse,
   AnalyticsEpisodeResponse,
+  AnalyticsResetScope,
+  AnalyticsViewGranularity,
+  AnalyticsViewRange,
   Choice,
   CreateChoiceRequest,
   CreateCutRequest,
   Cut,
+  DeleteCutRequest,
   EpisodeDraftResponse,
   FeedResponse,
   PatchChoiceRequest,
+  PatchEpisodeCutLayoutRequest,
+  PatchEpisodeCutLayoutResponse,
   PatchCutRequest,
   Publish,
   ReorderEpisodeCutsRequest,
   ReorderEpisodeCutsResponse,
+  ResetEpisodeAnalyticsRequest,
   TelemetryEventRequest,
   ValidateEpisodeResponse
 } from '@promptoon/shared';
@@ -41,8 +48,8 @@ export const promptoonService = {
     return data;
   },
 
-  async deleteCut(cutId: string): Promise<void> {
-    await apiClient.delete(`/cuts/${cutId}`);
+  async deleteCut(cutId: string, payload?: DeleteCutRequest): Promise<void> {
+    await apiClient.delete(`/cuts/${cutId}`, payload ? { data: payload } : undefined);
   },
 
   async createChoice(cutId: string, payload: CreateChoiceRequest): Promise<Choice> {
@@ -61,6 +68,11 @@ export const promptoonService = {
 
   async reorderCuts(episodeId: string, payload: ReorderEpisodeCutsRequest): Promise<ReorderEpisodeCutsResponse> {
     const { data } = await apiClient.patch(`/episodes/${episodeId}/cuts/reorder`, payload);
+    return data;
+  },
+
+  async patchCutLayout(episodeId: string, payload: PatchEpisodeCutLayoutRequest): Promise<PatchEpisodeCutLayoutResponse> {
+    const { data } = await apiClient.patch(`/episodes/${episodeId}/cuts/layout`, payload);
     return data;
   },
 
@@ -107,8 +119,23 @@ export const promptoonService = {
     await publicApiClient.post('/telemetry/events', payload);
   },
 
-  async getEpisodeAnalytics(episodeId: string): Promise<AnalyticsEpisodeResponse> {
-    const { data } = await apiClient.get(`/analytics/episodes/${episodeId}`);
+  async getEpisodeAnalytics(
+    episodeId: string,
+    viewsGranularity: AnalyticsViewGranularity,
+    viewsRange: AnalyticsViewRange = {}
+  ): Promise<AnalyticsEpisodeResponse> {
+    const { data } = await apiClient.get(`/analytics/episodes/${episodeId}`, {
+      params: {
+        viewsGranularity,
+        viewsFrom: viewsRange.from,
+        viewsTo: viewsRange.to
+      }
+    });
     return data;
+  },
+
+  async resetEpisodeAnalytics(episodeId: string, scope: AnalyticsResetScope): Promise<void> {
+    const payload: ResetEpisodeAnalyticsRequest = { scope };
+    await apiClient.post(`/analytics/episodes/${episodeId}/reset`, payload);
   }
 };

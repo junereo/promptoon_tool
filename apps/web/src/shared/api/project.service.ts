@@ -1,10 +1,23 @@
-import type { CreateEpisodeRequest, CreateProjectRequest, Episode, Project, ProjectWithEpisodes } from '@promptoon/shared';
+import type {
+  CreateEpisodeRequest,
+  CreateProjectRequest,
+  Episode,
+  PatchEpisodeRequest,
+  Project,
+  ProjectWithEpisodes,
+  PromptoonBackupExport
+} from '@promptoon/shared';
 
 import { apiClient } from './client';
 
 export const projectService = {
   async getProjects(): Promise<ProjectWithEpisodes[]> {
     const { data } = await apiClient.get('/projects');
+    return data;
+  },
+
+  async exportBackup(): Promise<PromptoonBackupExport> {
+    const { data } = await apiClient.get('/backup/export');
     return data;
   },
 
@@ -16,6 +29,10 @@ export const projectService = {
   async createEpisode(projectId: string, payload: CreateEpisodeRequest): Promise<Episode> {
     const { data } = await apiClient.post(`/projects/${projectId}/episodes`, payload);
     return data;
+  },
+
+  async patchEpisode(episodeId: string, payload: PatchEpisodeRequest): Promise<Episode> {
+    const { data } = await apiClient.patch(`/episodes/${episodeId}`, payload);
+    return data;
   }
 };
-

@@ -2,14 +2,22 @@ import type { Cut } from '@promptoon/shared';
 
 export function DeleteCutConfirmModal({
   cut,
+  incomingChoiceCount,
   isDeleting,
   onCancel,
-  onConfirm
+  onConfirm,
+  onReconnectChange,
+  reconnectCandidates,
+  reconnectToCutId
 }: {
   cut: Cut | null;
+  incomingChoiceCount: number;
   isDeleting: boolean;
   onCancel: () => void;
   onConfirm: () => void;
+  onReconnectChange: (cutId: string | null) => void;
+  reconnectCandidates: Cut[];
+  reconnectToCutId: string | null;
 }) {
   if (!cut) {
     return null;
@@ -47,6 +55,33 @@ export function DeleteCutConfirmModal({
             컷이 삭제되며 되돌릴 수 없습니다.
           </p>
         </div>
+
+        {incomingChoiceCount > 0 ? (
+          <div className="mt-4 rounded-2xl border border-editor-border bg-black/15 px-4 py-3">
+            <label className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500" htmlFor="delete-cut-reconnect">
+              Reconnect incoming choices
+            </label>
+            <select
+              className="mt-2 w-full rounded-xl border border-editor-border bg-[#18181d] px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-editor-accent disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={isDeleting}
+              id="delete-cut-reconnect"
+              onChange={(event) => onReconnectChange(event.target.value || null)}
+              value={reconnectToCutId ?? ''}
+            >
+              <option value="">Do not reconnect</option>
+              {reconnectCandidates.map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {candidate.title}
+                </option>
+              ))}
+            </select>
+            <p className="mt-2 text-xs leading-5 text-zinc-500">
+              {incomingChoiceCount}
+              {' '}
+              incoming choice{incomingChoiceCount === 1 ? '' : 's'} can be pointed to the selected next cut before deletion.
+            </p>
+          </div>
+        ) : null}
 
         <div className="mt-6 flex justify-end gap-3">
           <button

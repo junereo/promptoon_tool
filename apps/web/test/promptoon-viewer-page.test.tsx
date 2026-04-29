@@ -200,6 +200,12 @@ describe('PromptoonViewerPage', () => {
 
     expect(document.querySelector('[data-active-cut-end-effect="slide-left"]')).toBeTruthy();
     expect(document.querySelector('[data-cut-id="cut-start"]')?.getAttribute('data-start-effect')).toBe('fade');
+    const scrollContainer = screen.getByTestId('viewer-scroll-container');
+    Object.defineProperty(scrollContainer, 'scrollTop', {
+      configurable: true,
+      writable: true,
+      value: 0
+    });
 
     fireEvent.click(await screen.findByRole('button', { name: '앞으로' }));
     expect(await screen.findByText('여기가 끝입니다.')).toBeTruthy();
@@ -211,15 +217,346 @@ describe('PromptoonViewerPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '앞으로' }));
     expect(await screen.findByText('여기가 끝입니다.')).toBeTruthy();
+    scrollContainer.scrollTop = 640;
     fireEvent.click(screen.getByRole('button', { name: '다시 보기' }));
 
     await waitFor(() => {
       expect(screen.getByText('어디로 갈까요?')).toBeTruthy();
     });
+    expect(scrollContainer.scrollTop).toBe(0);
+
+    scrollContainer.scrollTop = 520;
+    fireEvent.click(screen.getByRole('button', { name: '앞으로' }));
+    expect(await screen.findByText('여기가 끝입니다.')).toBeTruthy();
+    expect(scrollContainer.scrollTop).toBe(0);
 
     const payloads = await getTelemetryPayloads();
     expect(payloads.some((payload) => payload.eventType === 'choice_click' && payload.choiceId === 'choice-linked')).toBe(true);
     expect(payloads.some((payload) => payload.eventType === 'ending_reach' && payload.cutId === 'cut-end')).toBe(true);
+  });
+
+  it('stores choice state and renders state-specific cut variants while following the base flow', async () => {
+    publishedEpisode = {
+      ...publishedEpisode,
+      manifest: {
+        ...publishedEpisode.manifest,
+        cuts: [
+          {
+            id: 'cut-start',
+            kind: 'choice',
+            title: '시작',
+            body: '처음 선택하세요.',
+            dialogAnchorX: 'left',
+            dialogAnchorY: 'bottom',
+            dialogOffsetX: 0,
+            dialogOffsetY: 0,
+            dialogTextAlign: 'left',
+            startEffect: 'fade',
+            endEffect: 'slide-left',
+            startEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            endEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            assetUrl: null,
+            positionX: 0,
+            positionY: 0,
+            orderIndex: 0,
+            isStart: true,
+            isEnding: false,
+            choices: [
+              {
+                id: 'choice-a',
+                label: 'A 선택',
+                orderIndex: 0,
+                nextCutId: 'cut-common',
+                stateWrites: [{ key: 'first_route', value: 'A' }]
+              },
+              {
+                id: 'choice-b',
+                label: 'B 선택',
+                orderIndex: 1,
+                nextCutId: 'cut-common',
+                stateWrites: [{ key: 'first_route', value: 'B' }]
+              }
+            ]
+          },
+          {
+            id: 'cut-common',
+            kind: 'scene',
+            title: '공통',
+            body: '공통 기본 연출입니다.',
+            dialogAnchorX: 'left',
+            dialogAnchorY: 'bottom',
+            dialogOffsetX: 0,
+            dialogOffsetY: 0,
+            dialogTextAlign: 'left',
+            startEffect: 'fade',
+            endEffect: 'fade',
+            startEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            endEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            assetUrl: null,
+            positionX: 0,
+            positionY: 0,
+            orderIndex: 1,
+            isStart: false,
+            isEnding: false,
+            stateVariants: [
+              {
+                id: 'variant-a',
+                stateKey: 'first_route',
+                equals: 'A',
+                variantCutId: 'cut-route-a'
+              }
+            ],
+            choices: [
+              {
+                id: 'choice-common-next',
+                label: '공통 다음',
+                orderIndex: 0,
+                nextCutId: 'cut-end'
+              }
+            ]
+          },
+          {
+            id: 'cut-route-a',
+            kind: 'scene',
+            title: 'A 연출',
+            body: 'A 전용 연출입니다.',
+            dialogAnchorX: 'left',
+            dialogAnchorY: 'bottom',
+            dialogOffsetX: 0,
+            dialogOffsetY: 0,
+            dialogTextAlign: 'left',
+            startEffect: 'zoom-in',
+            endEffect: 'fade',
+            startEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            endEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            assetUrl: null,
+            positionX: 0,
+            positionY: 0,
+            orderIndex: 2,
+            isStart: false,
+            isEnding: false,
+            choices: []
+          },
+          {
+            id: 'cut-end',
+            kind: 'ending',
+            title: '엔딩',
+            body: '공통 엔딩입니다.',
+            dialogAnchorX: 'left',
+            dialogAnchorY: 'bottom',
+            dialogOffsetX: 0,
+            dialogOffsetY: 0,
+            dialogTextAlign: 'left',
+            startEffect: 'fade',
+            endEffect: 'none',
+            startEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            endEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            assetUrl: null,
+            positionX: 0,
+            positionY: 0,
+            orderIndex: 3,
+            isStart: false,
+            isEnding: true,
+            choices: []
+          }
+        ]
+      }
+    };
+
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'A 선택' }));
+
+    expect(await screen.findByText('A 전용 연출입니다.')).toBeTruthy();
+    expect(screen.queryByText('공통 기본 연출입니다.')).toBeNull();
+    expect(await screen.findByText('공통 엔딩입니다.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '공통 다음' })).toBeNull();
+    expect(JSON.parse(window.localStorage.getItem('promptoon:viewer-state:publish-1') ?? '{}')).toEqual({
+      first_route: 'A'
+    });
+
+    await waitFor(() => {
+      expect(sendBeaconMock).toHaveBeenCalled();
+    });
+
+    const payloads = await getTelemetryPayloads();
+    expect(payloads.some((payload) => payload.eventType === 'cut_view' && payload.cutId === 'cut-common')).toBe(true);
+    expect(payloads.some((payload) => payload.eventType === 'cut_view' && payload.cutId === 'cut-route-a')).toBe(false);
+  });
+
+  it('routes through invisible state router cuts using stored choice state', async () => {
+    publishedEpisode = {
+      ...publishedEpisode,
+      manifest: {
+        ...publishedEpisode.manifest,
+        cuts: [
+          {
+            id: 'cut-start',
+            kind: 'choice',
+            title: '시작',
+            body: '첫 선택입니다.',
+            dialogAnchorX: 'left',
+            dialogAnchorY: 'bottom',
+            dialogOffsetX: 0,
+            dialogOffsetY: 0,
+            dialogTextAlign: 'left',
+            startEffect: 'fade',
+            endEffect: 'slide-left',
+            startEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            endEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            assetUrl: null,
+            positionX: 0,
+            positionY: 0,
+            orderIndex: 0,
+            isStart: true,
+            isEnding: false,
+            choices: [
+              {
+                id: 'choice-a',
+                label: 'A 선택',
+                orderIndex: 0,
+                nextCutId: 'cut-router',
+                stateWrites: [{ key: 'first_route', value: 'A' }]
+              },
+              {
+                id: 'choice-b',
+                label: 'B 선택',
+                orderIndex: 1,
+                nextCutId: 'cut-router',
+                stateWrites: [{ key: 'first_route', value: 'B' }]
+              }
+            ]
+          },
+          {
+            id: 'cut-router',
+            kind: 'stateRouter',
+            title: '상태 분기',
+            body: '보이면 안 되는 라우터입니다.',
+            dialogAnchorX: 'left',
+            dialogAnchorY: 'bottom',
+            dialogOffsetX: 0,
+            dialogOffsetY: 0,
+            dialogTextAlign: 'left',
+            startEffect: 'none',
+            endEffect: 'none',
+            startEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            endEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            assetUrl: null,
+            positionX: 0,
+            positionY: 0,
+            orderIndex: 1,
+            isStart: false,
+            isEnding: false,
+            stateRoutes: [
+              {
+                id: 'route-a',
+                stateKey: 'first_route',
+                equals: 'A',
+                nextCutId: 'cut-route-a'
+              }
+            ],
+            stateFallbackCutId: 'cut-route-b',
+            choices: []
+          },
+          {
+            id: 'cut-route-a',
+            kind: 'scene',
+            title: 'A 루트',
+            body: 'A 루트 실제 컷입니다.',
+            dialogAnchorX: 'left',
+            dialogAnchorY: 'bottom',
+            dialogOffsetX: 0,
+            dialogOffsetY: 0,
+            dialogTextAlign: 'left',
+            startEffect: 'zoom-in',
+            endEffect: 'fade',
+            startEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            endEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            assetUrl: null,
+            positionX: 0,
+            positionY: 0,
+            orderIndex: 2,
+            isStart: false,
+            isEnding: false,
+            choices: [
+              {
+                id: 'choice-a-end',
+                label: '엔딩으로',
+                orderIndex: 0,
+                nextCutId: 'cut-end'
+              }
+            ]
+          },
+          {
+            id: 'cut-route-b',
+            kind: 'scene',
+            title: 'B 루트',
+            body: 'B 루트 기본 컷입니다.',
+            dialogAnchorX: 'left',
+            dialogAnchorY: 'bottom',
+            dialogOffsetX: 0,
+            dialogOffsetY: 0,
+            dialogTextAlign: 'left',
+            startEffect: 'fade',
+            endEffect: 'fade',
+            startEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            endEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            assetUrl: null,
+            positionX: 0,
+            positionY: 0,
+            orderIndex: 3,
+            isStart: false,
+            isEnding: false,
+            choices: [
+              {
+                id: 'choice-b-end',
+                label: '엔딩으로',
+                orderIndex: 0,
+                nextCutId: 'cut-end'
+              }
+            ]
+          },
+          {
+            id: 'cut-end',
+            kind: 'ending',
+            title: '엔딩',
+            body: '라우터 이후 엔딩입니다.',
+            dialogAnchorX: 'left',
+            dialogAnchorY: 'bottom',
+            dialogOffsetX: 0,
+            dialogOffsetY: 0,
+            dialogTextAlign: 'left',
+            startEffect: 'fade',
+            endEffect: 'none',
+            startEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            endEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            assetUrl: null,
+            positionX: 0,
+            positionY: 0,
+            orderIndex: 4,
+            isStart: false,
+            isEnding: true,
+            choices: []
+          }
+        ]
+      }
+    };
+
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'A 선택' }));
+
+    expect(await screen.findByText('A 루트 실제 컷입니다.')).toBeTruthy();
+    expect(screen.queryByText('보이면 안 되는 라우터입니다.')).toBeNull();
+    expect(screen.queryByText('B 루트 기본 컷입니다.')).toBeNull();
+    expect(await screen.findByText('라우터 이후 엔딩입니다.')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '이전으로' }));
+    expect(await screen.findByText('첫 선택입니다.')).toBeTruthy();
+
+    const payloads = await getTelemetryPayloads();
+    expect(payloads.some((payload) => payload.eventType === 'cut_view' && payload.cutId === 'cut-router')).toBe(false);
+    expect(payloads.some((payload) => payload.eventType === 'cut_view' && payload.cutId === 'cut-route-a')).toBe(true);
   });
 
   it('shows a spoiler-safe banner for shared endings and dismisses it after the first forward navigation', async () => {
@@ -438,6 +775,141 @@ describe('PromptoonViewerPage', () => {
     expect(payloads.some((payload) => payload.eventType === 'ending_reach' && payload.cutId === 'cut-end')).toBe(true);
   });
 
+  it('animates the immediate next cut when a choice enters an auto-expanded scene chain', async () => {
+    publishedEpisode = {
+      ...publishedEpisode,
+      manifest: {
+        ...publishedEpisode.manifest,
+        cuts: [
+          {
+            id: 'cut-start',
+            kind: 'choice',
+            title: '선택',
+            body: '어디로 갈까요?',
+            dialogAnchorX: 'left',
+            dialogAnchorY: 'bottom',
+            dialogOffsetX: 0,
+            dialogOffsetY: 0,
+            dialogTextAlign: 'left',
+            startEffect: 'fade',
+            endEffect: 'slide-left',
+            startEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            endEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            assetUrl: null,
+            positionX: 0,
+            positionY: 0,
+            orderIndex: 0,
+            isStart: true,
+            isEnding: false,
+            choices: [
+              {
+                id: 'choice-linked',
+                label: '다음으로',
+                orderIndex: 0,
+                nextCutId: 'cut-middle'
+              }
+            ]
+          },
+          {
+            id: 'cut-middle',
+            kind: 'scene',
+            title: '중간',
+            body: '줌인으로 들어옵니다.',
+            dialogAnchorX: 'left',
+            dialogAnchorY: 'bottom',
+            dialogOffsetX: 0,
+            dialogOffsetY: 0,
+            dialogTextAlign: 'left',
+            startEffect: 'zoom-in',
+            endEffect: 'fade',
+            startEffectDurationMs: 1000,
+            endEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            assetUrl: null,
+            positionX: 0,
+            positionY: 0,
+            orderIndex: 1,
+            isStart: false,
+            isEnding: false,
+            choices: [
+              {
+                id: 'choice-middle',
+                label: '갈림길로',
+                orderIndex: 0,
+                nextCutId: 'cut-branch'
+              }
+            ]
+          },
+          {
+            id: 'cut-branch',
+            kind: 'choice',
+            title: '분기',
+            body: '분기까지 이어집니다.',
+            dialogAnchorX: 'left',
+            dialogAnchorY: 'bottom',
+            dialogOffsetX: 0,
+            dialogOffsetY: 0,
+            dialogTextAlign: 'left',
+            startEffect: 'fade',
+            endEffect: 'slide-left',
+            startEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            endEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            assetUrl: null,
+            positionX: 0,
+            positionY: 0,
+            orderIndex: 2,
+            isStart: false,
+            isEnding: false,
+            choices: [
+              {
+                id: 'choice-branch-left',
+                label: '왼쪽으로',
+                orderIndex: 0,
+                nextCutId: 'cut-end'
+              }
+            ]
+          },
+          {
+            id: 'cut-end',
+            kind: 'ending',
+            title: '엔딩',
+            body: '마지막 컷입니다.',
+            dialogAnchorX: 'left',
+            dialogAnchorY: 'bottom',
+            dialogOffsetX: 0,
+            dialogOffsetY: 0,
+            dialogTextAlign: 'left',
+            startEffect: 'zoom-in',
+            endEffect: 'none',
+            startEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            endEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+            assetUrl: null,
+            positionX: 0,
+            positionY: 0,
+            orderIndex: 3,
+            isStart: false,
+            isEnding: true,
+            choices: []
+          }
+        ]
+      }
+    };
+
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: '다음으로' }));
+
+    expect(await screen.findByText('줌인으로 들어옵니다.')).toBeTruthy();
+    const activePath = document.querySelector('[data-active-cut-id="cut-middle"]');
+    expect(activePath?.getAttribute('data-active-cut-start-effect')).toBe('zoom-in');
+    expect(activePath?.getAttribute('data-active-cut-start-duration-ms')).toBe('1000');
+    expect(screen.queryByText('분기까지 이어집니다.')).toBeNull();
+    expect(screen.queryByRole('button', { name: '갈림길로' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '왼쪽으로' })).toBeNull();
+
+    expect(await screen.findByText('분기까지 이어집니다.', {}, { timeout: 1600 })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '왼쪽으로' })).toBeTruthy();
+  });
+
   it('keeps a single linked choice clickable for non-scene cuts', async () => {
     publishedEpisode = {
       ...publishedEpisode,
@@ -522,5 +994,95 @@ describe('PromptoonViewerPage', () => {
 
     expect(await screen.findByText('어디로 갈까요?')).toBeTruthy();
     expect(document.querySelector('[data-cut-id="cut-start"]')?.getAttribute('data-start-effect')).toBe('none');
+  });
+
+  it('only shows viewer controls at the top or bottom of the scroll container', async () => {
+    renderPage();
+
+    expect(await screen.findByText('어디로 갈까요?')).toBeTruthy();
+
+    const controls = screen.getByTestId('viewer-controls');
+    const scrollContainer = screen.getByTestId('viewer-scroll-container');
+
+    Object.defineProperties(scrollContainer, {
+      clientHeight: {
+        configurable: true,
+        value: 500
+      },
+      scrollHeight: {
+        configurable: true,
+        value: 1200
+      }
+    });
+
+    expect(controls.className).toContain('opacity-100');
+
+    Object.defineProperty(scrollContainer, 'scrollTop', {
+      configurable: true,
+      value: 240
+    });
+    fireEvent.scroll(scrollContainer);
+
+    await waitFor(() => {
+      expect(controls.className).toContain('opacity-0');
+    });
+
+    fireEvent.pointerMove(screen.getByText('어디로 갈까요?'));
+    expect(controls.className).toContain('opacity-0');
+
+    Object.defineProperty(scrollContainer, 'scrollTop', {
+      configurable: true,
+      value: 700
+    });
+    fireEvent.scroll(scrollContainer);
+
+    await waitFor(() => {
+      expect(controls.className).toContain('opacity-100');
+    });
+  });
+
+  it('uses a single scroll container inside the responsive 9:16 viewer frame', async () => {
+    renderPage();
+
+    expect(await screen.findByText('어디로 갈까요?')).toBeTruthy();
+
+    const frame = screen.getByTestId('viewer-frame');
+    const scrollContainer = screen.getByTestId('viewer-scroll-container');
+
+    expect(frame.className).toContain('overflow-hidden');
+    expect(frame.className).toContain('sm:h-[min(100dvh,calc(100vw*16/9))]');
+    expect(frame.className).toContain('sm:w-[min(100vw,calc(100dvh*9/16))]');
+    expect(frame.className).not.toContain('sm:max-w-[420px]');
+    expect(scrollContainer.className).toContain('overflow-y-auto');
+    expect(scrollContainer.className).toContain('h-full');
+  });
+
+  it('forwards scroll gestures from the frame gutter into the viewer scroll container', async () => {
+    renderPage();
+
+    expect(await screen.findByText('어디로 갈까요?')).toBeTruthy();
+
+    const scrollSurface = screen.getByTestId('viewer-scroll-surface');
+    const scrollContainer = screen.getByTestId('viewer-scroll-container');
+
+    Object.defineProperty(scrollContainer, 'scrollTop', {
+      configurable: true,
+      writable: true,
+      value: 0
+    });
+    Object.defineProperties(scrollContainer, {
+      clientHeight: {
+        configurable: true,
+        value: 500
+      },
+      scrollHeight: {
+        configurable: true,
+        value: 1200
+      }
+    });
+
+    fireEvent.wheel(scrollSurface, { deltaY: 180 });
+
+    expect(scrollContainer.scrollTop).toBe(180);
   });
 });

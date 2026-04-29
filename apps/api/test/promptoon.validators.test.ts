@@ -11,6 +11,7 @@ function buildDraft(overrides?: Partial<EpisodeDraftResponse>): EpisodeDraftResp
       projectId: '22222222-2222-2222-2222-222222222222',
       title: 'Episode 1',
       episodeNo: 1,
+      coverImageUrl: '/uploads/cover.jpg',
       startCutId: '33333333-3333-3333-3333-333333333333',
       status: 'draft',
       createdAt: new Date().toISOString(),
@@ -88,6 +89,61 @@ describe('validateEpisodeGraph', () => {
     expect(result.errors).toHaveLength(0);
   });
 
+  it('treats resultCard cuts as endings even without isEnding set', () => {
+    const baseDraft = buildDraft();
+    const resultCardCut = {
+      ...baseDraft.cuts[1],
+      kind: 'resultCard' as const,
+      title: 'Result Card',
+      isEnding: false,
+      contentBlocks: [
+        {
+          id: 'result-card-1',
+          type: 'resultCard' as const,
+          templateId: 'the-replace-final' as const,
+          theme: 'blue' as const,
+          badge: 'TYPE 01',
+          resultName: '합리적인 가해자',
+          tagline: '알면서도 손을 들었다',
+          lines: ['당신은 명확히 보았다.'],
+          inflowLabel: 'CHECK IN',
+          inflowUrl: 'promtoon.ai',
+          inflowBrand: 'PROMTOON',
+          inflowTagline: '반응형 웹툰'
+        }
+      ]
+    };
+
+    const result = validateEpisodeGraph(
+      buildDraft({
+        cuts: [baseDraft.cuts[0], resultCardCut],
+        choices: [
+          {
+            ...baseDraft.choices[0],
+            nextCutId: resultCardCut.id
+          }
+        ]
+      })
+    );
+
+    expect(result.isValid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it('warns when the episode cover image is missing without blocking validation', () => {
+    const result = validateEpisodeGraph(
+      buildDraft({
+        episode: {
+          ...buildDraft().episode,
+          coverImageUrl: null
+        }
+      })
+    );
+
+    expect(result.isValid).toBe(true);
+    expect(result.warnings.some((issue) => issue.code === 'missing_episode_cover')).toBe(true);
+  });
+
   it('rejects multiple start cuts', () => {
     const draft = buildDraft({
       cuts: [
@@ -122,6 +178,154 @@ describe('validateEpisodeGraph', () => {
     const result = validateEpisodeGraph(draft);
     expect(result.isValid).toBe(false);
     expect(result.errors.some((issue) => issue.code === 'unreachable_cut')).toBe(true);
+  });
+
+  it('allows render-only state variant cuts referenced from a reachable cut', () => {
+    const draft = buildDraft({
+      cuts: [
+        {
+          ...buildDraft().cuts[0],
+          stateVariants: [
+            {
+              id: 'variant-1',
+              stateKey: 'first_route',
+              equals: 'A',
+              variantCutId: '77777777-7777-7777-7777-777777777777'
+            }
+          ]
+        },
+        buildDraft().cuts[1],
+        {
+          ...buildDraft().cuts[1],
+          id: '77777777-7777-7777-7777-777777777777',
+          kind: 'scene',
+          title: 'A Route Variant',
+          isEnding: false
+        }
+      ]
+    });
+
+    const result = validateEpisodeGraph(draft);
+    expect(result.isValid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it('rejects missing state variant targets', () => {
+    const draft = buildDraft({
+      cuts: [
+        {
+          ...buildDraft().cuts[0],
+          stateVariants: [
+            {
+              id: 'variant-1',
+              stateKey: 'first_route',
+              equals: 'A',
+              variantCutId: '77777777-7777-7777-7777-777777777777'
+            }
+          ]
+        },
+        buildDraft().cuts[1]
+      ]
+    });
+
+    const result = validateEpisodeGraph(draft);
+    expect(result.isValid).toBe(false);
+    expect(result.errors.some((issue) => issue.code === 'invalid_state_variant_target')).toBe(true);
+  });
+
+  it('treats state router routes and fallback as real graph edges', () => {
+    const baseDraft = buildDraft();
+    const routerCut = {
+      ...baseDraft.cuts[0],
+      id: '66666666-6666-6666-6666-666666666666',
+      kind: 'stateRouter' as const,
+      title: 'State Router',
+      isStart: false,
+      stateRoutes: [
+        {
+          id: 'route-a',
+          stateKey: 'first_route',
+          equals: 'A',
+          nextCutId: '77777777-7777-7777-7777-777777777777'
+        }
+      ],
+      stateFallbackCutId: '88888888-8888-8888-8888-888888888888'
+    };
+    const routeACut = {
+      ...baseDraft.cuts[1],
+      id: '77777777-7777-7777-7777-777777777777',
+      kind: 'scene' as const,
+      title: 'A Route',
+      isEnding: false
+    };
+    const fallbackCut = {
+      ...baseDraft.cuts[1],
+      id: '88888888-8888-8888-8888-888888888888',
+      kind: 'scene' as const,
+      title: 'Fallback',
+      isEnding: false
+    };
+
+    const result = validateEpisodeGraph(
+      buildDraft({
+        cuts: [baseDraft.cuts[0], routerCut, routeACut, fallbackCut, baseDraft.cuts[1]],
+        choices: [
+          {
+            ...baseDraft.choices[0],
+            nextCutId: routerCut.id
+          },
+          {
+            id: '99999999-9999-9999-9999-999999999991',
+            cutId: routeACut.id,
+            label: 'End',
+            orderIndex: 0,
+            nextCutId: baseDraft.cuts[1].id,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          },
+          {
+            id: '99999999-9999-9999-9999-999999999992',
+            cutId: fallbackCut.id,
+            label: 'End',
+            orderIndex: 0,
+            nextCutId: baseDraft.cuts[1].id,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          }
+        ]
+      })
+    );
+
+    expect(result.isValid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it('rejects state router cuts without fallback or routes', () => {
+    const baseDraft = buildDraft();
+    const routerCut = {
+      ...baseDraft.cuts[0],
+      id: '66666666-6666-6666-6666-666666666666',
+      kind: 'stateRouter' as const,
+      title: 'State Router',
+      isStart: false,
+      stateRoutes: []
+    };
+
+    const result = validateEpisodeGraph(
+      buildDraft({
+        cuts: [baseDraft.cuts[0], routerCut, baseDraft.cuts[1]],
+        choices: [
+          {
+            ...baseDraft.choices[0],
+            nextCutId: routerCut.id
+          }
+        ]
+      })
+    );
+
+    expect(result.isValid).toBe(false);
+    expect(result.errors.some((issue) => issue.code === 'missing_state_router_route')).toBe(true);
+    expect(result.errors.some((issue) => issue.code === 'missing_state_router_fallback')).toBe(true);
   });
 
   it('rejects dead paths that cannot reach an ending', () => {

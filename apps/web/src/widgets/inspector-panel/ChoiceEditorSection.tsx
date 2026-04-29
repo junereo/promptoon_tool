@@ -1,28 +1,47 @@
-import type { Choice, Cut, PatchChoiceRequest } from '@promptoon/shared';
+import type { Choice, ChoiceStateWrite, Cut, PatchChoiceRequest } from '@promptoon/shared';
 import { useEffect, useRef, useState } from 'react';
 
 import { useDebounce } from '../../shared/lib/use-debounce';
 
 function FieldLabel({ children }: { children: string }) {
-  return <label className="text-xs font-medium uppercase tracking-[0.2em] text-zinc-500">{children}</label>;
+  return <label className="text-[11px] font-medium text-zinc-500">{children}</label>;
 }
 
 function inputClassName() {
-  return 'mt-2 w-full rounded-2xl border border-editor-border bg-black/20 px-4 py-3 text-sm text-zinc-100 outline-none transition focus:border-editor-accentSoft';
+  return 'w-full rounded-lg border border-editor-border bg-black/20 px-2.5 py-1.5 text-xs text-zinc-100 outline-none transition focus:border-editor-accentSoft';
+}
+
+function fieldClassName() {
+  return 'grid min-w-0 gap-1';
 }
 
 interface ChoiceRowState {
   label: string;
   nextCutId: string;
   afterSelectReactionText: string;
+  stateWrites: ChoiceStateWrite[];
 }
 
 function toChoiceState(choice: Choice): ChoiceRowState {
   return {
     label: choice.label,
     nextCutId: choice.nextCutId ?? '',
-    afterSelectReactionText: choice.afterSelectReactionText ?? ''
+    afterSelectReactionText: choice.afterSelectReactionText ?? '',
+    stateWrites: choice.stateWrites ?? []
   };
+}
+
+function serializeStateWrites(stateWrites: ChoiceStateWrite[]): string {
+  return JSON.stringify(stateWrites);
+}
+
+function normalizeStateWrites(stateWrites: ChoiceStateWrite[]): ChoiceStateWrite[] {
+  return stateWrites
+    .map((stateWrite) => ({
+      key: stateWrite.key.trim(),
+      value: stateWrite.value.trim()
+    }))
+    .filter((stateWrite) => stateWrite.key.length > 0 && stateWrite.value.length > 0);
 }
 
 function buildChoicePatch(choice: Choice, rowState: ChoiceRowState): PatchChoiceRequest | null {
@@ -39,6 +58,11 @@ function buildChoicePatch(choice: Choice, rowState: ChoiceRowState): PatchChoice
 
   if (rowState.afterSelectReactionText !== (choice.afterSelectReactionText ?? '')) {
     patch.afterSelectReactionText = rowState.afterSelectReactionText;
+  }
+
+  const nextStateWrites = normalizeStateWrites(rowState.stateWrites);
+  if (serializeStateWrites(nextStateWrites) !== serializeStateWrites(choice.stateWrites ?? [])) {
+    patch.stateWrites = nextStateWrites;
   }
 
   return Object.keys(patch).length > 0 ? patch : null;
@@ -70,7 +94,7 @@ function ChoiceRow({
   useEffect(() => {
     latestChoiceRef.current = choice;
     setRowState(toChoiceState(choice));
-  }, [choice.id, choice.label, choice.nextCutId, choice.afterSelectReactionText]);
+  }, [choice.id, choice.label, choice.nextCutId, choice.afterSelectReactionText, choice.stateWrites]);
 
   const debouncedDraft = useDebounce(
     {
@@ -95,52 +119,131 @@ function ChoiceRow({
   return (
     <div
       className={[
-        'rounded-2xl border p-4 transition',
+        'min-w-0 shrink-0 overflow-hidden rounded-xl border p-2.5 transition',
         selected ? 'border-editor-accentSoft bg-editor-accent/10' : 'border-editor-border bg-editor-panelAlt/50'
       ].join(' ')}
     >
-      <button className="w-full text-left" onClick={onSelect} type="button">
-        <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Choice</p>
-      </button>
-
-      <input
-        className={inputClassName()}
-        onChange={(event) => setRowState((current) => ({ ...current, label: event.target.value }))}
-        type="text"
-        value={rowState.label}
-      />
-
-      <div className="mt-4">
-        <FieldLabel>Next Cut</FieldLabel>
-        <select
-          className={inputClassName()}
-          onChange={(event) => setRowState((current) => ({ ...current, nextCutId: event.target.value }))}
-          value={rowState.nextCutId}
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-1.5">
+        <button className="min-w-0 shrink text-left" onClick={onSelect} type="button">
+          <p className="text-xs font-medium text-zinc-500">선택지</p>
+        </button>
+        <button
+          className="shrink-0 rounded-lg border border-red-500/30 bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-200 transition hover:bg-red-500/20"
+          onClick={() => onDeleteChoice(choice.id)}
+          type="button"
         >
-          <option value="">No target</option>
-          {availableCuts.map((cut) => (
-            <option key={cut.id} value={cut.id}>
-              {cut.title}
-            </option>
-          ))}
-        </select>
+          삭제
+        </button>
       </div>
 
-      <div className="mt-4">
-        <FieldLabel>Reaction Text</FieldLabel>
+      <div className="inspector-choice-grid mt-2 grid min-w-0 items-start gap-2">
+        <div className={fieldClassName()}>
+          <FieldLabel>선택 문구</FieldLabel>
+          <input
+            className={inputClassName()}
+            onChange={(event) => setRowState((current) => ({ ...current, label: event.target.value }))}
+            type="text"
+            value={rowState.label}
+          />
+        </div>
+
+        <div className={fieldClassName()}>
+          <FieldLabel>다음 컷</FieldLabel>
+          <select
+            className={inputClassName()}
+            onChange={(event) => setRowState((current) => ({ ...current, nextCutId: event.target.value }))}
+            value={rowState.nextCutId}
+          >
+            <option value="">연결 안 함</option>
+            {availableCuts.map((cut) => (
+              <option key={cut.id} value={cut.id}>
+                {cut.title}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className={`${fieldClassName()} mt-2`}>
+        <FieldLabel>선택 후 반응 문구</FieldLabel>
         <textarea
-          className={`${inputClassName()} min-h-24 resize-y`}
+          className={`${inputClassName()} min-h-[3.25rem] resize-y`}
           onChange={(event) => setRowState((current) => ({ ...current, afterSelectReactionText: event.target.value }))}
           value={rowState.afterSelectReactionText}
         />
       </div>
-      <button
-        className="mt-4 rounded-full border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-200 transition hover:bg-red-500/20"
-        onClick={() => onDeleteChoice(choice.id)}
-        type="button"
-      >
-        Delete Choice
-      </button>
+
+      <div className="mt-2 rounded-xl border border-editor-border bg-black/10 p-2">
+        <div className="flex min-w-0 items-center justify-between gap-2">
+          <FieldLabel>상태 저장</FieldLabel>
+          <button
+            className="shrink-0 rounded-lg border border-editor-border bg-black/20 px-2 py-1 text-[11px] font-medium text-zinc-200 transition hover:border-editor-accentSoft"
+            onClick={() =>
+              setRowState((current) => ({
+                ...current,
+                stateWrites: [...current.stateWrites, { key: '', value: '' }]
+              }))
+            }
+            type="button"
+          >
+            + 추가
+          </button>
+        </div>
+
+        <div className="mt-2 space-y-2">
+          {rowState.stateWrites.length === 0 ? (
+            <p className="text-xs text-zinc-500">선택 시 저장할 상태가 없습니다.</p>
+          ) : (
+            rowState.stateWrites.map((stateWrite, index) => (
+              <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-1.5" key={`${index}:${stateWrite.key}`}>
+                <input
+                  aria-label="State key"
+                  className={inputClassName()}
+                  onChange={(event) =>
+                    setRowState((current) => ({
+                      ...current,
+                      stateWrites: current.stateWrites.map((currentStateWrite, currentIndex) =>
+                        currentIndex === index ? { ...currentStateWrite, key: event.target.value } : currentStateWrite
+                      )
+                    }))
+                  }
+                  placeholder="first_route"
+                  type="text"
+                  value={stateWrite.key}
+                />
+                <input
+                  aria-label="State value"
+                  className={inputClassName()}
+                  onChange={(event) =>
+                    setRowState((current) => ({
+                      ...current,
+                      stateWrites: current.stateWrites.map((currentStateWrite, currentIndex) =>
+                        currentIndex === index ? { ...currentStateWrite, value: event.target.value } : currentStateWrite
+                      )
+                    }))
+                  }
+                  placeholder="A"
+                  type="text"
+                  value={stateWrite.value}
+                />
+                <button
+                  aria-label="상태 저장 삭제"
+                  className="rounded-lg border border-editor-border bg-black/20 px-2 text-xs text-zinc-300 transition hover:border-red-400/60 hover:text-red-200"
+                  onClick={() =>
+                    setRowState((current) => ({
+                      ...current,
+                      stateWrites: current.stateWrites.filter((_, currentIndex) => currentIndex !== index)
+                    }))
+                  }
+                  type="button"
+                >
+                  삭제
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -165,24 +268,23 @@ export function ChoiceEditorSection({
   onDeleteChoice: (choiceId: string) => void;
 }) {
   return (
-    <section className="rounded-[24px] border border-editor-border bg-black/10 p-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="font-medium text-zinc-100">Choices</p>
-          <p className="text-sm text-zinc-500">This cut branches to other cuts in the episode.</p>
+    <section className="inspector-card ml-auto w-[26rem] max-w-full min-w-0 shrink-0 overflow-hidden rounded-[16px] border border-editor-border bg-black/10 p-2.5">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-1.5">
+        <div className="min-w-0">
+          <p className="font-medium text-zinc-100">선택지</p>
         </div>
         <button
-          className="rounded-full bg-editor-accent px-4 py-2 text-sm font-medium text-white transition hover:bg-editor-accentSoft"
+          className="shrink-0 rounded-lg bg-editor-accent px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-editor-accentSoft"
           onClick={() => onCreateChoice(cut.id)}
           type="button"
         >
-          + Choice
+          + 선택지
         </button>
       </div>
 
-      <div className="mt-4 space-y-4">
+      <div className="mt-2 min-w-0 space-y-2">
         {choices.length === 0 ? (
-          <p className="text-sm text-zinc-500">No choices yet for this cut.</p>
+          <p className="rounded-xl border border-dashed border-editor-border bg-black/10 px-3 py-2 text-xs text-zinc-500">이 컷에는 아직 선택지가 없습니다.</p>
         ) : (
           choices.map((choice) => (
             <ChoiceRow

@@ -4,7 +4,10 @@ import type {
   CreateChoiceRequest,
   CreateCutRequest,
   Cut,
+  DeleteCutRequest,
   EpisodeDraftResponse,
+  PatchEpisodeCutLayoutRequest,
+  PatchEpisodeCutLayoutResponse,
   PatchChoiceRequest,
   PatchCutRequest,
   Publish,
@@ -22,7 +25,7 @@ function mergeCutPatch(cut: Cut, patch: PatchCutRequest): Cut {
     ...cut,
     ...patch,
     assetUrl: Object.prototype.hasOwnProperty.call(patch, 'assetUrl') ? patch.assetUrl ?? null : cut.assetUrl,
-    isEnding: patch.isEnding !== undefined ? patch.isEnding : patch.kind === 'ending' ? true : cut.isEnding
+    isEnding: patch.isEnding !== undefined ? patch.isEnding : patch.kind === 'ending' || patch.kind === 'resultCard' ? true : cut.isEnding
   };
 }
 
@@ -101,6 +104,19 @@ function replaceCuts(draft: EpisodeDraftResponse | undefined, cuts: Cut[]): Epis
   };
 }
 
+function replaceUpdatedCuts(draft: EpisodeDraftResponse | undefined, cuts: Cut[]): EpisodeDraftResponse | undefined {
+  if (!draft) {
+    return draft;
+  }
+
+  const updatedCutById = new Map(cuts.map((cut) => [cut.id, cut]));
+
+  return {
+    ...draft,
+    cuts: draft.cuts.map((cut) => updatedCutById.get(cut.id) ?? cut)
+  };
+}
+
 type UpdateCutVariables = {
   cutId: string;
   payload: PatchCutRequest;
@@ -136,7 +152,7 @@ export function useDeleteCut(episodeId: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (cutId: string) => promptoonService.deleteCut(cutId),
+    mutationFn: ({ cutId, payload }: { cutId: string; payload?: DeleteCutRequest }) => promptoonService.deleteCut(cutId, payload),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: promptoonKeys.episodeDraft(episodeId) });
     }
@@ -271,6 +287,49 @@ export function useReorderCuts(episodeId: string) {
     },
     onSuccess: (response: ReorderEpisodeCutsResponse) => {
       queryClient.setQueryData<EpisodeDraftResponse | undefined>(queryKey, (draft) => replaceCuts(draft, response.cuts));
+    }
+  });
+}
+
+export function useSaveCutLayout(episodeId: string) {
+  const queryClient = useQueryClient();
+  const queryKey = promptoonKeys.episodeDraft(episodeId);
+
+  return useMutation<PatchEpisodeCutLayoutResponse, Error, PatchEpisodeCutLayoutRequest, { previousDraft?: EpisodeDraftResponse }>({
+    mutationFn: (payload) => promptoonService.patchCutLayout(episodeId, payload),
+    onMutate: async (payload) => {
+      await queryClient.cancelQueries({ queryKey });
+      const previousDraft = queryClient.getQueryData<EpisodeDraftResponse>(queryKey);
+      queryClient.setQueryData<EpisodeDraftResponse | undefined>(queryKey, (draft) => {
+        if (!draft) {
+          return draft;
+        }
+
+        const positionById = new Map(payload.cuts.map((cut) => [cut.cutId, cut]));
+        return {
+          ...draft,
+          cuts: draft.cuts.map((cut) => {
+            const position = positionById.get(cut.id);
+            return position
+              ? {
+                  ...cut,
+                  positionX: position.positionX,
+                  positionY: position.positionY
+                }
+              : cut;
+          })
+        };
+      });
+
+      return { previousDraft };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previousDraft) {
+        queryClient.setQueryData(queryKey, context.previousDraft);
+      }
+    },
+    onSuccess: (response) => {
+      queryClient.setQueryData<EpisodeDraftResponse | undefined>(queryKey, (draft) => replaceUpdatedCuts(draft, response.cuts));
     }
   });
 }

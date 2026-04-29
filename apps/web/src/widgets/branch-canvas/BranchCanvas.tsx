@@ -13,57 +13,84 @@ import {
   type NodeTypes,
   type NodeMouseHandler
 } from '@xyflow/react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 
+import { AddCutPlaceholderNode } from './AddCutPlaceholderNode';
 import { CutNode } from './CutNode';
+import {
+  getLinkedCreatePosition,
+  getSelectedBranchEndCut,
+  type GraphLayoutMode
+} from './graph-layout';
 import {
   isValidGraphConnection,
   mapChoicesToFlowEdges,
   mapCutsToFlowNodes,
   parseSourceHandle,
-  type CutFlowNode
+  type BranchFlowNode,
+  type AddCutPlaceholderFlowNode
 } from './graph-mapping';
+import { isPromptoonEndingCut } from '../../shared/lib/promptoon-ending';
 
 const nodeTypes = {
-  cutNode: CutNode
+  cutNode: CutNode,
+  addCutPlaceholderNode: AddCutPlaceholderNode
 } as NodeTypes;
 
-function getNodeCenter(node: CutFlowNode | undefined): { x: number; y: number } | null {
-  if (!node) {
-    return null;
+function buildFlowNodes(
+  cuts: Cut[],
+  choices: Choice[],
+  selected: EditorSelection,
+  onCreateLinkedCut: (sourceCutId: string, position: { x: number; y: number }) => void
+): BranchFlowNode[] {
+  const cutNodes = mapCutsToFlowNodes(cuts, choices, selected);
+  const branchEndCut = getSelectedBranchEndCut(cuts, choices, selected);
+
+  if (!branchEndCut || isPromptoonEndingCut(branchEndCut) || branchEndCut.kind === 'stateRouter') {
+    return cutNodes;
   }
 
-  const width = node.measured?.width ?? 240;
-  const height = node.measured?.height ?? 180;
-
-  return {
-    x: node.position.x + width / 2,
-    y: node.position.y + height / 2
+  const position = getLinkedCreatePosition(cuts, choices, branchEndCut.id);
+  const placeholderNode: AddCutPlaceholderFlowNode = {
+    id: `add-placeholder-${branchEndCut.id}`,
+    type: 'addCutPlaceholderNode',
+    position,
+    data: {
+      sourceCutId: branchEndCut.id,
+      position,
+      onCreate: onCreateLinkedCut
+    },
+    draggable: false,
+    selectable: false,
+    zIndex: 500
   };
+
+  return [...cutNodes, placeholderNode];
 }
 
-function getEdgeCenter(edge: Edge, nodes: CutFlowNode[]): { x: number; y: number } | null {
-  const sourceNode = nodes.find((node) => node.id === edge.source);
-  const targetNode = nodes.find((node) => node.id === edge.target);
-  const sourceCenter = getNodeCenter(sourceNode);
-  const targetCenter = getNodeCenter(targetNode);
-
-  if (sourceCenter && targetCenter) {
-    return {
-      x: (sourceCenter.x + targetCenter.x) / 2,
-      y: (sourceCenter.y + targetCenter.y) / 2
-    };
+export function shouldAutoFitGraph(previousCutIds: string[] | null, currentCutIds: string[]) {
+  if (currentCutIds.length === 0) {
+    return false;
   }
 
-  return sourceCenter ?? targetCenter;
+  if (!previousCutIds) {
+    return true;
+  }
+
+  return currentCutIds.length > previousCutIds.length;
 }
 
 function BranchCanvasInner({
   choices,
   onCreateChoiceConnection,
+  onCreateLinkedCut,
   cuts,
+  layoutMode,
   onConnectChoice,
+  onConnectStateFallback,
+  onConnectStateRoute,
   onDeleteChoice,
+  onApplyLayout,
   onMoveCut,
   onSelectChoice,
   onSelectCut,
@@ -71,23 +98,29 @@ function BranchCanvasInner({
 }: {
   choices: Choice[];
   onCreateChoiceConnection: (cutId: string, targetCutId: string) => void;
+  onCreateLinkedCut: (cutId: string, position: { x: number; y: number }) => void;
   cuts: Cut[];
+  layoutMode: GraphLayoutMode;
   onConnectChoice: (choiceId: string, targetCutId: string) => void;
+  onConnectStateFallback: (cutId: string, targetCutId: string) => void;
+  onConnectStateRoute: (cutId: string, stateRouteId: string, targetCutId: string) => void;
   onDeleteChoice: (choiceId: string) => void;
+  onApplyLayout: (mode: GraphLayoutMode) => void;
   onMoveCut: (cutId: string, position: { x: number; y: number }) => void;
   onSelectChoice: (choiceId: string) => void;
   onSelectCut: (cutId: string) => void;
   selected: EditorSelection;
 }) {
-  const { fitView, getZoom, setCenter } = useReactFlow();
-  const [nodes, setNodes, onNodesChange] = useNodesState<CutFlowNode>(mapCutsToFlowNodes(cuts, choices, selected));
-  const edges = mapChoicesToFlowEdges(choices, selected);
-  const lastFocusedSelectionRef = useRef<string | null>(null);
+  const { fitView } = useReactFlow();
+  const [nodes, setNodes, onNodesChange] = useNodesState<BranchFlowNode>(buildFlowNodes(cuts, choices, selected, onCreateLinkedCut));
+  const edges = mapChoicesToFlowEdges(choices, selected, cuts);
+  const autoFitCutIds = useMemo(() => cuts.map((cut) => cut.id), [cuts]);
+  const previousAutoFitCutIdsRef = useRef<string[] | null>(null);
   const canvasFrameRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    setNodes(mapCutsToFlowNodes(cuts, choices, selected));
-  }, [choices, cuts, selected, setNodes]);
+    setNodes(buildFlowNodes(cuts, choices, selected, onCreateLinkedCut));
+  }, [choices, cuts, onCreateLinkedCut, selected, setNodes]);
 
   useEffect(() => {
     function isEditableTarget(target: EventTarget | null) {
@@ -112,7 +145,10 @@ function BranchCanvasInner({
   }, [onDeleteChoice, selected]);
 
   useEffect(() => {
-    if (cuts.length === 0) {
+    const previousCutIds = previousAutoFitCutIdsRef.current;
+    previousAutoFitCutIdsRef.current = autoFitCutIds;
+
+    if (!shouldAutoFitGraph(previousCutIds, autoFitCutIds)) {
       return;
     }
 
@@ -121,14 +157,14 @@ function BranchCanvasInner({
         duration: 280,
         maxZoom: 1.2,
         minZoom: 0.45,
-        padding: 0.18
+        padding: 0.08
       });
     });
 
     return () => {
       window.cancelAnimationFrame(frameId);
     };
-  }, [cuts, edges.length, fitView]);
+  }, [autoFitCutIds, fitView]);
 
   function handleConnect(connection: Connection) {
     if (!isValidGraphConnection(connection)) {
@@ -145,97 +181,83 @@ function BranchCanvasInner({
       return;
     }
 
-    onConnectChoice(sourceHandle.choiceId, connection.target);
+    if (sourceHandle.kind === 'choice') {
+      onConnectChoice(sourceHandle.choiceId, connection.target);
+      return;
+    }
+
+    if (sourceHandle.kind === 'stateRoute') {
+      onConnectStateRoute(sourceHandle.cutId, sourceHandle.stateRouteId, connection.target);
+      return;
+    }
+
+    onConnectStateFallback(sourceHandle.cutId, connection.target);
   }
 
-  function focusPoint(point: { x: number; y: number } | null) {
-    if (!point) {
+  const handleNodeClick: NodeMouseHandler<BranchFlowNode> = (_event, node) => {
+    if (node.type !== 'cutNode') {
       return;
     }
 
-    if (typeof canvasFrameRef.current?.scrollIntoView === 'function') {
-      canvasFrameRef.current.scrollIntoView({
-        behavior: 'smooth',
-        block: 'center',
-        inline: 'nearest'
-      });
-    }
-
-    void setCenter(point.x, point.y, {
-      duration: 260,
-      zoom: Math.max(getZoom(), 0.85)
-    });
-  }
-
-  useEffect(() => {
-    const selectionKey = selected.type === 'none' ? null : `${selected.type}:${selected.id}`;
-    if (!selectionKey) {
-      lastFocusedSelectionRef.current = null;
-      return;
-    }
-
-    if (lastFocusedSelectionRef.current === selectionKey) {
-      return;
-    }
-
-    const frameId = window.requestAnimationFrame(() => {
-      if (selected.type === 'cut') {
-        focusPoint(getNodeCenter(nodes.find((node) => node.id === selected.id)));
-        lastFocusedSelectionRef.current = selectionKey;
-        return;
-      }
-
-      if (selected.type === 'choice') {
-        const edge = edges.find((currentEdge) => currentEdge.id === `edge-${selected.id}`);
-        if (edge) {
-          focusPoint(getEdgeCenter(edge, nodes));
-          lastFocusedSelectionRef.current = selectionKey;
-          return;
-        }
-
-        const choice = choices.find((currentChoice) => currentChoice.id === selected.id);
-        if (choice) {
-          focusPoint(getNodeCenter(nodes.find((node) => node.id === choice.cutId)));
-          lastFocusedSelectionRef.current = selectionKey;
-        }
-      }
-    });
-
-    return () => {
-      window.cancelAnimationFrame(frameId);
-    };
-  }, [choices, edges, nodes, selected]);
-
-  const handleNodeClick: NodeMouseHandler<CutFlowNode> = (_event, node) => {
     onSelectCut(node.id);
-    focusPoint(getNodeCenter(node));
+    canvasFrameRef.current?.focus();
   };
 
   function handleEdgeClick(_event: React.MouseEvent, edge: Edge) {
+    if (!edge.id.startsWith('edge-')) {
+      onSelectCut(edge.source);
+      canvasFrameRef.current?.focus();
+      return;
+    }
+
     const choiceId = edge.id.replace(/^edge-/, '');
     onSelectChoice(choiceId);
     canvasFrameRef.current?.focus();
-    focusPoint(getEdgeCenter(edge, nodes));
   }
 
-  function handleNodeDragStop(_event: React.MouseEvent, node: CutFlowNode) {
+  function handleNodeDragStop(_event: React.MouseEvent, node: BranchFlowNode) {
+    if (node.type !== 'cutNode') {
+      return;
+    }
+
     onMoveCut(node.id, node.position);
   }
 
+  function renderLayoutButton(mode: GraphLayoutMode, label: string) {
+    return (
+      <button
+        className={[
+          'rounded-full px-2.5 py-1 text-xs font-medium transition',
+          layoutMode === mode ? 'bg-zinc-100 text-zinc-950' : 'text-zinc-300 hover:text-white'
+        ].join(' ')}
+        onClick={() => onApplyLayout(mode)}
+        type="button"
+      >
+        {label}
+      </button>
+    );
+  }
+
   return (
-    <section className="flex h-[780px] min-h-[780px] self-start flex-col rounded-[32px] border border-editor-border bg-editor-panel/80 p-4">
-      <div className="mb-4 flex items-center justify-between gap-3 px-2">
+    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-[20px] border border-editor-border bg-editor-panel/80 p-2">
+      <div className="mb-1.5 flex items-center justify-between gap-2 px-1">
         <div>
-          <p className="font-display text-xl font-semibold text-zinc-50">Branch Graph</p>
-          <p className="text-sm text-zinc-400">Design the episode flow by moving cuts and reconnecting existing choices.</p>
+          <p className="font-display text-lg font-semibold text-zinc-50">Branch Graph</p>
         </div>
-        <div className="rounded-full border border-editor-border bg-black/10 px-3 py-2 text-xs uppercase tracking-[0.2em] text-zinc-500">
-          {cuts.length} nodes / {edges.length} edges
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          <div className="inline-flex rounded-full border border-editor-border bg-black/20 p-1">
+            {renderLayoutButton('custom', 'Custom')}
+            {renderLayoutButton('vertical', 'Vertical')}
+            {renderLayoutButton('horizontal', 'Horizontal')}
+          </div>
+          <div className="rounded-full border border-editor-border bg-black/10 px-2.5 py-1.5 text-xs uppercase tracking-[0.18em] text-zinc-500">
+            {cuts.length} nodes / {edges.length} edges
+          </div>
         </div>
       </div>
 
       <div
-        className="relative h-[720px] min-h-[720px] flex-1 overflow-hidden rounded-[28px] border border-editor-border bg-[#121217]"
+        className="relative min-h-0 flex-1 overflow-hidden rounded-[20px] border border-editor-border bg-[#121217]"
         data-testid="branch-canvas"
         ref={canvasFrameRef}
         tabIndex={0}
@@ -248,15 +270,13 @@ function BranchCanvasInner({
             </div>
           </div>
         ) : null}
-        <ReactFlow<CutFlowNode, Edge>
+        <ReactFlow<BranchFlowNode, Edge>
           className="h-full w-full"
           connectionMode={ConnectionMode.Strict}
           connectOnClick
           defaultViewport={{ x: 0, y: 0, zoom: 0.85 }}
           defaultEdgeOptions={{ animated: true }}
           edges={edges}
-          fitView
-          fitViewOptions={{ maxZoom: 1.2, minZoom: 0.45, padding: 0.18 }}
           isValidConnection={isValidGraphConnection}
           maxZoom={1.8}
           minZoom={0.3}
@@ -288,9 +308,14 @@ function BranchCanvasInner({
 export function BranchCanvas(props: {
   choices: Choice[];
   onCreateChoiceConnection: (cutId: string, targetCutId: string) => void;
+  onCreateLinkedCut: (cutId: string, position: { x: number; y: number }) => void;
   cuts: Cut[];
+  layoutMode: GraphLayoutMode;
   onConnectChoice: (choiceId: string, targetCutId: string) => void;
+  onConnectStateFallback: (cutId: string, targetCutId: string) => void;
+  onConnectStateRoute: (cutId: string, stateRouteId: string, targetCutId: string) => void;
   onDeleteChoice: (choiceId: string) => void;
+  onApplyLayout: (mode: GraphLayoutMode) => void;
   onMoveCut: (cutId: string, position: { x: number; y: number }) => void;
   onSelectChoice: (choiceId: string) => void;
   onSelectCut: (cutId: string) => void;

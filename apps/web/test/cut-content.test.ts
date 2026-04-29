@@ -15,7 +15,7 @@ describe('cut-content helpers', () => {
     expect(block).toMatchObject({
       type: 'dialogue',
       placement: 'overlay',
-      fontSizeToken: 'base',
+      fontSizeToken: 'lg',
       textAlign: 'left',
       speaker: ''
     });
@@ -41,10 +41,10 @@ describe('cut-content helpers', () => {
     expect(body).toBe('대사 한 줄');
   });
 
-  it('maps font size tokens to tailwind classes', () => {
-    expect(getContentFontSizeClassName('sm')).toBe('text-sm');
-    expect(getContentFontSizeClassName('base')).toBe('text-base');
-    expect(getContentFontSizeClassName('3xl')).toBe('text-3xl');
+  it('maps font size tokens to mobile-shrinking clamp classes', () => {
+    expect(getContentFontSizeClassName('sm')).toBe('text-[clamp(0.75rem,min(3.59vw,1.66dvh),0.875rem)]');
+    expect(getContentFontSizeClassName('base')).toBe('text-[clamp(0.8125rem,min(4.1vw,1.9dvh),1rem)]');
+    expect(getContentFontSizeClassName('3xl')).toBe('text-[clamp(1.4375rem,min(7.69vw,3.55dvh),1.875rem)]');
   });
 
   it('maps text rhythm tokens to static tailwind classes', () => {

@@ -15,7 +15,7 @@ export function createApp(): Express {
   app.use('/uploads', express.static(resolveFromWorkspaceRoot('.data/uploads')));
   app.use('/uploads', express.static(resolveFromApiRoot('.data/uploads')));
 
-  app.get('/health', (_request, response) => {
+  app.get('/api/health', (_request, response) => {
     response.json({ ok: true });
   });
 

@@ -2,6 +2,7 @@ import type { PublishManifest } from '@promptoon/shared';
 import { motion } from 'framer-motion';
 
 import { buildCutEffectMotionCustom, cutEffectVariants } from '../../shared/lib/cut-effects';
+import { isPromptoonEndingCut } from '../../shared/lib/promptoon-ending';
 import { ViewerCutCard } from './ViewerCutCard';
 
 type ViewerCut = PublishManifest['cuts'][number];
@@ -16,7 +17,7 @@ interface ViewerContentProps {
   onChoiceClick: (choice: ViewerChoice) => void;
   onReset: () => void;
   onUserNameChange: (value: string) => void;
-  onShare?: () => void;
+  onShare?: () => void | Promise<void>;
   pendingChoice: { choiceId: string; reactionText: string | null } | null;
   userName: string;
   visibleChoices: ViewerChoice[];
@@ -36,7 +37,7 @@ export function ViewerContent({
   userName,
   visibleChoices
 }: ViewerContentProps) {
-  const isEnding = cut.isEnding || cut.kind === 'ending';
+  const isEnding = isPromptoonEndingCut(cut);
   const content = (
     <ViewerCutCard
       canGoBack={canGoBack}

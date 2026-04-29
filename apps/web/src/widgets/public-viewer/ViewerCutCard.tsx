@@ -1,13 +1,18 @@
 import type { PublishManifest } from '@promptoon/shared';
 import type { CSSProperties } from 'react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { getEdgeFadeOverlayClassNames, getEdgeFadeStyle } from '../../shared/lib/cut-effects';
 import { getContentSpacingClassName, getContentSpacingMinHeight, getCutContentBlocksByPlacement } from '../../shared/lib/cut-content';
+import { saveResultCardAsWebp } from '../../shared/lib/result-card-export';
+import { getResultCardBlock } from '../../shared/lib/result-card';
 import { CutContentBlocksView } from '../content-blocks/CutContentBlocksView';
+import { ResultCard } from '../result-card/ResultCard';
 
 type ViewerCut = PublishManifest['cuts'][number];
 type ViewerChoice = ViewerCut['choices'][number];
+
+const PROMPTOON_INSTAGRAM_URL = 'https://www.instagram.com/promptoon_ai/';
 
 interface ViewerCutCardProps {
   canGoBack?: boolean;
@@ -17,7 +22,7 @@ interface ViewerCutCardProps {
   onChoiceClick?: (choice: ViewerChoice) => void;
   onReset?: () => void;
   onUserNameChange?: (value: string) => void;
-  onShare?: () => void;
+  onShare?: () => void | Promise<void>;
   pendingChoice?: { choiceId: string; reactionText: string | null } | null;
   showChoices: boolean;
   showEndingActions: boolean;
@@ -28,35 +33,112 @@ interface ViewerCutCardProps {
 function getDialogPlacementClasses(cut: ViewerCut): string {
   const dialogAnchorX = cut.dialogAnchorX ?? 'left';
   const dialogAnchorY = cut.dialogAnchorY ?? 'bottom';
+  const horizontalClassName =
+    dialogAnchorX === 'left' ? 'justify-start' : dialogAnchorX === 'center' ? 'justify-center' : 'justify-end';
 
   return [
     'pointer-events-none absolute inset-0 z-10 flex p-4 sm:p-6',
-    dialogAnchorX === 'left' ? 'justify-start' : 'justify-end',
-    dialogAnchorY === 'top' ? 'items-start' : 'items-end'
+    horizontalClassName,
+    dialogAnchorY === 'bottom' ? 'items-end' : 'items-start'
   ].join(' ');
+}
+
+function getDialogAnchorTop(dialogAnchorY: ViewerCut['dialogAnchorY']): string | undefined {
+  switch (dialogAnchorY) {
+    case 'upper':
+      return '25%';
+    case 'center':
+      return '50%';
+    case 'lower':
+      return '75%';
+    default:
+      return undefined;
+  }
+}
+
+function formatDialogVerticalOffset(offsetY: number): string {
+  return offsetY < 0 ? `+ ${Math.abs(offsetY)}px` : `- ${offsetY}px`;
 }
 
 function getDialogPlacementStyle(cut: ViewerCut): CSSProperties {
   const dialogAnchorX = cut.dialogAnchorX ?? 'left';
   const dialogAnchorY = cut.dialogAnchorY ?? 'bottom';
-  const dialogOffsetX = Math.min(160, Math.max(0, cut.dialogOffsetX ?? 0));
-  const dialogOffsetY = Math.min(160, Math.max(0, cut.dialogOffsetY ?? 0));
+  const dialogOffsetX = Number.isFinite(cut.dialogOffsetX) ? cut.dialogOffsetX : 0;
+  const dialogOffsetY = Number.isFinite(cut.dialogOffsetY) ? cut.dialogOffsetY : 0;
   const dialogTextAlign = cut.dialogTextAlign ?? 'left';
+  const anchorTop = getDialogAnchorTop(dialogAnchorY);
+  const translateX = dialogAnchorX === 'center' ? `translateX(${dialogOffsetX}px)` : undefined;
+  const translateY = anchorTop ? `translateY(calc(-50% ${formatDialogVerticalOffset(dialogOffsetY)}))` : undefined;
+  const transform = [translateX, translateY].filter(Boolean).join(' ') || undefined;
 
   return {
     marginBottom: dialogAnchorY === 'bottom' ? `${dialogOffsetY}px` : undefined,
     marginLeft: dialogAnchorX === 'left' ? `${dialogOffsetX}px` : undefined,
-    marginRight: dialogAnchorX === 'right' ? `${dialogOffsetX}px` : undefined,
-    marginTop: dialogAnchorY === 'top' ? `${dialogOffsetY}px` : undefined,
+    marginRight: dialogAnchorX === 'right' ? `${-dialogOffsetX}px` : undefined,
+    marginTop: dialogAnchorY === 'top' ? `${-dialogOffsetY}px` : undefined,
     maxWidth: 'min(22rem, calc(100% - 2rem))',
-    textAlign: dialogTextAlign
+    position: anchorTop ? 'relative' : undefined,
+    textAlign: dialogTextAlign,
+    top: anchorTop,
+    transform
   };
 }
 
-function getContentPanelClassName(cut: ViewerCut): string {
+function getContentPanelClassName(cut: ViewerCut, density: 'default' | 'compact' = 'default'): string {
+  const paddingClassName = density === 'compact' ? 'px-2 py-1.5' : 'px-5 py-4';
+
   return (cut.contentViewMode ?? 'default') === 'inverse'
-    ? 'rounded-[28px] border border-zinc-900/10 bg-white/88 px-5 py-4 text-zinc-950 shadow-[0_18px_48px_rgba(255,255,255,0.12)] backdrop-blur-sm'
-    : 'rounded-[28px] border border-white/10 bg-black/20 px-5 py-4 backdrop-blur-sm';
+    ? `rounded-[28px] border border-zinc-900/10 bg-white/88 ${paddingClassName} text-zinc-950 shadow-[0_18px_48px_rgba(255,255,255,0.12)] backdrop-blur-sm`
+    : `rounded-[28px] border border-white/10 bg-black/20 ${paddingClassName} backdrop-blur-sm`;
+}
+
+function getRevealSyncedFrameClassName(className: string, isRevealed: boolean): string {
+  return [
+    className,
+    'transition-opacity duration-500 ease-out',
+    isRevealed ? 'opacity-100' : 'pointer-events-none opacity-0'
+  ].join(' ');
+}
+
+function ViewerContentPanel({
+  cut,
+  frameClassName,
+  frameStyle,
+  onUserNameChange,
+  placement,
+  userName
+}: {
+  cut: ViewerCut;
+  frameClassName: string;
+  frameStyle?: CSSProperties;
+  onUserNameChange?: (value: string) => void;
+  placement: 'overlay' | 'flow';
+  userName: string;
+}) {
+  const [isFrameRevealed, setIsFrameRevealed] = useState(false);
+  const handleContainerRevealSyncChange = useCallback((isRevealed: boolean) => {
+    setIsFrameRevealed(isRevealed);
+  }, []);
+
+  return (
+    <div
+      className={getRevealSyncedFrameClassName(frameClassName, isFrameRevealed)}
+      data-content-frame-revealed={isFrameRevealed ? 'true' : 'false'}
+      data-testid={`viewer-content-frame-${cut.id}:${placement}`}
+      style={frameStyle}
+    >
+      <CutContentBlocksView
+        bindings={{ userName }}
+        className="space-y-3"
+        cut={cut}
+        onBindingChange={(_bindingKey, value) => onUserNameChange?.(value)}
+        onContainerRevealSyncChange={handleContainerRevealSyncChange}
+        placement={placement}
+        syncContainerVisibilityWithReveal
+        textAlignOverride={placement === 'overlay' ? cut.dialogTextAlign ?? 'left' : undefined}
+      />
+    </div>
+  );
 }
 
 export function ViewerCutCard({
@@ -74,19 +156,39 @@ export function ViewerCutCard({
   userName = '',
   visibleChoices
 }: ViewerCutCardProps) {
-  const [isImageLoaded, setIsImageLoaded] = useState(false);
   const [isImageFailed, setIsImageFailed] = useState(false);
+  const [isCapturingResultCard, setIsCapturingResultCard] = useState(false);
+  const [hasSavedResultCard, setHasSavedResultCard] = useState(false);
+  const resultCardBlock = getResultCardBlock(cut);
   const hasImage = Boolean(cut.assetUrl) && !isImageFailed;
   const hasOverlayContent = getCutContentBlocksByPlacement(cut, 'overlay').length > 0;
   const hasFlowContent = getCutContentBlocksByPlacement(cut, 'flow').length > 0;
-  const showImageOverlay = cut.kind === 'choice';
   const cutBottomSpacingClassName = disableCutBottomSpacing || hasFlowContent ? '' : getContentSpacingClassName('mb', cut.marginBottomToken);
   const flowContentMinHeight = disableCutBottomSpacing ? undefined : getContentSpacingMinHeight(cut.marginBottomToken);
 
   useEffect(() => {
-    setIsImageLoaded(false);
     setIsImageFailed(false);
+    setHasSavedResultCard(false);
   }, [cut.assetUrl, cut.id]);
+
+  async function handleResultCardSave() {
+    if (!resultCardBlock) {
+      return;
+    }
+
+    setIsCapturingResultCard(true);
+    try {
+      await saveResultCardAsWebp({
+        assetUrl: cut.assetUrl,
+        block: resultCardBlock
+      });
+      setHasSavedResultCard(true);
+    } catch {
+      // The save action is best-effort because browser canvas export can fail for cross-origin images.
+    } finally {
+      setIsCapturingResultCard(false);
+    }
+  }
 
   function renderFooter() {
     if (showEndingActions) {
@@ -103,7 +205,9 @@ export function ViewerCutCard({
             {onShare ? (
               <button
                 className="rounded-2xl border border-white/15 bg-white/10 px-5 py-4 text-base font-semibold text-white transition hover:bg-white/15"
-                onClick={onShare}
+                onClick={() => {
+                  void onShare();
+                }}
                 type="button"
               >
                 결과 공유하기
@@ -161,6 +265,50 @@ export function ViewerCutCard({
 
   const footer = renderFooter();
 
+  if (cut.kind === 'resultCard' && resultCardBlock) {
+    return (
+      <article
+        className="relative flex min-h-full shrink-0 flex-col justify-center bg-[#050506] px-5 py-8 sm:px-8"
+        data-viewer-layout={compact ? 'compact' : 'fullscreen'}
+      >
+        <div className="mx-auto flex w-full max-w-[30rem] flex-col items-center">
+          <ResultCard assetUrl={cut.assetUrl} block={resultCardBlock} />
+          {showEndingActions ? (
+            <div className="mt-6 grid w-full gap-3 sm:grid-cols-2">
+              <button
+                className="rounded-2xl bg-editor-accent px-5 py-4 text-base font-semibold text-white transition hover:brightness-110"
+                onClick={onReset}
+                type="button"
+              >
+                다시 보기
+              </button>
+              <button
+                className="rounded-2xl border border-white/15 bg-white/10 px-5 py-4 text-base font-semibold text-white transition hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isCapturingResultCard}
+                onClick={() => {
+                  void handleResultCardSave();
+                }}
+                type="button"
+              >
+                {isCapturingResultCard ? '이미지 저장 중...' : '이미지 저장하기'}
+              </button>
+              {hasSavedResultCard ? (
+                <a
+                  className="rounded-2xl border border-editor-accentSoft/70 bg-editor-accent/15 px-5 py-4 text-center text-base font-semibold text-white transition hover:bg-editor-accent/25 sm:col-span-2"
+                  href={PROMPTOON_INSTAGRAM_URL}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  공유하기
+                </a>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </article>
+    );
+  }
+
   function renderOverlayContent() {
     if (!hasOverlayContent) {
       return null;
@@ -168,18 +316,14 @@ export function ViewerCutCard({
 
     return (
       <div className={getDialogPlacementClasses(cut)}>
-        <div
-          className={getContentPanelClassName(cut)}
-          style={getDialogPlacementStyle(cut)}
-        >
-          <CutContentBlocksView
-            bindings={{ userName }}
-            className="space-y-3"
-            cut={cut}
-            onBindingChange={(_bindingKey, value) => onUserNameChange?.(value)}
-            placement="overlay"
-          />
-        </div>
+        <ViewerContentPanel
+          cut={cut}
+          frameClassName={getContentPanelClassName(cut, 'compact')}
+          frameStyle={getDialogPlacementStyle(cut)}
+          onUserNameChange={onUserNameChange}
+          placement="overlay"
+          userName={userName}
+        />
       </div>
     );
   }
@@ -191,15 +335,13 @@ export function ViewerCutCard({
 
     return (
       <div className={className} data-testid="viewer-flow-content" style={{ minHeight: flowContentMinHeight }}>
-        <div className={`${getContentPanelClassName(cut)} w-full`}>
-          <CutContentBlocksView
-            bindings={{ userName }}
-            className="space-y-3"
-            cut={cut}
-            onBindingChange={(_bindingKey, value) => onUserNameChange?.(value)}
-            placement="flow"
-          />
-        </div>
+        <ViewerContentPanel
+          cut={cut}
+          frameClassName={`${getContentPanelClassName(cut)} w-full`}
+          onUserNameChange={onUserNameChange}
+          placement="flow"
+          userName={userName}
+        />
       </div>
     );
   }
@@ -213,25 +355,12 @@ export function ViewerCutCard({
             alt={cut.title}
             className="relative z-0 block h-auto w-full"
             onError={() => setIsImageFailed(true)}
-            onLoad={() => setIsImageLoaded(true)}
             src={cut.assetUrl ?? undefined}
             style={getEdgeFadeStyle(cut.edgeFade, cut.edgeFadeIntensity)}
           />
-          {getEdgeFadeOverlayClassNames(cut.edgeFade, cut.edgeFadeIntensity).map((className) => (
+          {getEdgeFadeOverlayClassNames(cut.edgeFade, cut.edgeFadeIntensity, cut.edgeFadeColor).map((className) => (
             <div className={className} key={className} />
           ))}
-          {showImageOverlay ? (
-            <>
-              <div
-                className={[
-                  'pointer-events-none absolute inset-0 bg-gradient-to-t from-black via-black/18 to-black/8 transition-opacity duration-500',
-                  isImageLoaded ? 'opacity-100' : 'opacity-0'
-                ].join(' ')}
-              />
-              <div className="absolute inset-x-0 bottom-0 top-1/3 bg-gradient-to-t from-black via-black/70 to-transparent" />
-              <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/35 to-transparent" />
-            </>
-          ) : null}
 
           {renderOverlayContent()}
         </div>

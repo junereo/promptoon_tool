@@ -1,8 +1,23 @@
 import { describe, expect, it } from 'vitest';
 
-import { createChoiceSchema, createCutSchema, patchCutSchema, telemetryEventSchema } from '../src/modules/promptoon-authoring/promptoon.schemas';
+import {
+  createChoiceSchema,
+  createCutSchema,
+  patchCutSchema,
+  patchEpisodeCutLayoutSchema,
+  patchEpisodeSchema,
+  telemetryEventSchema
+} from '../src/modules/promptoon-authoring/promptoon.schemas';
 
 describe('promptoon cut schemas', () => {
+  it('accepts episode cover image patches', () => {
+    const result = patchEpisodeSchema.safeParse({
+      coverImageUrl: '/uploads/2026/04/24/project/cover.webp'
+    });
+
+    expect(result.success).toBe(true);
+  });
+
   it('accepts known cut effect values', () => {
     const result = createCutSchema.safeParse({
       kind: 'scene',
@@ -22,6 +37,30 @@ describe('promptoon cut schemas', () => {
     expect(result.success).toBe(false);
   });
 
+  it('accepts five dialogue vertical anchors', () => {
+    for (const dialogAnchorY of ['top', 'upper', 'center', 'lower', 'bottom']) {
+      const result = patchCutSchema.safeParse({ dialogAnchorY });
+      expect(result.success).toBe(true);
+    }
+  });
+
+  it('accepts center dialogue horizontal anchor', () => {
+    const result = patchCutSchema.safeParse({ dialogAnchorX: 'center' });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts signed dialogue offsets', () => {
+    const result = patchCutSchema.safeParse({
+      dialogAnchorX: 'center',
+      dialogAnchorY: 'center',
+      dialogOffsetX: -48,
+      dialogOffsetY: 96
+    });
+
+    expect(result.success).toBe(true);
+  });
+
   it('accepts structured content blocks and effect durations', () => {
     const cutResult = createCutSchema.safeParse({
       kind: 'scene',
@@ -29,8 +68,38 @@ describe('promptoon cut schemas', () => {
       startEffectDurationMs: 500,
       endEffectDurationMs: 750,
       edgeFade: 'both',
-      edgeFadeIntensity: 'strong',
+      edgeFadeIntensity: 'minimal',
+      edgeFadeColor: 'white',
       marginBottomToken: '10xl',
+      stateVariants: [
+        {
+          id: 'variant-1',
+          stateKey: 'first_route',
+          equals: 'A',
+          variantCutId: '00000000-0000-4000-8000-000000000011',
+          label: 'A 루트 연출'
+        }
+      ],
+      stateRoutes: [
+        {
+          id: 'route-1',
+          stateKey: 'first_route',
+          equals: 'A',
+          conditions: [
+            {
+              stateKey: 'first_route',
+              equals: 'A'
+            },
+            {
+              stateKey: 'second_route',
+              equals: 'B'
+            }
+          ],
+          nextCutId: '00000000-0000-4000-8000-000000000012',
+          label: 'A 루트'
+        }
+      ],
+      stateFallbackCutId: '00000000-0000-4000-8000-000000000013',
       contentBlocks: [
         {
           id: 'block-1',
@@ -57,11 +126,160 @@ describe('promptoon cut schemas', () => {
     });
     const choiceResult = createChoiceSchema.safeParse({
       label: '다음으로',
-      afterSelectReactionText: '잠시만요'
+      afterSelectReactionText: '잠시만요',
+      stateWrites: [
+        {
+          key: 'first_route',
+          value: 'A'
+        }
+      ]
     });
 
     expect(cutResult.success).toBe(true);
     expect(choiceResult.success).toBe(true);
+  });
+
+  it('accepts state router cuts', () => {
+    const result = createCutSchema.safeParse({
+      kind: 'stateRouter',
+      title: '상태 분기',
+      stateRoutes: [
+        {
+          id: 'route-a',
+          stateKey: 'first_route',
+          equals: 'A',
+          nextCutId: '00000000-0000-4000-8000-000000000021'
+        }
+      ],
+      stateFallbackCutId: '00000000-0000-4000-8000-000000000022'
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts result card cuts with template content', () => {
+    const result = createCutSchema.safeParse({
+      kind: 'resultCard',
+      title: 'THE REPLACE',
+      assetUrl: '/uploads/result-poster.webp',
+      contentBlocks: [
+        {
+          id: 'result-card-1',
+          type: 'resultCard',
+          templateId: 'the-replace-final',
+          theme: 'blue',
+          badge: 'TYPE 01',
+          resultName: '합리적인 가해자',
+          tagline: '알면서도 손을 들었다',
+          lines: ['당신은 명확히 보았다.', '그리고 판단했다.'],
+          inflowLabel: 'CHECK IN',
+          inflowUrl: 'promtoon.ai',
+          inflowBrand: 'PROMTOON',
+          inflowTagline: '반응형 웹툰'
+        }
+      ]
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts state router routes with up to two conditions', () => {
+    const result = createCutSchema.safeParse({
+      kind: 'stateRouter',
+      title: '상태 분기',
+      stateRoutes: [
+        {
+          id: 'route-aa',
+          conditions: [
+            {
+              stateKey: 'first_route',
+              equals: 'A'
+            },
+            {
+              stateKey: 'second_route',
+              equals: 'A'
+            }
+          ],
+          nextCutId: '00000000-0000-4000-8000-000000000021'
+        }
+      ],
+      stateFallbackCutId: '00000000-0000-4000-8000-000000000022'
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects incomplete state writes and invalid state variant targets', () => {
+    const choiceResult = createChoiceSchema.safeParse({
+      label: '다음으로',
+      stateWrites: [
+        {
+          key: 'first route',
+          value: 'A'
+        }
+      ]
+    });
+    const cutResult = patchCutSchema.safeParse({
+      stateVariants: [
+        {
+          id: 'variant-1',
+          stateKey: 'first_route',
+          equals: 'A',
+          variantCutId: 'not-a-uuid'
+        }
+      ]
+    });
+    const routeResult = patchCutSchema.safeParse({
+      stateRoutes: [
+        {
+          id: 'route-1',
+          stateKey: 'first_route',
+          equals: 'A',
+          nextCutId: 'not-a-uuid'
+        }
+      ]
+    });
+    const tooManyRouteConditionsResult = patchCutSchema.safeParse({
+      stateRoutes: [
+        {
+          id: 'route-1',
+          conditions: [
+            {
+              stateKey: 'first_route',
+              equals: 'A'
+            },
+            {
+              stateKey: 'second_route',
+              equals: 'A'
+            },
+            {
+              stateKey: 'third_route',
+              equals: 'A'
+            }
+          ],
+          nextCutId: '00000000-0000-4000-8000-000000000021'
+        }
+      ]
+    });
+
+    expect(choiceResult.success).toBe(false);
+    expect(cutResult.success).toBe(false);
+    expect(routeResult.success).toBe(false);
+    expect(tooManyRouteConditionsResult.success).toBe(false);
+  });
+
+  it('accepts batch cut layout updates', () => {
+    const result = patchEpisodeCutLayoutSchema.safeParse({
+      cuts: [
+        {
+          cutId: '00000000-0000-4000-8000-000000000001',
+          positionX: 1010,
+          positionY: 2010
+        }
+      ]
+    });
+
+    expect(result.success).toBe(true);
   });
 
   it('rejects invalid font tokens and out-of-range effect durations', () => {
@@ -122,6 +340,7 @@ describe('promptoon cut schemas', () => {
     const cutResult = patchCutSchema.safeParse({
       edgeFade: 'middle',
       edgeFadeIntensity: 'extreme',
+      edgeFadeColor: 'gray',
       marginBottomToken: 'massive'
     });
     const blockResult = patchCutSchema.safeParse({

@@ -1,18 +1,24 @@
+import { Suspense, lazy, useState } from 'react';
 import { Link, Outlet, createBrowserRouter, useNavigate } from 'react-router-dom';
 
 import { ProtectedRoute } from '../features/auth/components/ProtectedRoute';
 import { clearAuthSession } from '../features/auth/lib/auth-session';
 import { useAuthStore } from '../features/auth/store/use-auth-store';
+import { preloadPromptoonViewerPage } from '../features/viewer/lib/preload-viewer';
 import { LoginPage } from '../pages/LoginPage';
 import { MainFeedPage } from '../pages/MainFeedPage';
 import { PromptoonEpisodeEditorPage } from '../pages/promptoon-episode-editor-page';
 import { PromptoonProjectListPage } from '../pages/promptoon-project-list-page';
-import { PromptoonViewerPage } from '../pages/promptoon-viewer-page';
 import { RegisterPage } from '../pages/RegisterPage';
+
+const PromptoonViewerPage = lazy(() =>
+  preloadPromptoonViewerPage().then((module) => ({ default: module.PromptoonViewerPage }))
+);
 
 function AppShell() {
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
+  const [isHeaderMenuOpen, setIsHeaderMenuOpen] = useState(false);
 
   function handleLogout() {
     clearAuthSession();
@@ -20,32 +26,56 @@ function AppShell() {
   }
 
   return (
-    <div className="min-h-screen">
-      <header className="border-b border-editor-border/80 bg-black/20 backdrop-blur">
-        <div className="flex w-full items-center justify-between px-4 py-4 sm:px-6">
-          <div>
-            <p className="font-display text-xl font-semibold tracking-tight text-zinc-50">Promptoon Authoring</p>
-            <p className="text-sm text-zinc-400">State-first interactive episode editor</p>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <p className="rounded-full border border-editor-border bg-black/20 px-3 py-2 text-xs uppercase tracking-[0.18em] text-zinc-400">
-              {user?.loginId ?? 'anonymous'}
-            </p>
-            <Link className="text-sm text-zinc-400 transition hover:text-zinc-200" to="/promptoon/projects">
-              Home
-            </Link>
-            <button
-              className="rounded-full border border-editor-border bg-black/20 px-4 py-2 text-sm text-zinc-300 transition hover:border-zinc-500 hover:text-white"
-              onClick={handleLogout}
-              type="button"
-            >
-              Logout
-            </button>
-          </div>
+    <div className="flex h-screen flex-col overflow-hidden">
+      <header className="relative z-40 shrink-0 border-b border-editor-border/80 bg-black/20 backdrop-blur">
+        <div className="flex h-12 w-full items-center px-3 sm:px-4">
+          <button
+            aria-expanded={isHeaderMenuOpen}
+            aria-label="메뉴 열기"
+            className="flex h-9 w-9 items-center justify-center rounded-lg border border-editor-border bg-black/20 text-zinc-200 transition hover:border-zinc-500 hover:text-white"
+            onClick={() => setIsHeaderMenuOpen((current) => !current)}
+            type="button"
+          >
+            <span className="grid gap-1">
+              <span className="block h-0.5 w-4 rounded-full bg-current" />
+              <span className="block h-0.5 w-4 rounded-full bg-current" />
+              <span className="block h-0.5 w-4 rounded-full bg-current" />
+            </span>
+          </button>
         </div>
+
+        {isHeaderMenuOpen ? (
+          <div className="absolute left-3 top-12 w-[min(22rem,calc(100vw-1.5rem))] rounded-[18px] border border-editor-border bg-editor-panel/95 p-3 shadow-2xl shadow-black/35 backdrop-blur sm:left-4">
+            <div>
+              <p className="font-display text-lg font-semibold tracking-tight text-zinc-50">Promptoon Authoring</p>
+              <p className="text-xs text-zinc-400">State-first interactive episode editor</p>
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <p className="rounded-full border border-editor-border bg-black/20 px-2.5 py-1.5 text-xs uppercase tracking-[0.18em] text-zinc-400">
+                {user?.loginId ?? 'anonymous'}
+              </p>
+              <Link
+                className="rounded-full border border-editor-border bg-black/20 px-3 py-1.5 text-sm text-zinc-300 transition hover:border-zinc-500 hover:text-white"
+                onClick={() => setIsHeaderMenuOpen(false)}
+                to="/promptoon/projects"
+              >
+                Home
+              </Link>
+              <button
+                className="rounded-full border border-editor-border bg-black/20 px-3 py-1.5 text-sm text-zinc-300 transition hover:border-zinc-500 hover:text-white"
+                onClick={handleLogout}
+                type="button"
+              >
+                Logout
+              </button>
+            </div>
+          </div>
+        ) : null}
       </header>
-      <Outlet />
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <Outlet />
+      </div>
     </div>
   );
 }
@@ -55,7 +85,11 @@ type AppRouter = ReturnType<typeof createBrowserRouter>;
 export const router: AppRouter = createBrowserRouter([
   {
     path: '/v/:publishId',
-    element: <PromptoonViewerPage />
+    element: (
+      <Suspense fallback={<div className="min-h-dvh bg-black" />}>
+        <PromptoonViewerPage />
+      </Suspense>
+    )
   },
   {
     path: '/',

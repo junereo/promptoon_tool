@@ -1,7 +1,12 @@
 import type {
+  AnalyticsResetScope,
+  AnalyticsViewGranularity,
+  AnalyticsViewRange,
   Choice,
+  Cut,
   CreateChoiceRequest,
   CreateCutRequest,
+  DeleteCutRequest,
   PatchChoiceRequest,
   PatchCutRequest,
   Publish,
@@ -10,8 +15,16 @@ import type {
 import { startTransition, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
-import { getChoicesForCut, getPreviewCut, getSelectedChoice, getSelectedCut, sortCutsByLocalOrder } from '../entities/promptoon/selectors';
-import { useEpisodeAnalytics } from '../features/analytics/hooks/use-episode-analytics';
+import {
+  buildCutHierarchy,
+  getCutHierarchyTraversalOrder,
+  getChoicesForCut,
+  getPreviewCut,
+  getSelectedChoice,
+  getSelectedCut,
+  sortCutsByLocalOrder
+} from '../entities/promptoon/selectors';
+import { useEpisodeAnalytics, useResetEpisodeAnalytics } from '../features/analytics/hooks/use-episode-analytics';
 import { useChoiceAutosave } from '../features/editor/hooks/use-choice-autosave';
 import { useCutAutosave } from '../features/editor/hooks/use-cut-autosave';
 import {
@@ -23,6 +36,7 @@ import {
   useLatestPublishedEpisode,
   usePublishEpisode,
   useReorderCuts,
+  useSaveCutLayout,
   useUnpublishEpisode,
   useUpdatePublishedEpisode,
   useUploadAsset,
@@ -35,9 +49,59 @@ import { AnalyticsDashboard } from '../widgets/analytics-dashboard/AnalyticsDash
 import { EpisodeEditorShell } from '../widgets/episode-editor-shell/episode-editor-shell';
 import { ScriptEditorModal } from '../widgets/episode-editor-shell/ScriptEditorModal';
 import type { ScriptCutPatch } from '../shared/lib/script-sync';
+import { isPromptoonEndingCut } from '../shared/lib/promptoon-ending';
 import { PublishSuccessToast } from '../widgets/publish-flow/PublishSuccessToast';
 import { ToolbarNoticeToast } from '../widgets/publish-flow/ToolbarNoticeToast';
 import { ValidationModal } from '../widgets/publish-flow/ValidationModal';
+import type { CutListDragPayload } from '../widgets/cut-list-panel/CutListPanel';
+import {
+  computeHorizontalLayout,
+  computeVerticalLayout,
+  getBranchEndCut,
+  getGlobalCreatePosition,
+  getLinkedCreatePosition,
+  type GraphLayoutMode
+} from '../widgets/branch-canvas/graph-layout';
+
+function moveId(ids: string[], activeId: string, overId: string): string[] {
+  const activeIndex = ids.indexOf(activeId);
+  const overIndex = ids.indexOf(overId);
+
+  if (activeIndex === -1 || overIndex === -1 || activeIndex === overIndex) {
+    return ids;
+  }
+
+  const nextIds = [...ids];
+  const [active] = nextIds.splice(activeIndex, 1);
+  nextIds.splice(overIndex, 0, active);
+  return nextIds;
+}
+
+function insertAfter(ids: string[], anchorId: string | null, insertedId: string): string[] {
+  const nextIds = ids.filter((id) => id !== insertedId);
+  const anchorIndex = anchorId ? nextIds.indexOf(anchorId) : -1;
+  nextIds.splice(anchorIndex === -1 ? nextIds.length : anchorIndex + 1, 0, insertedId);
+  return nextIds;
+}
+
+function areOrdersEqual(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((cutId, index) => cutId === right[index]);
+}
+
+function getServerCutOrder(cuts: Cut[]): string[] {
+  return [...cuts]
+    .sort((left, right) => left.orderIndex - right.orderIndex || left.createdAt.localeCompare(right.createdAt))
+    .map((cut) => cut.id);
+}
+
+function hasOrderChanged(localCutOrder: string[], serverCuts: Cut[]): boolean {
+  if (localCutOrder.length === 0) {
+    return false;
+  }
+
+  const serverOrder = getServerCutOrder(serverCuts);
+  return localCutOrder.length !== serverOrder.length || localCutOrder.some((cutId, index) => cutId !== serverOrder[index]);
+}
 
 export function PromptoonEpisodeEditorPage() {
   const { projectId, episodeId } = useParams();
@@ -61,12 +125,16 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
   const navigate = useNavigate();
   const draftQuery = useEpisodeDraft(episodeId);
   const latestPublishedEpisodeQuery = useLatestPublishedEpisode(episodeId);
-  const analyticsQuery = useEpisodeAnalytics(episodeId);
+  const [analyticsViewGranularity, setAnalyticsViewGranularity] = useState<AnalyticsViewGranularity>('daily');
+  const [analyticsViewRange, setAnalyticsViewRange] = useState<AnalyticsViewRange>({});
+  const analyticsQuery = useEpisodeAnalytics(episodeId, analyticsViewGranularity, analyticsViewRange);
+  const resetEpisodeAnalytics = useResetEpisodeAnalytics(episodeId);
   const createCut = useCreateCut(episodeId);
   const deleteCut = useDeleteCut(episodeId);
   const createChoice = useCreateChoice(episodeId);
   const deleteChoice = useDeleteChoice(episodeId);
   const reorderCuts = useReorderCuts(episodeId);
+  const saveCutLayout = useSaveCutLayout(episodeId);
   const uploadAsset = useUploadAsset();
   const updateCut = useUpdateCut(episodeId);
   const updateChoice = useUpdateChoice(episodeId);
@@ -86,6 +154,7 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
   const resetForEpisode = useEditorStore((state) => state.resetForEpisode);
   const setSelected = useEditorStore((state) => state.setSelected);
   const setViewMode = useEditorStore((state) => state.setViewMode);
+  const replaceLocalCutOrder = useEditorStore((state) => state.replaceLocalCutOrder);
   const reorderLocalCuts = useEditorStore((state) => state.reorderLocalCuts);
   const clearDirty = useEditorStore((state) => state.clearDirty);
   const markDirty = useEditorStore((state) => state.markDirty);
@@ -100,6 +169,8 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
   const [isScriptEditorOpen, setIsScriptEditorOpen] = useState(false);
   const [previewCutId, setPreviewCutId] = useState<string | null>(null);
   const [previewSelectedChoiceId, setPreviewSelectedChoiceId] = useState<string | null>(null);
+  const [graphLayoutMode, setGraphLayoutMode] = useState<GraphLayoutMode>('custom');
+  const [graphPositionDraft, setGraphPositionDraft] = useState<Record<string, { x: number; y: number }>>({});
 
   function handleTabChange(tab: 'editor' | 'analytics') {
     if (tab === activeTab) {
@@ -111,6 +182,10 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
     });
   }
 
+  async function handleResetAnalytics(scope: AnalyticsResetScope) {
+    await resetEpisodeAnalytics.mutateAsync(scope);
+  }
+
   useEffect(() => {
     resetForEpisode();
     setValidationResult(null);
@@ -120,9 +195,12 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
     setIsValidationOpen(false);
     setHighlightSaveOrder(false);
     setActiveTab('editor');
+    setAnalyticsViewGranularity('daily');
     setIsScriptEditorOpen(false);
     setPreviewCutId(null);
     setPreviewSelectedChoiceId(null);
+    setGraphLayoutMode('custom');
+    setGraphPositionDraft({});
   }, [episodeId, resetForEpisode]);
 
   useEffect(() => {
@@ -167,6 +245,11 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
     }
 
     hydrateFromDraft(draftQuery.data);
+    setGraphPositionDraft((currentDraft) => {
+      const cutIds = new Set(draftQuery.data.cuts.map((cut) => cut.id));
+      const nextDraft = Object.fromEntries(Object.entries(currentDraft).filter(([cutId]) => cutIds.has(cutId)));
+      return Object.keys(nextDraft).length === Object.keys(currentDraft).length ? currentDraft : nextDraft;
+    });
 
     const selectedCut = getSelectedCut(draftQuery.data.cuts, draftQuery.data.choices, selected);
     const selectedChoice = getSelectedChoice(draftQuery.data.choices, selected);
@@ -181,6 +264,17 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
   }, [draftQuery.data, hydrateFromDraft, selected, setSelected]);
 
   const orderedCuts = draftQuery.data ? sortCutsByLocalOrder(draftQuery.data.cuts, localCutOrder) : [];
+  const graphCuts = orderedCuts.map((cut) => {
+    const draftPosition = graphPositionDraft[cut.id];
+    return draftPosition
+      ? {
+          ...cut,
+          positionX: draftPosition.x,
+          positionY: draftPosition.y
+        }
+      : cut;
+  });
+  const cutHierarchy = draftQuery.data ? buildCutHierarchy(orderedCuts, draftQuery.data.choices) : null;
   const selectedCut = draftQuery.data ? getSelectedCut(draftQuery.data.cuts, draftQuery.data.choices, selected) : null;
   const selectedChoice = draftQuery.data ? getSelectedChoice(draftQuery.data.choices, selected) : null;
   const selectionPreviewCut = draftQuery.data ? getPreviewCut(orderedCuts, draftQuery.data.choices, selected) : null;
@@ -189,7 +283,6 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
       ? orderedCuts.find((cut) => cut.id === previewCutId) ?? selectionPreviewCut
       : selectionPreviewCut;
   const previewChoices = draftQuery.data && previewCut ? getChoicesForCut(draftQuery.data.choices, previewCut.id) : [];
-  const selectedCutChoices = draftQuery.data && selectedCut ? getChoicesForCut(draftQuery.data.choices, selectedCut.id) : [];
   const pendingAutosaveCount = pendingAutosaveIds.cuts.length + pendingAutosaveIds.choices.length;
   const latestPublishedEpisode = latestPublishedEpisodeQuery.data;
 
@@ -209,20 +302,49 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
     }
   }, [previewChoices, previewCut, previewSelectedChoiceId]);
 
-  async function handleCreateCut() {
+  async function handleCreateCut(anchorCutId?: string) {
+    const branchEndCut = draftQuery.data && anchorCutId ? getBranchEndCut(graphCuts, draftQuery.data.choices, anchorCutId) : null;
+    const createPosition = draftQuery.data && anchorCutId
+      ? getLinkedCreatePosition(graphCuts, draftQuery.data.choices, anchorCutId)
+      : getGlobalCreatePosition(graphCuts);
     const payload: CreateCutRequest = {
       kind: 'scene',
       title: `Cut ${orderedCuts.length + 1}`,
       body: '',
       startEffect: 'none',
-      endEffect: 'none'
+      endEffect: 'none',
+      edgeFade: 'both',
+      edgeFadeIntensity: 'minimal',
+      positionX: createPosition.x,
+      positionY: createPosition.y
     };
 
     const cut = await createCut.mutateAsync(payload);
+
+    if (draftQuery.data) {
+      const displayOrder = insertAfter(
+        cutHierarchy?.flatNodes.map((node) => node.cut.id) ?? orderedCuts.map((orderedCut) => orderedCut.id),
+        branchEndCut?.id ?? null,
+        cut.id
+      );
+      const response = await reorderCuts.mutateAsync({
+        cuts: displayOrder.map((cutId, index) => ({
+          cutId,
+          orderIndex: index
+        }))
+      });
+      hydrateFromDraft({ cuts: response.cuts });
+      if (Object.keys(graphPositionDraft).length === 0) {
+        clearDirty();
+      } else {
+        markDirty(true);
+      }
+    }
+
     setSelected({ type: 'cut', id: cut.id });
   }
 
-  async function handleDeleteCut(cutId: string) {
+  async function handleDeleteCut(cutId: string, payload?: DeleteCutRequest) {
     const deletedIndex = orderedCuts.findIndex((cut) => cut.id === cutId);
     const nextCut =
       orderedCuts[deletedIndex + 1] ??
@@ -230,7 +352,7 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
       orderedCuts.find((cut) => cut.id !== cutId) ??
       null;
 
-    await deleteCut.mutateAsync(cutId);
+    await deleteCut.mutateAsync({ cutId, payload });
 
     if (selectedCut?.id === cutId) {
       setSelected(nextCut ? { type: 'cut', id: nextCut.id } : { type: 'none' });
@@ -280,27 +402,134 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
     });
   }
 
-  function handleMoveCut(cutId: string, position: { x: number; y: number }) {
-    updateCut.mutate({
-      cutId,
-      payload: {
-        positionX: position.x,
-        positionY: position.y
-      }
+  async function syncCutListOrderToHierarchy(nextChoices: Choice[], nextCuts: Cut[] = orderedCuts) {
+    const currentOrder = nextCuts.map((cut) => cut.id);
+    const hierarchyOrder = getCutHierarchyTraversalOrder(nextCuts, nextChoices);
+
+    if (areOrdersEqual(currentOrder, hierarchyOrder)) {
+      return;
+    }
+
+    const response = await reorderCuts.mutateAsync({
+      cuts: hierarchyOrder.map((cutId, index) => ({
+        cutId,
+        orderIndex: index
+      }))
     });
+    hydrateFromDraft({ cuts: response.cuts });
+    replaceLocalCutOrder(hierarchyOrder);
+
+    if (Object.keys(graphPositionDraft).length === 0) {
+      clearDirty();
+    } else {
+      markDirty(true);
+    }
+  }
+
+  function handleMoveCut(cutId: string, position: { x: number; y: number }) {
+    setGraphLayoutMode('custom');
+    setGraphPositionDraft((currentDraft) => ({
+      ...currentDraft,
+      [cutId]: position
+    }));
+    markDirty(true);
+  }
+
+  function handleApplyGraphLayout(mode: GraphLayoutMode) {
+    setGraphLayoutMode(mode);
+
+    if (!draftQuery.data || mode === 'custom') {
+      return;
+    }
+
+    const nextPositions =
+      mode === 'vertical'
+        ? computeVerticalLayout(graphCuts, draftQuery.data.choices)
+        : computeHorizontalLayout(graphCuts, draftQuery.data.choices);
+
+    setGraphPositionDraft((currentDraft) => ({
+      ...currentDraft,
+      ...nextPositions
+    }));
+    markDirty(true);
   }
 
   function handleConnectChoice(choiceId: string, targetCutId: string) {
+    const nextChoices = draftQuery.data
+      ? draftQuery.data.choices.map((choice) => (choice.id === choiceId ? { ...choice, nextCutId: targetCutId } : choice))
+      : null;
+
     updateChoice.mutate({
       choiceId,
       payload: {
         nextCutId: targetCutId
       }
     });
+
+    if (nextChoices) {
+      void syncCutListOrderToHierarchy(nextChoices).catch(() => {
+        setToolbarNotice('컷 리스트 순서를 동기화하지 못했습니다');
+      });
+    }
+  }
+
+  function handleConnectStateRoute(cutId: string, stateRouteId: string, targetCutId: string) {
+    const sourceCut = draftQuery.data?.cuts.find((cut) => cut.id === cutId);
+    if (!sourceCut) {
+      return;
+    }
+
+    const nextStateRoutes = (sourceCut.stateRoutes ?? []).map((stateRoute) =>
+      stateRoute.id === stateRouteId ? { ...stateRoute, nextCutId: targetCutId } : stateRoute
+    );
+    const nextCuts = draftQuery.data
+      ? draftQuery.data.cuts.map((cut) => (cut.id === cutId ? { ...cut, stateRoutes: nextStateRoutes } : cut))
+      : null;
+
+    updateCut.mutate({
+      cutId,
+      payload: {
+        stateRoutes: nextStateRoutes
+      }
+    });
+
+    if (draftQuery.data && nextCuts) {
+      void syncCutListOrderToHierarchy(draftQuery.data.choices, sortCutsByLocalOrder(nextCuts, localCutOrder)).catch(() => {
+        setToolbarNotice('컷 리스트 순서를 동기화하지 못했습니다');
+      });
+    }
+  }
+
+  function handleConnectStateFallback(cutId: string, targetCutId: string) {
+    const sourceCut = draftQuery.data?.cuts.find((cut) => cut.id === cutId);
+    if (!sourceCut) {
+      return;
+    }
+
+    const nextCuts = draftQuery.data
+      ? draftQuery.data.cuts.map((cut) => (cut.id === cutId ? { ...cut, stateFallbackCutId: targetCutId } : cut))
+      : null;
+
+    updateCut.mutate({
+      cutId,
+      payload: {
+        stateFallbackCutId: targetCutId
+      }
+    });
+
+    if (draftQuery.data && nextCuts) {
+      void syncCutListOrderToHierarchy(draftQuery.data.choices, sortCutsByLocalOrder(nextCuts, localCutOrder)).catch(() => {
+        setToolbarNotice('컷 리스트 순서를 동기화하지 못했습니다');
+      });
+    }
   }
 
   async function handleCreateChoiceConnection(cutId: string, targetCutId: string) {
-    const existingChoices = draftQuery.data ? getChoicesForCut(draftQuery.data.choices, cutId) : [];
+    if (!draftQuery.data) {
+      return;
+    }
+
+    const existingChoices = getChoicesForCut(draftQuery.data.choices, cutId);
     const choice = await createChoice.mutateAsync({
       cutId,
       payload: {
@@ -309,11 +538,84 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
       }
     });
 
+    await syncCutListOrderToHierarchy([...draftQuery.data.choices, choice]);
     setSelected({ type: 'choice', id: choice.id });
   }
 
-  function handleDragEnd(activeId: string, overId: string) {
-    reorderLocalCuts(activeId, overId);
+  async function handleCreateLinkedCut(cutId: string, position: { x: number; y: number }) {
+    if (!draftQuery.data) {
+      return;
+    }
+
+    const branchEndCut = getBranchEndCut(graphCuts, draftQuery.data.choices, cutId) ?? graphCuts.find((cut) => cut.id === cutId) ?? null;
+    if (!branchEndCut || isPromptoonEndingCut(branchEndCut) || branchEndCut.kind === 'stateRouter') {
+      setToolbarNotice('연결할 수 있는 마지막 컷을 선택해 주세요');
+      return;
+    }
+
+    const payload: CreateCutRequest = {
+      kind: 'scene',
+      title: `Cut ${orderedCuts.length + 1}`,
+      body: '',
+      startEffect: 'none',
+      endEffect: 'none',
+      edgeFade: 'both',
+      edgeFadeIntensity: 'minimal',
+      positionX: position.x,
+      positionY: position.y
+    };
+    const cut = await createCut.mutateAsync(payload);
+
+    const displayOrder = insertAfter(
+      cutHierarchy?.flatNodes.map((node) => node.cut.id) ?? orderedCuts.map((orderedCut) => orderedCut.id),
+      branchEndCut.id,
+      cut.id
+    );
+    const response = await reorderCuts.mutateAsync({
+      cuts: displayOrder.map((displayCutId, index) => ({
+        cutId: displayCutId,
+        orderIndex: index
+      }))
+    });
+    hydrateFromDraft({ cuts: response.cuts });
+
+    const existingChoices = getChoicesForCut(draftQuery.data.choices, branchEndCut.id);
+    await createChoice.mutateAsync({
+      cutId: branchEndCut.id,
+      payload: {
+        label: `Choice ${existingChoices.length + 1}`,
+        nextCutId: cut.id
+      }
+    });
+
+    if (Object.keys(graphPositionDraft).length === 0) {
+      clearDirty();
+    } else {
+      markDirty(true);
+    }
+    setSelected({ type: 'cut', id: cut.id });
+  }
+
+  function handleDragEnd(payload: CutListDragPayload) {
+    reorderLocalCuts(payload.activeId, payload.overId);
+
+    if (!payload.parentCutId || payload.siblingChoiceIds.length === 0) {
+      return;
+    }
+
+    const reorderedSiblingCutIds = moveId(payload.siblingCutIds, payload.activeId, payload.overId);
+    for (const cutId of reorderedSiblingCutIds) {
+      const previousIndex = payload.siblingCutIds.indexOf(cutId);
+      const choiceId = payload.siblingChoiceIds[previousIndex];
+      if (choiceId) {
+        updateChoice.mutate({
+          choiceId,
+          payload: {
+            orderIndex: reorderedSiblingCutIds.indexOf(cutId)
+          }
+        });
+      }
+    }
   }
 
   function triggerDirtyGuard() {
@@ -322,28 +624,63 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
   }
 
   async function handleSaveOrder() {
-    if (!draftQuery.data || localCutOrder.length === 0) {
+    if (!draftQuery.data) {
+      return;
+    }
+
+    const layoutCuts = orderedCuts
+      .map((cut) => {
+        const position = graphPositionDraft[cut.id];
+        if (!position || (cut.positionX === position.x && cut.positionY === position.y)) {
+          return null;
+        }
+
+        return {
+          cutId: cut.id,
+          positionX: position.x,
+          positionY: position.y
+        };
+      })
+      .filter((cut): cut is { cutId: string; positionX: number; positionY: number } => Boolean(cut));
+    const shouldSaveOrder = hasOrderChanged(localCutOrder, draftQuery.data.cuts);
+    const shouldSaveLayout = layoutCuts.length > 0;
+
+    if (!shouldSaveOrder && !shouldSaveLayout) {
+      clearDirty();
       return;
     }
 
     const previousOrder = [...localCutOrder];
+    const previousGraphPositionDraft = graphPositionDraft;
+    const hierarchyOrder = draftQuery.data ? buildCutHierarchy(orderedCuts, draftQuery.data.choices).flatNodes.map((node) => node.cut.id) : [];
     const payload = {
-      cuts: localCutOrder.map((cutId, index) => ({
+      cuts: hierarchyOrder.map((cutId, index) => ({
         cutId,
         orderIndex: index
       }))
     };
+    let orderSaved = false;
 
     try {
-      const response = await reorderCuts.mutateAsync(payload);
-      hydrateFromDraft({ cuts: response.cuts });
+      if (shouldSaveOrder) {
+        const response = await reorderCuts.mutateAsync(payload);
+        orderSaved = true;
+        hydrateFromDraft({ cuts: response.cuts });
+      }
+      if (shouldSaveLayout) {
+        await saveCutLayout.mutateAsync({ cuts: layoutCuts });
+        setGraphPositionDraft({});
+      }
       clearDirty();
     } catch {
-      hydrateFromDraft({
-        cuts: previousOrder
-          .map((cutId) => draftQuery.data.cuts.find((cut) => cut.id === cutId))
-          .filter((cut): cut is NonNullable<typeof cut> => Boolean(cut))
-      });
+      if (shouldSaveOrder && !orderSaved) {
+        hydrateFromDraft({
+          cuts: previousOrder
+            .map((cutId) => draftQuery.data.cuts.find((cut) => cut.id === cutId))
+            .filter((cut): cut is NonNullable<typeof cut> => Boolean(cut))
+        });
+      }
+      setGraphPositionDraft(previousGraphPositionDraft);
       markDirty(true);
     }
   }
@@ -456,6 +793,12 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
             error={analyticsQuery.error instanceof Error ? analyticsQuery.error.message : undefined}
             isError={analyticsQuery.isError}
             isLoading={analyticsQuery.isLoading}
+            isResetting={resetEpisodeAnalytics.isPending}
+            onResetAnalytics={handleResetAnalytics}
+            onViewGranularityChange={setAnalyticsViewGranularity}
+            onViewRangeChange={setAnalyticsViewRange}
+            viewGranularity={analyticsViewGranularity}
+            viewRange={analyticsViewRange}
           />
         </main>
       </>
@@ -469,6 +812,7 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
         choices={draftQuery.data.choices}
         episodeStatus={draftQuery.data.episode.status}
         episodeTitle={draftQuery.data.episode.title}
+        graphLayoutMode={graphLayoutMode}
         highlightSaveOrder={highlightSaveOrder}
         isDirty={isDirty}
         lastPublishedVersion={lastPublished?.versionNo ?? latestPublishedEpisode?.versionNo ?? null}
@@ -476,11 +820,15 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
         isValidating={validateEpisode.isPending}
         onBack={() => navigate('/promptoon/projects')}
         onTabChange={handleTabChange}
+        onApplyGraphLayout={handleApplyGraphLayout}
         onCreateChoiceConnection={handleCreateChoiceConnection}
         onConnectChoice={handleConnectChoice}
+        onConnectStateFallback={handleConnectStateFallback}
+        onConnectStateRoute={handleConnectStateRoute}
         onCommitCut={handleCommitCut}
         onCreateChoice={handleCreateChoice}
         onCreateCut={handleCreateCut}
+        onCreateLinkedCut={handleCreateLinkedCut}
         onDeleteChoice={handleDeleteChoice}
         onDeleteCut={handleDeleteCut}
         onDragEnd={handleDragEnd}
@@ -501,7 +849,7 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
         onUpdateChoice={handleUpdateChoice}
         onUpdateCut={handleUpdateCut}
         onValidate={handleValidate}
-        orderedCuts={orderedCuts}
+        orderedCuts={viewMode === 'graph' ? graphCuts : orderedCuts}
         pendingAutosaveCount={pendingAutosaveCount}
         previewChoices={previewChoices}
         previewCut={previewCut}

@@ -1,12 +1,165 @@
-import { DndContext, type DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { DndContext, type DragEndEvent, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
-import type { Cut } from '@promptoon/shared';
-import { useState } from 'react';
+import type { Choice, Cut, DeleteCutRequest } from '@promptoon/shared';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { buildCutHierarchy, type CutHierarchyNode } from '../../entities/promptoon/selectors';
+import {
+  getDefaultDeleteCutReconnectToCutId,
+  getDeleteCutReconnectCandidates,
+  getIncomingChoiceCount
+} from '../../shared/lib/cut-delete';
+import { CutItem } from './CutItem';
 import { DeleteCutConfirmModal } from './DeleteCutConfirmModal';
 import { SortableCutItem } from './SortableCutItem';
 
+export interface CutListDragPayload {
+  activeId: string;
+  overId: string;
+  parentCutId: string | null;
+  siblingCutIds: string[];
+  siblingChoiceIds: string[];
+}
+
+interface CutBranchGroup {
+  key: string;
+  instanceKey: string;
+  contextNode: CutHierarchyNode | null;
+  nodes: CutHierarchyNode[];
+  sections: CutChoiceSection[];
+}
+
+interface CutChoiceSection {
+  key: string;
+  label: string;
+  nodes: CutHierarchyNode[];
+}
+
+interface StoredFoldState {
+  branchGroupKeys: Set<string>;
+  choiceSectionKeys: Set<string>;
+}
+
+function createEmptyFoldState(): StoredFoldState {
+  return {
+    branchGroupKeys: new Set(),
+    choiceSectionKeys: new Set()
+  };
+}
+
+function parseStoredFoldKeys(value: unknown): Set<string> {
+  if (!Array.isArray(value)) {
+    return new Set();
+  }
+
+  return new Set(value.filter((item): item is string => typeof item === 'string'));
+}
+
+function readStoredFoldState(storageKey: string | null): StoredFoldState {
+  if (!storageKey || typeof window === 'undefined') {
+    return createEmptyFoldState();
+  }
+
+  try {
+    const rawState = window.localStorage.getItem(storageKey);
+    if (!rawState) {
+      return createEmptyFoldState();
+    }
+
+    const parsed = JSON.parse(rawState) as {
+      branchGroupKeys?: unknown;
+      choiceSectionKeys?: unknown;
+    };
+
+    return {
+      branchGroupKeys: parseStoredFoldKeys(parsed.branchGroupKeys),
+      choiceSectionKeys: parseStoredFoldKeys(parsed.choiceSectionKeys)
+    };
+  } catch {
+    return createEmptyFoldState();
+  }
+}
+
+function writeStoredFoldState(storageKey: string | null, branchGroupKeys: Set<string>, choiceSectionKeys: Set<string>) {
+  if (!storageKey || typeof window === 'undefined') {
+    return;
+  }
+
+  window.localStorage.setItem(
+    storageKey,
+    JSON.stringify({
+      branchGroupKeys: [...branchGroupKeys],
+      choiceSectionKeys: [...choiceSectionKeys]
+    })
+  );
+}
+
+function getCompressedRank(rank: string): string {
+  const segments = rank.split('.');
+  const rootSegment = segments[0];
+
+  if (!rootSegment) {
+    return rank;
+  }
+
+  const branchSegments = segments.slice(1).filter((segment) => segment !== '1');
+  return [rootSegment, ...branchSegments].join('.');
+}
+
+function buildBranchGroups(nodes: CutHierarchyNode[], nodeByCutId: Map<string, CutHierarchyNode>): CutBranchGroup[] {
+  const groups: CutBranchGroup[] = [];
+
+  for (const node of nodes) {
+    const key = getCompressedRank(node.rank);
+    const currentGroup = groups[groups.length - 1];
+    if (currentGroup?.key === key) {
+      currentGroup.nodes.push(node);
+      continue;
+    }
+
+    const group = {
+      key,
+      instanceKey: `${key}:${groups.length}`,
+      contextNode: null,
+      nodes: [node],
+      sections: []
+    };
+    groups.push(group);
+  }
+
+  for (const group of groups) {
+    const firstNode = group.nodes[0];
+    const parentNode = firstNode?.parentCutId ? nodeByCutId.get(firstNode.parentCutId) ?? null : null;
+    group.contextNode = parentNode && getCompressedRank(parentNode.rank) !== group.key ? parentNode : null;
+    group.sections = buildChoiceSections(group);
+  }
+
+  return groups;
+}
+
+function buildChoiceSections(group: Pick<CutBranchGroup, 'key' | 'nodes'>): CutChoiceSection[] {
+  const sections: CutChoiceSection[] = [];
+
+  for (const node of group.nodes) {
+    const shouldStartSection = sections.length === 0 || node.cut.kind === 'choice' || node.childNodes.length > 1;
+
+    if (shouldStartSection) {
+      sections.push({
+        key: `${group.key}:${node.cut.id}`,
+        label: `${getCompressedRank(node.rank)} ${node.cut.title}`,
+        nodes: [node]
+      });
+      continue;
+    }
+
+    sections[sections.length - 1].nodes.push(node);
+  }
+
+  return sections;
+}
+
 export function CutListPanel({
+  choices,
   cuts,
   selectedCutId,
   onCreateCut,
@@ -14,11 +167,12 @@ export function CutListPanel({
   onDragEnd,
   onSelectCut
 }: {
+  choices: Choice[];
   cuts: Cut[];
   selectedCutId: string | null;
-  onCreateCut: () => void;
-  onDeleteCut: (cutId: string) => Promise<void> | void;
-  onDragEnd: (activeId: string, overId: string) => void;
+  onCreateCut: (anchorCutId?: string) => void;
+  onDeleteCut: (cutId: string, payload?: DeleteCutRequest) => Promise<void> | void;
+  onDragEnd: (payload: CutListDragPayload) => void;
   onSelectCut: (cutId: string) => void;
 }) {
   const sensors = useSensors(
@@ -28,15 +182,83 @@ export function CutListPanel({
       }
     })
   );
+  const foldStorageKey = cuts[0]?.episodeId ? `promptoon:cut-list-fold:${cuts[0].episodeId}` : null;
+  const initialFoldState = readStoredFoldState(foldStorageKey);
+  const skipNextFoldPersistRef = useRef(false);
   const [pendingDeleteCut, setPendingDeleteCut] = useState<Cut | null>(null);
   const [isDeletePending, setIsDeletePending] = useState(false);
+  const [collapsedBranchGroupKeys, setCollapsedBranchGroupKeys] = useState<Set<string>>(() => initialFoldState.branchGroupKeys);
+  const [collapsedChoiceSectionKeys, setCollapsedChoiceSectionKeys] = useState<Set<string>>(() => initialFoldState.choiceSectionKeys);
+  const [reconnectToCutId, setReconnectToCutId] = useState<string | null>(null);
+  const hierarchy = useMemo(() => buildCutHierarchy(cuts, choices), [choices, cuts]);
+  const branchGroups = useMemo(
+    () => buildBranchGroups(hierarchy.flatNodes, hierarchy.nodeByCutId),
+    [hierarchy.flatNodes, hierarchy.nodeByCutId]
+  );
+  const visibleNodes = useMemo(
+    () =>
+      branchGroups.flatMap((group) =>
+        collapsedBranchGroupKeys.has(group.key)
+          ? []
+          : group.sections.flatMap((section) => (collapsedChoiceSectionKeys.has(section.key) ? [] : section.nodes))
+      ),
+    [branchGroups, collapsedBranchGroupKeys, collapsedChoiceSectionKeys]
+  );
+  const visibleNodeByCutId = useMemo(
+    () => new Map(visibleNodes.map((node) => [node.cut.id, node])),
+    [visibleNodes]
+  );
+  const incomingChoiceCount = pendingDeleteCut ? getIncomingChoiceCount(pendingDeleteCut.id, choices) : 0;
+  const reconnectCandidates = pendingDeleteCut ? getDeleteCutReconnectCandidates(pendingDeleteCut.id, cuts, choices) : [];
+
+  useEffect(() => {
+    const storedFoldState = readStoredFoldState(foldStorageKey);
+    skipNextFoldPersistRef.current = true;
+    setCollapsedBranchGroupKeys(storedFoldState.branchGroupKeys);
+    setCollapsedChoiceSectionKeys(storedFoldState.choiceSectionKeys);
+  }, [foldStorageKey]);
+
+  useEffect(() => {
+    if (skipNextFoldPersistRef.current) {
+      skipNextFoldPersistRef.current = false;
+      return;
+    }
+
+    writeStoredFoldState(foldStorageKey, collapsedBranchGroupKeys, collapsedChoiceSectionKeys);
+  }, [collapsedBranchGroupKeys, collapsedChoiceSectionKeys, foldStorageKey]);
 
   function handleDragEnd(event: DragEndEvent) {
     if (!event.over || event.active.id === event.over.id) {
       return;
     }
 
-    onDragEnd(String(event.active.id), String(event.over.id));
+    const activeId = String(event.active.id);
+    const overId = String(event.over.id);
+    const activeNode = visibleNodeByCutId.get(activeId);
+    const overNode = visibleNodeByCutId.get(overId);
+
+    if (!activeNode || !overNode) {
+      return;
+    }
+
+    const isSameSiblingGroup = activeNode.siblingGroupKey === overNode.siblingGroupKey;
+
+    onDragEnd({
+      activeId,
+      overId,
+      parentCutId: isSameSiblingGroup ? activeNode.parentCutId : null,
+      siblingCutIds: isSameSiblingGroup ? activeNode.siblingCutIds : visibleNodes.map((node) => node.cut.id),
+      siblingChoiceIds: isSameSiblingGroup
+        ? activeNode.siblingCutIds
+            .map((cutId) => hierarchy.nodeByCutId.get(cutId)?.parentChoiceId)
+            .filter((choiceId): choiceId is string => Boolean(choiceId))
+        : []
+    });
+  }
+
+  function openDeleteModal(cut: Cut) {
+    setPendingDeleteCut(cut);
+    setReconnectToCutId(getDefaultDeleteCutReconnectToCutId(cut.id, cuts, choices));
   }
 
   async function handleConfirmDelete() {
@@ -47,8 +269,9 @@ export function CutListPanel({
     setIsDeletePending(true);
 
     try {
-      await onDeleteCut(pendingDeleteCut.id);
+      await onDeleteCut(pendingDeleteCut.id, { reconnectToCutId });
       setPendingDeleteCut(null);
+      setReconnectToCutId(null);
     } catch {
       // Keep the modal open so the user can retry if deletion fails.
     } finally {
@@ -58,43 +281,152 @@ export function CutListPanel({
 
   return (
     <>
-      <section className="flex h-full flex-col rounded-[28px] border border-editor-border bg-editor-panel/85 p-5">
-        <div className="flex items-center justify-between gap-3">
+      <section className="flex h-full max-h-full min-h-0 flex-col overflow-hidden rounded-[18px] border border-editor-border bg-editor-panel/85 p-2.5">
+        <div className="flex items-center justify-between gap-2">
           <div>
-            <p className="font-display text-xl font-semibold text-zinc-50">Cut List</p>
-            <p className="text-sm text-zinc-400">Drag to reorder. Select, delete, and build the episode flow.</p>
+            <p className="font-display text-lg font-semibold text-zinc-50">Cut List</p>
+            <p className="text-xs text-zinc-400">Drag to reorder. Select, delete, and build the episode flow.</p>
           </div>
           <button
-            className="rounded-full bg-editor-accent px-4 py-2 text-sm font-medium text-white transition hover:bg-editor-accentSoft"
-            onClick={onCreateCut}
+            className="rounded-full bg-editor-accent px-3 py-1.5 text-sm font-medium text-white transition hover:bg-editor-accentSoft"
+            onClick={() => onCreateCut()}
             type="button"
           >
             + Cut
           </button>
         </div>
 
-        <div className="mt-4 rounded-2xl border border-editor-border bg-black/10 px-4 py-3 text-xs uppercase tracking-[0.24em] text-zinc-500">
+        <div className="mt-2 rounded-xl border border-editor-border bg-black/10 px-3 py-1.5 text-xs uppercase tracking-[0.2em] text-zinc-500">
           {cuts.length} cut{cuts.length === 1 ? '' : 's'}
         </div>
 
-        <div className="mt-5 min-h-0 flex-1 overflow-y-auto pr-1">
+        <div className="mt-2 min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1" data-testid="cut-list-scroll">
           {cuts.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-editor-border p-6 text-sm text-zinc-500">
+            <div className="rounded-xl border border-dashed border-editor-border p-4 text-sm text-zinc-500">
               No cuts yet. Create the first scene to start the episode flow.
             </div>
           ) : (
-            <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-              <SortableContext items={cuts.map((cut) => cut.id)} strategy={verticalListSortingStrategy}>
+            <DndContext collisionDetection={closestCenter} sensors={sensors} onDragEnd={handleDragEnd}>
+              <SortableContext items={visibleNodes.map((node) => node.cut.id)} strategy={verticalListSortingStrategy}>
                 <div className="space-y-3">
-                  {cuts.map((cut) => (
-                    <SortableCutItem
-                      key={cut.id}
-                      cut={cut}
-                      onDelete={() => setPendingDeleteCut(cut)}
-                      onSelect={() => onSelectCut(cut.id)}
-                      selected={selectedCutId === cut.id}
-                    />
-                  ))}
+                  {branchGroups.map((group) => {
+                    const isCollapsed = collapsedBranchGroupKeys.has(group.key);
+
+                    return (
+                      <div key={group.instanceKey} className="rounded-xl border border-editor-border/70 bg-black/10 p-1.5">
+                        <button
+                          aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} group ${group.key}`}
+                          className="mb-1.5 flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-white/[0.03]"
+                          onClick={() => {
+                            setCollapsedBranchGroupKeys((current) => {
+                              const next = new Set(current);
+                              if (next.has(group.key)) {
+                                next.delete(group.key);
+                              } else {
+                                next.add(group.key);
+                              }
+
+                              return next;
+                            });
+                          }}
+                          type="button"
+                        >
+                          <span className="min-w-0 truncate text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                            Branch
+                            {' '}
+                            {group.key}
+                          </span>
+                          <span className="shrink-0 rounded-full border border-editor-border bg-black/20 px-2 py-1 text-[11px] text-zinc-400">
+                            {group.nodes.length}
+                            {' '}
+                            cut{group.nodes.length === 1 ? '' : 's'}
+                            {' '}
+                            {isCollapsed ? '+' : '-'}
+                          </span>
+                        </button>
+
+                        {isCollapsed ? null : (
+                          <div className="space-y-2">
+                            {group.contextNode ? (
+                              <div className="rounded-lg border border-dashed border-editor-border/70 bg-black/15 p-1">
+                                <div className="mb-1 truncate px-2 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-500">
+                                  {group.contextNode.cut.title}
+                                  {' '}
+                                  -&gt;
+                                  {' '}
+                                  Branch
+                                  {' '}
+                                  {group.key}
+                                </div>
+                                <CutItem
+                                  cut={group.contextNode.cut}
+                                  dragDisabled
+                                  onCreateAfter={() => onCreateCut(group.contextNode!.cut.id)}
+                                  onDelete={() => openDeleteModal(group.contextNode!.cut)}
+                                  onSelect={() => onSelectCut(group.contextNode!.cut.id)}
+                                  rank={getCompressedRank(group.contextNode.rank)}
+                                  selected={selectedCutId === group.contextNode.cut.id}
+                                />
+                              </div>
+                            ) : null}
+                            {group.sections.map((section) => {
+                              const isSectionCollapsed = collapsedChoiceSectionKeys.has(section.key);
+
+                              return (
+                                <div key={section.key} className="rounded-lg border border-editor-border/50 bg-black/10 p-1">
+                                  <button
+                                    aria-label={`${isSectionCollapsed ? 'Expand' : 'Collapse'} flow ${section.label}`}
+                                    className="mb-1 flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left transition hover:bg-white/[0.03]"
+                                    onClick={() => {
+                                      setCollapsedChoiceSectionKeys((current) => {
+                                        const next = new Set(current);
+                                        if (next.has(section.key)) {
+                                          next.delete(section.key);
+                                        } else {
+                                          next.add(section.key);
+                                        }
+
+                                        return next;
+                                      });
+                                    }}
+                                    type="button"
+                                  >
+                                    <span className="min-w-0 truncate text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-500">
+                                      Choice
+                                      {' '}
+                                      {section.label}
+                                    </span>
+                                    <span className="shrink-0 text-[11px] text-zinc-500">
+                                      {section.nodes.length}
+                                      {' '}
+                                      {isSectionCollapsed ? '+' : '-'}
+                                    </span>
+                                  </button>
+
+                                  {isSectionCollapsed ? null : (
+                                    <div className="space-y-2">
+                                      {section.nodes.map((node) => (
+                                        <SortableCutItem
+                                          key={node.cut.id}
+                                          cut={node.cut}
+                                          indentLevel={1}
+                                          onCreateAfter={() => onCreateCut(node.cut.id)}
+                                          onDelete={() => openDeleteModal(node.cut)}
+                                          onSelect={() => onSelectCut(node.cut.id)}
+                                          rank={getCompressedRank(node.rank)}
+                                          selected={selectedCutId === node.cut.id}
+                                        />
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </SortableContext>
             </DndContext>
@@ -103,6 +435,7 @@ export function CutListPanel({
       </section>
       <DeleteCutConfirmModal
         cut={pendingDeleteCut}
+        incomingChoiceCount={incomingChoiceCount}
         isDeleting={isDeletePending}
         onCancel={() => {
           if (isDeletePending) {
@@ -110,10 +443,14 @@ export function CutListPanel({
           }
 
           setPendingDeleteCut(null);
+          setReconnectToCutId(null);
         }}
         onConfirm={() => {
           void handleConfirmDelete();
         }}
+        onReconnectChange={setReconnectToCutId}
+        reconnectCandidates={reconnectCandidates}
+        reconnectToCutId={reconnectToCutId}
       />
     </>
   );

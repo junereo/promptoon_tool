@@ -1,12 +1,18 @@
 import type {
   AssetUploadResponse,
   AnalyticsChoiceStat,
-  AnalyticsDailyView,
   AnalyticsEpisodeResponse,
+  AnalyticsViewRange,
+  AnalyticsViewGranularity,
+  AnalyticsViewPoint,
   Choice,
+  ChoiceStateWrite,
   CutContentBlock,
   CreateChoiceRequest,
   CreateCutRequest,
+  CutStateVariant,
+  CutStateRoute,
+  DeleteCutRequest,
   CreateEpisodeRequest,
   CreateProjectRequest,
   Cut,
@@ -14,31 +20,44 @@ import type {
   EpisodeDraftResponse,
   FeedItem,
   FeedResponse,
+  PatchEpisodeRequest,
+  PatchEpisodeCutLayoutRequest,
+  PatchEpisodeCutLayoutResponse,
   PatchChoiceRequest,
   PatchCutRequest,
   Project,
   ProjectWithEpisodes,
+  PromptoonBackupExport,
   Publish,
   PublishManifest,
   PublishRequest,
   ReorderEpisodeCutsRequest,
   ReorderEpisodeCutsResponse,
+  ResetEpisodeAnalyticsRequest,
   TelemetryEventRequest,
   ValidateEpisodeResponse
 } from '@promptoon/shared';
+import {
+  createHash,
+  randomUUID
+} from 'node:crypto';
 import {
   DEFAULT_CONTENT_SPACING,
   DEFAULT_CONTENT_VIEW_MODE,
   DEFAULT_CUT_EFFECT_DURATION_MS,
   DEFAULT_EDGE_FADE,
+  DEFAULT_EDGE_FADE_COLOR,
   DEFAULT_EDGE_FADE_INTENSITY,
+  MAX_CUT_STATE_ROUTE_CONDITIONS,
   deriveCutBody,
+  getCutStateRouteConditions,
   getNormalizedCutContentBlocks
 } from '@promptoon/shared';
 import { readFile } from 'node:fs/promises';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { PoolClient } from 'pg';
+import sharp from 'sharp';
 
 import { db, withTransaction } from '../../db';
 import { HttpError } from '../../lib/http-error';
@@ -82,6 +101,10 @@ function normalizeManifestContentBlocks(cut: { id: string; body: string; content
 function normalizeManifest(manifest: PublishManifest): PublishManifest {
   return {
     ...manifest,
+    episode: {
+      ...manifest.episode,
+      coverImageUrl: manifest.episode.coverImageUrl ?? null
+    },
     cuts: manifest.cuts.map((cut) => {
       const contentBlocks = normalizeManifestContentBlocks(cut);
 
@@ -92,14 +115,19 @@ function normalizeManifest(manifest: PublishManifest): PublishManifest {
         contentViewMode: cut.contentViewMode ?? DEFAULT_CONTENT_VIEW_MODE,
         edgeFade: cut.edgeFade ?? DEFAULT_EDGE_FADE,
         edgeFadeIntensity: cut.edgeFadeIntensity ?? DEFAULT_EDGE_FADE_INTENSITY,
+        edgeFadeColor: cut.edgeFadeColor ?? DEFAULT_EDGE_FADE_COLOR,
         marginBottomToken: cut.marginBottomToken ?? DEFAULT_CONTENT_SPACING,
+        stateVariants: cut.stateVariants ?? [],
+        stateRoutes: cut.stateRoutes ?? [],
+        stateFallbackCutId: cut.stateFallbackCutId ?? null,
         startEffect: cut.startEffect ?? 'none',
         endEffect: cut.endEffect ?? 'none',
         startEffectDurationMs: normalizeCutEffectDurationMs(cut.startEffectDurationMs),
         endEffectDurationMs: normalizeCutEffectDurationMs(cut.endEffectDurationMs),
         choices: cut.choices.map((choice) => ({
           ...choice,
-          afterSelectReactionText: choice.afterSelectReactionText ?? undefined
+          afterSelectReactionText: choice.afterSelectReactionText ?? undefined,
+          stateWrites: choice.stateWrites ?? []
         }))
       };
     })
@@ -163,6 +191,32 @@ async function ensureCutOwnedByUser(cutId: string, userId: string): Promise<void
   }
 }
 
+function getBackupTotals(projects: PromptoonBackupExport['projects']): PromptoonBackupExport['totals'] {
+  return projects.reduce(
+    (totals, projectBackup) => {
+      totals.projects += 1;
+      totals.episodes += projectBackup.episodes.length;
+
+      for (const episodeBackup of projectBackup.episodes) {
+        totals.cuts += episodeBackup.cuts.length;
+        totals.choices += episodeBackup.choices.length;
+        totals.publishes += episodeBackup.publishes.length;
+        totals.viewerEvents += episodeBackup.viewerEvents.length;
+      }
+
+      return totals;
+    },
+    {
+      projects: 0,
+      episodes: 0,
+      cuts: 0,
+      choices: 0,
+      publishes: 0,
+      viewerEvents: 0
+    }
+  );
+}
+
 async function ensureChoiceOwnedByUser(choiceId: string, userId: string): Promise<void> {
   const ownerId = await repository.getChoiceOwnerId(db, choiceId);
   if (!ownerId) {
@@ -171,6 +225,102 @@ async function ensureChoiceOwnedByUser(choiceId: string, userId: string): Promis
 
   if (ownerId !== userId) {
     throw new HttpError(403, 'You do not have access to this choice.');
+  }
+}
+
+function normalizeChoiceStateWrites(stateWrites: ChoiceStateWrite[] | undefined): ChoiceStateWrite[] | undefined {
+  if (!stateWrites) {
+    return undefined;
+  }
+
+  return stateWrites.map((stateWrite) => ({
+    key: stateWrite.key.trim(),
+    value: stateWrite.value.trim()
+  }));
+}
+
+function normalizeCutStateVariants(stateVariants: CutStateVariant[] | undefined): CutStateVariant[] | undefined {
+  if (!stateVariants) {
+    return undefined;
+  }
+
+  return stateVariants.map((stateVariant) => ({
+    id: stateVariant.id.trim(),
+    stateKey: stateVariant.stateKey.trim(),
+    equals: stateVariant.equals.trim(),
+    variantCutId: stateVariant.variantCutId,
+    label: stateVariant.label?.trim() || undefined
+  }));
+}
+
+function normalizeCutStateRoutes(stateRoutes: CutStateRoute[] | undefined): CutStateRoute[] | undefined {
+  if (!stateRoutes) {
+    return undefined;
+  }
+
+  return stateRoutes.map((stateRoute) => {
+    const conditions = getCutStateRouteConditions(stateRoute).slice(0, MAX_CUT_STATE_ROUTE_CONDITIONS);
+    const firstCondition = conditions[0] ?? { stateKey: '', equals: '' };
+
+    return {
+      id: stateRoute.id.trim(),
+      stateKey: firstCondition.stateKey,
+      equals: firstCondition.equals,
+      conditions,
+      nextCutId: stateRoute.nextCutId,
+      label: stateRoute.label?.trim() || undefined
+    };
+  });
+}
+
+async function ensureStateVariantTargetsInEpisode(input: {
+  episodeId: string;
+  sourceCutId?: string;
+  stateVariants?: CutStateVariant[];
+}): Promise<void> {
+  if (!input.stateVariants || input.stateVariants.length === 0) {
+    return;
+  }
+
+  const draft = assertExists(await repository.getEpisodeDraft(db, input.episodeId), 'Episode not found.');
+  const cutIds = new Set(draft.cuts.map((cut) => cut.id));
+
+  for (const stateVariant of input.stateVariants) {
+    if (stateVariant.variantCutId === input.sourceCutId) {
+      throw new HttpError(400, 'State variant target cannot be the source cut.');
+    }
+
+    if (!cutIds.has(stateVariant.variantCutId)) {
+      throw new HttpError(400, 'State variant target must reference a cut in the same episode.');
+    }
+  }
+}
+
+async function ensureStateRouterTargetsInEpisode(input: {
+  episodeId: string;
+  sourceCutId?: string;
+  stateRoutes?: CutStateRoute[];
+  stateFallbackCutId?: string | null;
+}): Promise<void> {
+  if ((!input.stateRoutes || input.stateRoutes.length === 0) && !input.stateFallbackCutId) {
+    return;
+  }
+
+  const draft = assertExists(await repository.getEpisodeDraft(db, input.episodeId), 'Episode not found.');
+  const cutIds = new Set(draft.cuts.map((cut) => cut.id));
+  const targetIds = [
+    ...(input.stateRoutes ?? []).map((stateRoute) => stateRoute.nextCutId),
+    ...(input.stateFallbackCutId ? [input.stateFallbackCutId] : [])
+  ];
+
+  for (const targetId of targetIds) {
+    if (targetId === input.sourceCutId) {
+      throw new HttpError(400, 'State router target cannot be the source cut.');
+    }
+
+    if (!cutIds.has(targetId)) {
+      throw new HttpError(400, 'State router target must reference a cut in the same episode.');
+    }
   }
 }
 
@@ -194,6 +344,7 @@ function buildManifest(draft: EpisodeDraftResponse, project: Project): PublishMa
       id: draft.episode.id,
       title: draft.episode.title,
       episodeNo: draft.episode.episodeNo,
+      coverImageUrl: draft.episode.coverImageUrl,
       status: draft.episode.status,
       startCutId: draft.episode.startCutId
     },
@@ -206,6 +357,7 @@ function buildManifest(draft: EpisodeDraftResponse, project: Project): PublishMa
       contentViewMode: cut.contentViewMode ?? DEFAULT_CONTENT_VIEW_MODE,
       edgeFade: cut.edgeFade ?? DEFAULT_EDGE_FADE,
       edgeFadeIntensity: cut.edgeFadeIntensity ?? DEFAULT_EDGE_FADE_INTENSITY,
+      edgeFadeColor: cut.edgeFadeColor ?? DEFAULT_EDGE_FADE_COLOR,
       marginBottomToken: cut.marginBottomToken ?? DEFAULT_CONTENT_SPACING,
       dialogAnchorX: cut.dialogAnchorX,
       dialogAnchorY: cut.dialogAnchorY,
@@ -222,12 +374,16 @@ function buildManifest(draft: EpisodeDraftResponse, project: Project): PublishMa
       orderIndex: cut.orderIndex,
       isStart: cut.isStart,
       isEnding: cut.isEnding,
+      stateVariants: cut.stateVariants ?? [],
+      stateRoutes: cut.stateRoutes ?? [],
+      stateFallbackCutId: cut.stateFallbackCutId ?? null,
       choices: (choicesByCutId.get(cut.id) ?? []).map((choice) => ({
         id: choice.id,
         label: choice.label,
         orderIndex: choice.orderIndex,
         nextCutId: choice.nextCutId,
-        afterSelectReactionText: choice.afterSelectReactionText
+        afterSelectReactionText: choice.afterSelectReactionText,
+        stateWrites: choice.stateWrites ?? []
       }))
     }))
   };
@@ -258,14 +414,21 @@ function isWritablePathError(error: unknown): boolean {
   return error instanceof Error && 'code' in error && ['EACCES', 'EPERM', 'EROFS'].includes(String(error.code));
 }
 
-async function writeUploadFile(relativeDirectory: string, fileName: string, buffer: Buffer): Promise<void> {
+interface UploadFileWrite {
+  fileName: string;
+  buffer: Buffer;
+}
+
+async function writeUploadFiles(relativeDirectory: string, files: UploadFileWrite[]): Promise<void> {
   const directoryCandidates = [path.join(getUploadsDirectory(), relativeDirectory), path.join(getLegacyUploadsDirectory(), relativeDirectory)];
   let lastError: unknown = null;
 
   for (const uploadsDirectory of directoryCandidates) {
     try {
       await mkdir(uploadsDirectory, { recursive: true });
-      await writeFile(path.join(uploadsDirectory, fileName), buffer);
+      for (const file of files) {
+        await writeFile(path.join(uploadsDirectory, file.fileName), file.buffer);
+      }
 
       return;
     } catch (error) {
@@ -299,12 +462,27 @@ function getDatedUploadSegments(now: Date): [string, string, string] {
   return [String(now.getFullYear()), padDatePart(now.getMonth() + 1), padDatePart(now.getDate())];
 }
 
-function buildProjectUploadFileName(file: Express.Multer.File, now: Date): string {
-  return `${sanitizeUploadBaseName(file.originalname)}-${now.getTime()}${getUploadExtension(file)}`;
+function buildProjectUploadBaseName(file: Express.Multer.File, now: Date): string {
+  return `${sanitizeUploadBaseName(file.originalname)}-${now.getTime()}`;
 }
 
-function buildAssetUrl(projectId: string, fileName: string, now: Date): string {
-  return path.posix.join('/uploads', ...getDatedUploadSegments(now), projectId, fileName);
+function buildOriginalUploadFileName(file: Express.Multer.File, uploadBaseName: string): string {
+  const extension = getUploadExtension(file);
+  const originalSuffix = extension === '.webp' ? '-original' : '';
+
+  return `${uploadBaseName}${originalSuffix}${extension}`;
+}
+
+function buildWebpUploadFileName(uploadBaseName: string): string {
+  return `${uploadBaseName}.webp`;
+}
+
+function buildPublicUploadScope(): string {
+  return randomUUID().replaceAll('-', '').slice(0, 12);
+}
+
+function buildAssetUrl(publicUploadScope: string, fileName: string, now: Date): string {
+  return path.posix.join('/uploads', ...getDatedUploadSegments(now), publicUploadScope, fileName);
 }
 
 function getUploadExtension(file: Express.Multer.File): string {
@@ -325,6 +503,14 @@ function getUploadExtension(file: Express.Multer.File): string {
   return `.${mimeSubtype.replace(/[^a-z0-9]/g, '') || 'bin'}`;
 }
 
+async function convertUploadToWebp(file: Express.Multer.File): Promise<Buffer> {
+  try {
+    return await sharp(file.buffer).webp().toBuffer();
+  } catch {
+    throw new HttpError(400, 'Invalid image file.');
+  }
+}
+
 function toAbsoluteUrl(baseOrigin: string, value: string | null | undefined): string | null {
   if (!value) {
     return null;
@@ -342,6 +528,26 @@ function toAbsoluteUrl(baseOrigin: string, value: string | null | undefined): st
   return `${normalizedOrigin}/${value}`;
 }
 
+function toPublicProjectRef(projectId: string): string {
+  return `prj_${createHash('sha256').update(projectId).digest('base64url').slice(0, 10)}`;
+}
+
+function toPublicPublish(publish: Publish): Publish {
+  const publicProjectRef = toPublicProjectRef(publish.projectId);
+
+  return {
+    ...publish,
+    projectId: publicProjectRef,
+    manifest: {
+      ...publish.manifest,
+      project: {
+        ...publish.manifest.project,
+        id: publicProjectRef
+      }
+    }
+  };
+}
+
 function summarizeDescription(value: string | null | undefined, fallback: string): string {
   const normalized = value?.trim();
   if (!normalized) {
@@ -351,16 +557,21 @@ function summarizeDescription(value: string | null | undefined, fallback: string
   return normalized.length > 180 ? `${normalized.slice(0, 177)}...` : normalized;
 }
 
+function isEndingLikeCut(cut: { isEnding?: boolean; kind: string }): boolean {
+  return Boolean(cut.isEnding) || cut.kind === 'ending' || cut.kind === 'resultCard';
+}
+
 function getShareImageUrl(publish: Publish, endingCutId: string | undefined, baseOrigin: string): string | null {
   const manifest = publish.manifest;
   const endingCut =
     endingCutId
-      ? manifest.cuts.find((cut) => cut.id === endingCutId && (cut.isEnding || cut.kind === 'ending')) ?? null
+      ? manifest.cuts.find((cut) => cut.id === endingCutId && isEndingLikeCut(cut)) ?? null
       : null;
   const fallbackCutWithImage = manifest.cuts.find((cut) => Boolean(cut.assetUrl)) ?? null;
 
   return (
     toAbsoluteUrl(baseOrigin, endingCut?.assetUrl) ??
+    toAbsoluteUrl(baseOrigin, manifest.episode.coverImageUrl) ??
     toAbsoluteUrl(baseOrigin, fallbackCutWithImage?.assetUrl) ??
     toAbsoluteUrl(baseOrigin, manifest.project.thumbnailUrl)
   );
@@ -370,7 +581,7 @@ function buildSharePageMeta(publish: Publish, endingCutId: string | undefined, b
   const manifest = publish.manifest;
   const validEndingCut =
     endingCutId
-      ? manifest.cuts.find((cut) => cut.id === endingCutId && (cut.isEnding || cut.kind === 'ending')) ?? null
+      ? manifest.cuts.find((cut) => cut.id === endingCutId && isEndingLikeCut(cut)) ?? null
       : null;
   const querySuffix = validEndingCut ? `?e=${encodeURIComponent(validEndingCut.id)}` : '';
   const redirectUrl = `${trimTrailingSlash(baseOrigin)}/v/${publish.id}${querySuffix}`;
@@ -461,25 +672,111 @@ function getStartCutId(draft: EpisodeDraftResponse): string | null {
   return draft.episode.startCutId ?? draft.cuts.find((cut) => cut.isStart)?.id ?? draft.cuts[0]?.id ?? null;
 }
 
-const ANALYTICS_DAILY_VIEW_DAYS = 365;
+function getUtcStartOfDay(date: Date): Date {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+}
 
-function fillDailyViews(rows: AnalyticsDailyView[], days: number): AnalyticsDailyView[] {
-  const byDate = new Map(rows.map((row) => [row.date, row.views]));
-  const result: AnalyticsDailyView[] = [];
+function getUtcIsoWeekStart(date: Date): Date {
+  const start = getUtcStartOfDay(date);
+  const daysSinceMonday = (start.getUTCDay() + 6) % 7;
+  start.setUTCDate(start.getUTCDate() - daysSinceMonday);
+  return start;
+}
 
-  for (let index = days - 1; index >= 0; index -= 1) {
-    const date = new Date();
-    date.setUTCHours(0, 0, 0, 0);
-    date.setUTCDate(date.getUTCDate() - index);
-    const isoDate = date.toISOString().slice(0, 10);
+function formatUtcDate(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
 
-    result.push({
-      date: isoDate,
-      views: byDate.get(isoDate) ?? 0
-    });
+function parseAnalyticsDate(value: string): Date {
+  return new Date(`${value}T00:00:00.000Z`);
+}
+
+function getUtcPeriodStart(date: Date, granularity: AnalyticsViewGranularity): Date {
+  if (granularity === 'weekly') {
+    return getUtcIsoWeekStart(date);
+  }
+
+  if (granularity === 'monthly') {
+    return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
+  }
+
+  return getUtcStartOfDay(date);
+}
+
+function addAnalyticsPeriod(date: Date, granularity: AnalyticsViewGranularity, amount: number): Date {
+  const result = new Date(date.getTime());
+
+  if (granularity === 'monthly') {
+    result.setUTCMonth(result.getUTCMonth() + amount, 1);
+  } else {
+    result.setUTCDate(result.getUTCDate() + (granularity === 'weekly' ? amount * 7 : amount));
   }
 
   return result;
+}
+
+function getDefaultAnalyticsPeriodStarts(granularity: AnalyticsViewGranularity, referenceDate = new Date()): string[] {
+  const periodCount = granularity === 'daily' ? 14 : 12;
+  const anchor = getUtcPeriodStart(referenceDate, granularity);
+  const result: string[] = [];
+
+  for (let index = periodCount - 1; index >= 0; index -= 1) {
+    result.push(formatUtcDate(addAnalyticsPeriod(anchor, granularity, -index)));
+  }
+
+  return result;
+}
+
+function getAnalyticsViewWindow(
+  granularity: AnalyticsViewGranularity,
+  range?: AnalyticsViewRange
+): { periodStarts: string[]; fromDate: string; toDate?: string } {
+  const defaultStarts = getDefaultAnalyticsPeriodStarts(granularity);
+  const hasRange = Boolean(range?.from || range?.to);
+
+  if (!hasRange) {
+    return {
+      periodStarts: defaultStarts,
+      fromDate: `${defaultStarts[0] ?? formatUtcDate(getUtcStartOfDay(new Date()))}T00:00:00.000Z`
+    };
+  }
+
+  const today = formatUtcDate(getUtcStartOfDay(new Date()));
+  if (range?.to && !range?.from) {
+    const periodStarts = getDefaultAnalyticsPeriodStarts(granularity, parseAnalyticsDate(range.to));
+
+    return {
+      periodStarts,
+      fromDate: `${periodStarts[0] ?? range.to}T00:00:00.000Z`,
+      toDate: addAnalyticsPeriod(parseAnalyticsDate(range.to), 'daily', 1).toISOString()
+    };
+  }
+
+  const fromDateValue = range?.from ?? defaultStarts[0] ?? today;
+  const toDateValue = range?.to ?? (range?.from && range.from > today ? range.from : today);
+  const start = getUtcPeriodStart(parseAnalyticsDate(fromDateValue), granularity);
+  const end = getUtcPeriodStart(parseAnalyticsDate(toDateValue), granularity);
+  const periodStarts: string[] = [];
+
+  for (let date = start; date.getTime() <= end.getTime(); date = addAnalyticsPeriod(date, granularity, 1)) {
+    periodStarts.push(formatUtcDate(date));
+  }
+
+  return {
+    periodStarts,
+    fromDate: `${fromDateValue}T00:00:00.000Z`,
+    toDate: addAnalyticsPeriod(parseAnalyticsDate(toDateValue), 'daily', 1).toISOString()
+  };
+}
+
+function fillViewsByPeriod(rows: AnalyticsViewPoint[], periodStarts: string[]): AnalyticsViewPoint[] {
+  const byPeriodStart = new Map(rows.map((row) => [row.periodStart, row]));
+
+  return periodStarts.map((periodStart) => ({
+    periodStart,
+    views: byPeriodStart.get(periodStart)?.views ?? 0,
+    uniqueViewers: byPeriodStart.get(periodStart)?.uniqueViewers ?? 0
+  }));
 }
 
 function encodeFeedCursor(payload: FeedCursorPayload): string {
@@ -536,9 +833,9 @@ function buildFeedItem(publish: Publish): FeedItem | null {
   return {
     publishId: publish.id,
     episodeId: publish.episodeId,
-    projectId: publish.projectId,
     episodeTitle: publish.manifest.episode.title,
     projectTitle: publish.manifest.project.title,
+    coverImageUrl: publish.manifest.episode.coverImageUrl ?? null,
     publishedAt: publish.createdAt,
     startCut: {
       id: startCut.id,
@@ -549,6 +846,7 @@ function buildFeedItem(publish: Publish): FeedItem | null {
       assetUrl: startCut.assetUrl,
       edgeFade: startCut.edgeFade ?? DEFAULT_EDGE_FADE,
       edgeFadeIntensity: startCut.edgeFadeIntensity ?? DEFAULT_EDGE_FADE_INTENSITY,
+      edgeFadeColor: startCut.edgeFadeColor ?? DEFAULT_EDGE_FADE_COLOR,
       marginBottomToken: startCut.marginBottomToken ?? DEFAULT_CONTENT_SPACING,
       dialogAnchorX: startCut.dialogAnchorX,
       dialogAnchorY: startCut.dialogAnchorY,
@@ -568,7 +866,8 @@ function buildFeedItem(publish: Publish): FeedItem | null {
         label: choice.label,
         orderIndex: choice.orderIndex,
         nextCutId: choice.nextCutId,
-        afterSelectReactionText: choice.afterSelectReactionText
+        afterSelectReactionText: choice.afterSelectReactionText,
+        stateWrites: choice.stateWrites ?? []
       }))
   };
 }
@@ -608,28 +907,6 @@ function buildChoiceStats(
   return result;
 }
 
-function getDerivedBranchKind(choiceCount: number): Cut['kind'] {
-  return choiceCount >= 2 ? 'choice' : 'scene';
-}
-
-async function normalizeBranchCutKind(dbClient: PoolClient | typeof db, cutId: string): Promise<void> {
-  const cut = await repository.getCutById(dbClient, cutId);
-  if (!cut || (cut.kind !== 'scene' && cut.kind !== 'choice')) {
-    return;
-  }
-
-  const choiceCount = await repository.countChoicesForCut(dbClient, cutId);
-  const normalizedKind = getDerivedBranchKind(choiceCount);
-  if (cut.kind === normalizedKind && cut.isEnding === false) {
-    return;
-  }
-
-  await repository.updateCut(dbClient, cutId, {
-    kind: normalizedKind,
-    isEnding: false
-  });
-}
-
 async function getValidatedDraft(episodeId: string, dbClient?: PoolClient): Promise<{
   draft: EpisodeDraftResponse;
   validation: ValidateEpisodeResponse;
@@ -642,6 +919,18 @@ async function getValidatedDraft(episodeId: string, dbClient?: PoolClient): Prom
 
 export async function listProjects(userId: string): Promise<ProjectWithEpisodes[]> {
   return repository.listProjectsWithEpisodes(db, userId);
+}
+
+export async function exportUserBackup(userId: string): Promise<PromptoonBackupExport> {
+  const projects = await repository.getUserBackupProjects(db, userId);
+
+  return {
+    schemaVersion: 1,
+    exportedAt: new Date().toISOString(),
+    ownerId: userId,
+    projects,
+    totals: getBackupTotals(projects)
+  };
 }
 
 export async function createProject(request: CreateProjectRequest, userId: string): Promise<Project> {
@@ -659,8 +948,19 @@ export async function createEpisode(projectId: string, request: CreateEpisodeReq
     return await repository.createEpisode(db, {
       projectId,
       title: request.title,
-      episodeNo: request.episodeNo
+      episodeNo: request.episodeNo,
+      coverImageUrl: request.coverImageUrl
     });
+  } catch (error) {
+    throw mapDatabaseError(error);
+  }
+}
+
+export async function updateEpisode(episodeId: string, request: PatchEpisodeRequest, userId: string): Promise<Episode> {
+  await ensureEpisodeOwnedByUser(episodeId, userId);
+
+  try {
+    return assertExists(await repository.updateEpisode(db, episodeId, request), 'Episode not found.');
   } catch (error) {
     throw mapDatabaseError(error);
   }
@@ -673,11 +973,24 @@ export async function getEpisodeDraft(episodeId: string, userId: string): Promis
 
 export async function createCut(episodeId: string, request: CreateCutRequest, userId: string): Promise<Cut> {
   await ensureEpisodeOwnedByUser(episodeId, userId);
+  const stateVariants = normalizeCutStateVariants(request.stateVariants);
+  const stateRoutes = normalizeCutStateRoutes(request.stateRoutes);
+  await ensureStateVariantTargetsInEpisode({
+    episodeId,
+    stateVariants
+  });
+  await ensureStateRouterTargetsInEpisode({
+    episodeId,
+    stateRoutes,
+    stateFallbackCutId: request.stateFallbackCutId
+  });
 
   try {
     return await repository.createCut(db, {
       episodeId,
-      ...request
+      ...request,
+      stateVariants,
+      stateRoutes
     });
   } catch (error) {
     throw mapDatabaseError(error);
@@ -686,29 +999,105 @@ export async function createCut(episodeId: string, request: CreateCutRequest, us
 
 export async function updateCut(cutId: string, request: PatchCutRequest, userId: string): Promise<Cut> {
   await ensureCutOwnedByUser(cutId, userId);
+  const cut = assertExists(await repository.getCutById(db, cutId), 'Cut not found.');
+  const stateVariants = normalizeCutStateVariants(request.stateVariants);
+  const stateRoutes = normalizeCutStateRoutes(request.stateRoutes);
+  await ensureStateVariantTargetsInEpisode({
+    episodeId: cut.episodeId,
+    sourceCutId: cutId,
+    stateVariants
+  });
+  await ensureStateRouterTargetsInEpisode({
+    episodeId: cut.episodeId,
+    sourceCutId: cutId,
+    stateRoutes,
+    stateFallbackCutId: request.stateFallbackCutId
+  });
 
   try {
-    const normalizedRequest =
-      request.kind === 'scene' || request.kind === 'choice'
-        ? {
-            ...request,
-            kind: getDerivedBranchKind(await repository.countChoicesForCut(db, cutId)),
-            isEnding: false
-          }
-        : request;
-
-    return assertExists(await repository.updateCut(db, cutId, normalizedRequest), 'Cut not found.');
+    return assertExists(await repository.updateCut(db, cutId, { ...request, stateVariants, stateRoutes }), 'Cut not found.');
   } catch (error) {
     throw mapDatabaseError(error);
   }
 }
 
-export async function deleteCut(cutId: string, userId: string): Promise<void> {
-  await ensureCutOwnedByUser(cutId, userId);
-  const deleted = await repository.deleteCut(db, cutId);
-  if (!deleted) {
-    throw new HttpError(404, 'Cut not found.');
+export async function updateEpisodeCutLayout(
+  episodeId: string,
+  request: PatchEpisodeCutLayoutRequest,
+  userId: string
+): Promise<PatchEpisodeCutLayoutResponse> {
+  await ensureEpisodeOwnedByUser(episodeId, userId);
+
+  const duplicateIds = new Set<string>();
+  const seenIds = new Set<string>();
+  for (const cut of request.cuts) {
+    if (seenIds.has(cut.cutId)) {
+      duplicateIds.add(cut.cutId);
+    }
+    seenIds.add(cut.cutId);
   }
+
+  if (duplicateIds.size > 0) {
+    throw new HttpError(400, 'Cut layout payload contains duplicate cut IDs.', {
+      cutIds: Array.from(duplicateIds)
+    });
+  }
+
+  try {
+    const updatedCuts = await repository.updateEpisodeCutLayout(db, episodeId, request);
+    if (updatedCuts.length !== request.cuts.length) {
+      throw new HttpError(400, 'Cut layout payload must reference cuts in the episode.');
+    }
+
+    return {
+      cuts: updatedCuts
+    };
+  } catch (error) {
+    if (error instanceof HttpError) {
+      throw error;
+    }
+    throw mapDatabaseError(error);
+  }
+}
+
+export async function deleteCut(cutId: string, userId: string, request: DeleteCutRequest = {}): Promise<void> {
+  await ensureCutOwnedByUser(cutId, userId);
+
+  const cut = assertExists(await repository.getCutById(db, cutId), 'Cut not found.');
+  const reconnectToCutId = Object.prototype.hasOwnProperty.call(request, 'reconnectToCutId')
+    ? request.reconnectToCutId ?? null
+    : null;
+
+  if (reconnectToCutId) {
+    if (reconnectToCutId === cutId) {
+      throw new HttpError(400, 'Reconnect target cannot be the deleted cut.');
+    }
+
+    const reconnectTarget = await repository.getCutById(db, reconnectToCutId);
+    if (!reconnectTarget || reconnectTarget.episodeId !== cut.episodeId) {
+      throw new HttpError(400, 'Reconnect target must reference a cut in the same episode.');
+    }
+  }
+
+  await withTransaction(async (client) => {
+    await repository.reconnectChoicesTargetingCut(client, {
+      cutId,
+      reconnectToCutId
+    });
+    await repository.removeStateVariantsTargetingCut(client, {
+      episodeId: cut.episodeId,
+      cutId
+    });
+    await repository.removeStateRoutesTargetingCut(client, {
+      episodeId: cut.episodeId,
+      cutId
+    });
+
+    const deleted = await repository.deleteCut(client, cutId);
+    if (!deleted) {
+      throw new HttpError(404, 'Cut not found.');
+    }
+  });
 }
 
 export async function createChoice(cutId: string, request: CreateChoiceRequest, userId: string): Promise<Choice> {
@@ -724,13 +1113,10 @@ export async function createChoice(cutId: string, request: CreateChoiceRequest, 
   }
 
   try {
-    return await withTransaction(async (client) => {
-      const createdChoice = await repository.createChoice(client, {
-        cutId,
-        ...request
-      });
-      await normalizeBranchCutKind(client, cutId);
-      return createdChoice;
+    return await repository.createChoice(db, {
+      cutId,
+      ...request,
+      stateWrites: normalizeChoiceStateWrites(request.stateWrites)
     });
   } catch (error) {
     throw mapDatabaseError(error);
@@ -751,7 +1137,13 @@ export async function updateChoice(choiceId: string, request: PatchChoiceRequest
   }
 
   try {
-    return assertExists(await repository.updateChoice(db, choiceId, request), 'Choice not found.');
+    return assertExists(
+      await repository.updateChoice(db, choiceId, {
+        ...request,
+        stateWrites: normalizeChoiceStateWrites(request.stateWrites)
+      }),
+      'Choice not found.'
+    );
   } catch (error) {
     throw mapDatabaseError(error);
   }
@@ -759,15 +1151,13 @@ export async function updateChoice(choiceId: string, request: PatchChoiceRequest
 
 export async function deleteChoice(choiceId: string, userId: string): Promise<void> {
   await ensureChoiceOwnedByUser(choiceId, userId);
-  const choice = assertExists(await repository.getChoiceById(db, choiceId), 'Choice not found.');
+  assertExists(await repository.getChoiceById(db, choiceId), 'Choice not found.');
 
   await withTransaction(async (client) => {
     const deleted = await repository.deleteChoice(client, choiceId);
     if (!deleted) {
       throw new HttpError(404, 'Choice not found.');
     }
-
-    await normalizeBranchCutKind(client, choice.cutId);
   });
 }
 
@@ -778,7 +1168,7 @@ export async function validateEpisode(episodeId: string, userId: string): Promis
 }
 
 export async function getPublishedEpisode(publishId: string): Promise<Publish> {
-  return normalizePublish(assertExists(await repository.getPublishById(db, publishId), 'Published episode not found.'));
+  return toPublicPublish(normalizePublish(assertExists(await repository.getPublishById(db, publishId), 'Published episode not found.')));
 }
 
 export async function getEpisodeFeed(input: { cursor?: string; limit: number }): Promise<FeedResponse> {
@@ -851,13 +1241,26 @@ export async function uploadAsset(projectId: string, file: Express.Multer.File, 
   }
 
   const now = new Date();
-  const relativeDirectory = path.join(...getDatedUploadSegments(now), projectId);
-  const fileName = buildProjectUploadFileName(file, now);
+  const publicUploadScope = buildPublicUploadScope();
+  const relativeDirectory = path.join(...getDatedUploadSegments(now), publicUploadScope);
+  const uploadBaseName = buildProjectUploadBaseName(file, now);
+  const originalFileName = buildOriginalUploadFileName(file, uploadBaseName);
+  const webpFileName = buildWebpUploadFileName(uploadBaseName);
+  const webpBuffer = await convertUploadToWebp(file);
 
-  await writeUploadFile(relativeDirectory, fileName, file.buffer);
+  await writeUploadFiles(relativeDirectory, [
+    {
+      fileName: originalFileName,
+      buffer: file.buffer
+    },
+    {
+      fileName: webpFileName,
+      buffer: webpBuffer
+    }
+  ]);
 
   return {
-    assetUrl: buildAssetUrl(projectId, fileName, now)
+    assetUrl: buildAssetUrl(publicUploadScope, webpFileName, now)
   };
 }
 
@@ -882,7 +1285,7 @@ export async function trackViewerEvent(request: TelemetryEventRequest): Promise<
     throw new HttpError(400, 'Telemetry cut must exist in the published manifest.');
   }
 
-  if ((request.eventType === 'ending_reach' || request.eventType === 'ending_share') && !(targetCut.isEnding || targetCut.kind === 'ending')) {
+  if ((request.eventType === 'ending_reach' || request.eventType === 'ending_share') && !isEndingLikeCut(targetCut)) {
     throw new HttpError(400, 'ending events must target an ending cut.');
   }
 
@@ -906,10 +1309,16 @@ export async function trackViewerEvent(request: TelemetryEventRequest): Promise<
   });
 }
 
-export async function getEpisodeAnalytics(episodeId: string, userId: string): Promise<AnalyticsEpisodeResponse> {
+export async function getEpisodeAnalytics(
+  episodeId: string,
+  userId: string,
+  viewsGranularity: AnalyticsViewGranularity = 'daily',
+  viewsRange?: AnalyticsViewRange
+): Promise<AnalyticsEpisodeResponse> {
   await ensureEpisodeOwnedByUser(episodeId, userId);
   const draft = assertExists(await repository.getEpisodeDraft(db, episodeId), 'Episode not found.');
   const startCutId = getStartCutId(draft);
+  const viewWindow = getAnalyticsViewWindow(viewsGranularity, viewsRange);
 
   const [
     choiceEngaged,
@@ -918,7 +1327,7 @@ export async function getEpisodeAnalytics(episodeId: string, userId: string): Pr
     cutEngagementMap,
     endingDistribution,
     replayViewers,
-    rawDailyViews,
+    rawViewsByPeriod,
     totalViews,
     uniqueViewers,
     feedImpressions,
@@ -930,7 +1339,15 @@ export async function getEpisodeAnalytics(episodeId: string, userId: string): Pr
     repository.getCutEngagementStats(db, episodeId),
     repository.getEndingDistributionStats(db, episodeId),
     startCutId ? repository.countReplayViewers(db, { episodeId, startCutId }) : Promise.resolve(0),
-    startCutId ? repository.getDailyStartViews(db, { episodeId, startCutId, days: ANALYTICS_DAILY_VIEW_DAYS }) : Promise.resolve([]),
+    startCutId
+      ? repository.getStartViewsByPeriod(db, {
+          episodeId,
+          startCutId,
+          granularity: viewsGranularity,
+          fromDate: viewWindow.fromDate,
+          toDate: viewWindow.toDate
+        })
+      : Promise.resolve([]),
     startCutId ? repository.countViewerEvents(db, { episodeId, eventType: 'cut_view', cutId: startCutId }) : Promise.resolve(0),
     startCutId
       ? repository.countViewerEvents(db, { episodeId, eventType: 'cut_view', cutId: startCutId, distinctAnonymous: true })
@@ -956,13 +1373,29 @@ export async function getEpisodeAnalytics(episodeId: string, userId: string): Pr
     })),
     choiceStats: buildChoiceStats(draft, choiceStatsMap),
     endingDistribution,
-    dailyViews: fillDailyViews(rawDailyViews, ANALYTICS_DAILY_VIEW_DAYS),
+    viewGranularity: viewsGranularity,
+    viewsByPeriod: fillViewsByPeriod(rawViewsByPeriod, viewWindow.periodStarts),
     feedEntry: {
       impressions: feedImpressions,
       choiceClicks: feedChoiceClicks,
       conversionRate: feedImpressions === 0 ? 0 : Number(((feedChoiceClicks / feedImpressions) * 100).toFixed(1))
     }
   };
+}
+
+export async function resetEpisodeAnalytics(
+  episodeId: string,
+  userId: string,
+  request: ResetEpisodeAnalyticsRequest
+): Promise<void> {
+  await ensureEpisodeOwnedByUser(episodeId, userId);
+  const draft = request.scope === 'views' ? assertExists(await repository.getEpisodeDraft(db, episodeId), 'Episode not found.') : null;
+
+  await repository.deleteViewerEventsForAnalyticsScope(db, {
+    episodeId,
+    scope: request.scope,
+    startCutId: draft ? getStartCutId(draft) : null
+  });
 }
 
 export async function reorderEpisodeCuts(

@@ -11,12 +11,13 @@ import type {
   PromptoonNarrationContentBlock,
   PublishManifest,
   PromptoonQuoteContentBlock,
-  PromptoonEmphasisContentBlock
+  PromptoonEmphasisContentBlock,
+  PromptoonResultCardContentBlock
 } from '@promptoon/shared';
 
 const DEFAULT_NAME_INPUT_MAX_LENGTH = 20;
 const DEFAULT_CONTENT_FONT_TOKEN: PromptoonFontToken = 'sans-kr';
-const DEFAULT_CONTENT_FONT_SIZE: PromptoonFontSizeToken = 'base';
+const DEFAULT_CONTENT_FONT_SIZE: PromptoonFontSizeToken = 'lg';
 const DEFAULT_CONTENT_LINE_HEIGHT: PromptoonLineHeightToken = 'normal';
 const DEFAULT_CONTENT_TEXT_ALIGN: PromptoonContentTextAlign = 'left';
 
@@ -29,63 +30,63 @@ type ContentRenderableCut =
   | Pick<PublishManifest['cuts'][number], 'id' | 'body'> & { contentBlocks?: CutContentBlock[] | null };
 
 export const CONTENT_FONT_OPTIONS: Array<{ label: string; value: PromptoonFontToken }> = [
-  { label: 'Sans KR', value: 'sans-kr' },
-  { label: 'Serif KR', value: 'serif-kr' },
-  { label: 'Display', value: 'display' }
+  { label: '고딕', value: 'sans-kr' },
+  { label: '명조', value: 'serif-kr' },
+  { label: '제목용', value: 'display' }
 ];
 
 export const CONTENT_FONT_SIZE_OPTIONS: Array<{ label: string; value: PromptoonFontSizeToken }> = [
-  { label: 'Small', value: 'sm' },
-  { label: 'Normal', value: 'base' },
-  { label: 'Large', value: 'lg' },
-  { label: 'Extra Large', value: 'xl' },
-  { label: 'Title', value: '2xl' },
-  { label: 'Hero', value: '3xl' }
+  { label: '작게', value: 'sm' },
+  { label: '보통', value: 'base' },
+  { label: '크게', value: 'lg' },
+  { label: '더 크게', value: 'xl' },
+  { label: '제목', value: '2xl' },
+  { label: '대표 제목', value: '3xl' }
 ];
 
 export const CONTENT_LINE_HEIGHT_OPTIONS: Array<{ label: string; value: PromptoonLineHeightToken }> = [
-  { label: 'Tight', value: 'tight' },
-  { label: 'Normal', value: 'normal' },
-  { label: 'Relaxed', value: 'relaxed' },
-  { label: 'Loose', value: 'loose' }
+  { label: '촘촘하게', value: 'tight' },
+  { label: '보통', value: 'normal' },
+  { label: '여유롭게', value: 'relaxed' },
+  { label: '넓게', value: 'loose' }
 ];
 
 export const CONTENT_SPACING_OPTIONS: Array<{ label: string; value: PromptoonSpacingToken }> = [
-  { label: 'None', value: 'none' },
-  { label: 'Small', value: 'sm' },
-  { label: 'Normal', value: 'base' },
-  { label: 'Large', value: 'lg' },
-  { label: 'Extra Large', value: 'xl' },
-  { label: '2XL', value: '2xl' },
-  { label: '3XL', value: '3xl' },
-  { label: '4XL', value: '4xl' },
-  { label: '5XL', value: '5xl' },
-  { label: '6XL', value: '6xl' },
-  { label: '7XL', value: '7xl' },
-  { label: '8XL', value: '8xl' },
-  { label: '9XL', value: '9xl' },
-  { label: '10XL', value: '10xl' }
+  { label: '없음', value: 'none' },
+  { label: '작게', value: 'sm' },
+  { label: '보통', value: 'base' },
+  { label: '크게', value: 'lg' },
+  { label: '더 크게', value: 'xl' },
+  { label: '매우 크게', value: '2xl' },
+  { label: '아주 크게', value: '3xl' },
+  { label: '초대형 1', value: '4xl' },
+  { label: '초대형 2', value: '5xl' },
+  { label: '초대형 3', value: '6xl' },
+  { label: '초대형 4', value: '7xl' },
+  { label: '초대형 5', value: '8xl' },
+  { label: '초대형 6', value: '9xl' },
+  { label: '초대형 7', value: '10xl' }
 ];
 
 export const CONTENT_ALIGN_OPTIONS: Array<{ label: string; value: PromptoonContentTextAlign }> = [
-  { label: 'Left', value: 'left' },
-  { label: 'Center', value: 'center' },
-  { label: 'Right', value: 'right' }
+  { label: '왼쪽', value: 'left' },
+  { label: '가운데', value: 'center' },
+  { label: '오른쪽', value: 'right' }
 ];
 
 export const CONTENT_PLACEMENT_OPTIONS: Array<{ label: string; value: PromptoonContentPlacement }> = [
-  { label: 'Flow', value: 'flow' },
-  { label: 'Overlay', value: 'overlay' }
+  { label: '본문 흐름', value: 'flow' },
+  { label: '화면 겹침', value: 'overlay' }
 ];
 
-export const CONTENT_BLOCK_TYPE_OPTIONS: Array<{ label: string; value: CutContentBlock['type'] }> = [
-  { label: 'Heading', value: 'heading' },
-  { label: 'Narration', value: 'narration' },
-  { label: 'Dialogue', value: 'dialogue' },
-  { label: 'Quote', value: 'quote' },
-  { label: 'Emphasis', value: 'emphasis' },
-  { label: 'Image', value: 'image' },
-  { label: 'Name Input', value: 'nameInput' }
+export const CONTENT_BLOCK_TYPE_OPTIONS: Array<{ label: string; value: Exclude<CutContentBlock['type'], 'resultCard'> }> = [
+  { label: '제목', value: 'heading' },
+  { label: '서술', value: 'narration' },
+  { label: '대사', value: 'dialogue' },
+  { label: '인용', value: 'quote' },
+  { label: '강조', value: 'emphasis' },
+  { label: '이미지', value: 'image' },
+  { label: '이름 입력', value: 'nameInput' }
 ];
 
 export function getContentFontFamily(fontToken: PromptoonFontToken): string {
@@ -103,18 +104,18 @@ export function getContentFontFamily(fontToken: PromptoonFontToken): string {
 export function getContentFontSizeClassName(fontSizeToken?: PromptoonFontSizeToken): string {
   switch (fontSizeToken ?? DEFAULT_CONTENT_FONT_SIZE) {
     case 'sm':
-      return 'text-sm';
+      return 'text-[clamp(0.75rem,min(3.59vw,1.66dvh),0.875rem)]';
     case 'lg':
-      return 'text-lg';
+      return 'text-[clamp(0.9375rem,min(4.62vw,2.13dvh),1.125rem)]';
     case 'xl':
-      return 'text-xl';
+      return 'text-[clamp(1rem,min(5.13vw,2.37dvh),1.25rem)]';
     case '2xl':
-      return 'text-2xl';
+      return 'text-[clamp(1.1875rem,min(6.15vw,2.84dvh),1.5rem)]';
     case '3xl':
-      return 'text-3xl';
+      return 'text-[clamp(1.4375rem,min(7.69vw,3.55dvh),1.875rem)]';
     case 'base':
     default:
-      return 'text-base';
+      return 'text-[clamp(0.8125rem,min(4.1vw,1.9dvh),1rem)]';
   }
 }
 
@@ -289,6 +290,8 @@ export function deriveContentBlocksBody(contentBlocks: CutContentBlock[], fallba
         case 'image':
         case 'nameInput':
           return [];
+        case 'resultCard':
+          return [block.resultName.trim(), block.tagline.trim(), ...block.lines.map((line) => line.trim())];
         default:
           return [];
       }
@@ -396,6 +399,21 @@ export function createContentBlock(type: CutContentBlock['type']): CutContentBlo
         required: true,
         bindingKey: 'userName'
       };
+    case 'resultCard':
+      return {
+        id: createBlockId(),
+        type,
+        templateId: 'the-replace-final',
+        theme: 'blue',
+        badge: 'TYPE 01',
+        resultName: '합리적인 가해자',
+        tagline: '알면서도 손을 들었다',
+        lines: ['당신은 명확히 보았다.', '그리고 판단했다.', '그 판단은 누군가를 대체했다.'],
+        inflowLabel: 'CHECK IN',
+        inflowUrl: 'promtoon.ai',
+        inflowBrand: 'PROMTOON',
+        inflowTagline: '반응형 웹툰'
+      } satisfies PromptoonResultCardContentBlock;
     case 'narration':
     default:
       return createTextBlock({

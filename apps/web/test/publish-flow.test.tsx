@@ -1,7 +1,7 @@
 import type { EpisodeDraftResponse, Publish, ValidateEpisodeResponse } from '@promptoon/shared';
 import { DEFAULT_CUT_EFFECT_DURATION_MS } from '@promptoon/shared';
 import { act } from 'react';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -19,23 +19,30 @@ let analyticsData: {
   cutEngagement: Array<{ cutId: string; dropOffCount: number; avgDurationMs: number }>;
   choiceStats: Record<string, Array<{ choiceId: string; label: string; count: number; percentage: number; avgHesitationMs?: number }>>;
   endingDistribution: Array<{ cutId: string; count: number; percentage: number }>;
-  dailyViews: Array<{ date: string; views: number }>;
+  viewGranularity: 'daily' | 'weekly' | 'monthly';
+  viewsByPeriod: Array<{ periodStart: string; views: number; uniqueViewers: number }>;
   feedEntry: { impressions: number; choiceClicks: number; conversionRate: number };
 };
+const useEpisodeAnalyticsMock = vi.fn();
+const resetAnalyticsMutate = vi.fn<(_: 'all' | 'views' | 'choiceStats' | 'endingDistribution' | 'cutEngagement' | 'feedEntry') => Promise<void>>();
 const validateMutate = vi.fn<(_: string) => Promise<ValidateEpisodeResponse>>();
 const publishMutate = vi.fn<(_: { projectId: string; episodeId: string }) => Promise<Publish>>();
 const updatePublishMutate = vi.fn<(_: { projectId: string; episodeId: string }) => Promise<Publish>>();
 const unpublishMutate = vi.fn<(_: { projectId: string; episodeId: string }) => Promise<void>>();
 const uploadMutate = vi.fn<(_: { projectId: string; file: File }) => Promise<{ assetUrl: string }>>();
+const createCutMutate = vi.fn();
+const createChoiceMutate = vi.fn();
+const reorderCutsMutate = vi.fn();
+const saveCutLayoutMutate = vi.fn();
 const updateCutMutate = vi.fn();
 const updateChoiceMutate = vi.fn();
 const queueCutPatch = vi.fn();
 
 vi.mock('../src/features/analytics/hooks/use-episode-analytics', () => ({
-  useEpisodeAnalytics: () => ({
-    isLoading: false,
-    isError: false,
-    data: analyticsData
+  useEpisodeAnalytics: (...args: unknown[]) => useEpisodeAnalyticsMock(...args),
+  useResetEpisodeAnalytics: () => ({
+    isPending: false,
+    mutateAsync: resetAnalyticsMutate
   })
 }));
 
@@ -63,10 +70,10 @@ vi.mock('../src/features/editor/hooks/use-episode-query', () => ({
     data: null
   }),
   useCreateChoice: () => ({
-    mutateAsync: vi.fn()
+    mutateAsync: createChoiceMutate
   }),
   useCreateCut: () => ({
-    mutateAsync: vi.fn()
+    mutateAsync: createCutMutate
   }),
   useDeleteChoice: () => ({
     mutateAsync: vi.fn()
@@ -79,7 +86,8 @@ vi.mock('../src/features/editor/hooks/use-episode-query', () => ({
   }),
   useUpdateCut: () => ({
     isPending: false,
-    mutate: updateCutMutate
+    mutate: updateCutMutate,
+    mutateAsync: updateCutMutate
   }),
   useUpdateChoice: () => ({
     isPending: false,
@@ -87,7 +95,11 @@ vi.mock('../src/features/editor/hooks/use-episode-query', () => ({
   }),
   useReorderCuts: () => ({
     isPending: false,
-    mutateAsync: vi.fn()
+    mutateAsync: reorderCutsMutate
+  }),
+  useSaveCutLayout: () => ({
+    isPending: false,
+    mutateAsync: saveCutLayoutMutate
   }),
   useValidateEpisode: () => ({
     isPending: false,
@@ -118,9 +130,21 @@ beforeEach(() => {
   updatePublishMutate.mockReset();
   unpublishMutate.mockReset();
   uploadMutate.mockReset();
+  createCutMutate.mockReset();
+  createChoiceMutate.mockReset();
+  reorderCutsMutate.mockReset();
+  saveCutLayoutMutate.mockReset();
   updateCutMutate.mockReset();
   updateChoiceMutate.mockReset();
   queueCutPatch.mockReset();
+  resetAnalyticsMutate.mockReset();
+  resetAnalyticsMutate.mockResolvedValue(undefined);
+  useEpisodeAnalyticsMock.mockReset();
+  useEpisodeAnalyticsMock.mockImplementation(() => ({
+    isLoading: false,
+    isError: false,
+    data: analyticsData
+  }));
   draftResponse = {
     episode: {
       id: 'episode-1',
@@ -196,6 +220,83 @@ beforeEach(() => {
       }
     ]
   };
+  createCutMutate.mockResolvedValue({
+    id: 'cut-new',
+    episodeId: 'episode-1',
+    kind: 'scene',
+    title: 'Cut 3',
+    body: '',
+    contentBlocks: [],
+    dialogAnchorX: 'left',
+    dialogAnchorY: 'bottom',
+    dialogOffsetX: 0,
+    dialogOffsetY: 0,
+    dialogTextAlign: 'left',
+    startEffect: 'none',
+    endEffect: 'none',
+    startEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+    endEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+    assetUrl: null,
+    edgeFade: 'both',
+    edgeFadeIntensity: 'minimal',
+    positionX: 400,
+    positionY: 100,
+    orderIndex: 2,
+    isStart: false,
+    isEnding: false,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
+  updateCutMutate.mockResolvedValue({
+    ...draftResponse.cuts[1],
+    kind: 'scene',
+    isEnding: false
+  });
+  createChoiceMutate.mockResolvedValue({
+    id: 'choice-new',
+    cutId: 'cut-2',
+    label: 'Choice 1',
+    orderIndex: 0,
+    nextCutId: 'cut-new',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
+  reorderCutsMutate.mockResolvedValue({
+    cuts: [
+      draftResponse.cuts[0],
+      draftResponse.cuts[1],
+      {
+        id: 'cut-new',
+        episodeId: 'episode-1',
+        kind: 'scene',
+        title: 'Cut 3',
+        body: '',
+        contentBlocks: [],
+        dialogAnchorX: 'left',
+        dialogAnchorY: 'bottom',
+        dialogOffsetX: 0,
+        dialogOffsetY: 0,
+        dialogTextAlign: 'left',
+        startEffect: 'none',
+        endEffect: 'none',
+        startEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+        endEffectDurationMs: DEFAULT_CUT_EFFECT_DURATION_MS,
+        assetUrl: null,
+        edgeFade: 'both',
+        edgeFadeIntensity: 'minimal',
+        positionX: 400,
+        positionY: 100,
+        orderIndex: 2,
+        isStart: false,
+        isEnding: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }
+    ]
+  });
+  saveCutLayoutMutate.mockResolvedValue({
+    cuts: []
+  });
   analyticsData = {
     totalViews: 1250,
     uniqueViewers: 840,
@@ -222,9 +323,10 @@ beforeEach(() => {
     endingDistribution: [
       { cutId: 'cut-2', count: 549, percentage: 100 }
     ],
-    dailyViews: [
-      { date: '2026-03-12', views: 20 },
-      { date: '2026-03-13', views: 35 }
+    viewGranularity: 'daily',
+    viewsByPeriod: [
+      { periodStart: '2026-03-12', views: 20, uniqueViewers: 14 },
+      { periodStart: '2026-03-13', views: 35, uniqueViewers: 27 }
     ],
     feedEntry: {
       impressions: 900,
@@ -375,6 +477,197 @@ describe('publish flow', () => {
     });
   });
 
+  it('creates a new cut after the selected cut without linking it automatically', async () => {
+    renderPage();
+
+    fireEvent.click(screen.getAllByText('Ending')[0]);
+    fireEvent.click(screen.getByRole('button', { name: '+ Cut' }));
+
+    await waitFor(() => {
+      expect(createCutMutate).toHaveBeenCalledWith({
+        kind: 'scene',
+        title: 'Cut 3',
+        body: '',
+        startEffect: 'none',
+        endEffect: 'none',
+        edgeFade: 'both',
+        edgeFadeIntensity: 'minimal',
+        positionX: 210,
+        positionY: 110
+      });
+    });
+
+    expect(updateCutMutate).not.toHaveBeenCalled();
+    expect(createChoiceMutate).not.toHaveBeenCalled();
+    expect(reorderCutsMutate).toHaveBeenCalledWith({
+      cuts: [
+        { cutId: 'cut-1', orderIndex: 0 },
+        { cutId: 'cut-2', orderIndex: 1 },
+        { cutId: 'cut-new', orderIndex: 2 }
+      ]
+    });
+  });
+
+  it('creates a new cut directly below the cut card add button anchor', async () => {
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add cut after Opening' }));
+
+    await waitFor(() => {
+      expect(createCutMutate).toHaveBeenCalledWith({
+        kind: 'scene',
+        title: 'Cut 3',
+        body: '',
+        startEffect: 'none',
+        endEffect: 'none',
+        edgeFade: 'both',
+        edgeFadeIntensity: 'minimal',
+        positionX: 200,
+        positionY: 360
+      });
+    });
+
+    expect(updateCutMutate).not.toHaveBeenCalled();
+    expect(createChoiceMutate).not.toHaveBeenCalled();
+    expect(reorderCutsMutate).toHaveBeenCalledWith({
+      cuts: [
+        { cutId: 'cut-1', orderIndex: 0 },
+        { cutId: 'cut-2', orderIndex: 1 },
+        { cutId: 'cut-new', orderIndex: 2 }
+      ]
+    });
+  });
+
+  it('shows the immediate next cut effect when a preview choice points into a single-path scene chain', async () => {
+    const middleCut = {
+      ...draftResponse.cuts[1],
+      id: 'cut-middle',
+      kind: 'scene' as const,
+      title: 'Middle',
+      body: 'Lazy middle body',
+      startEffect: 'zoom-in' as const,
+      startEffectDurationMs: 1000,
+      orderIndex: 1,
+      isEnding: false
+    };
+    const branchCut = {
+      ...draftResponse.cuts[1],
+      id: 'cut-branch',
+      kind: 'choice' as const,
+      title: 'Branch',
+      body: 'Branch body',
+      orderIndex: 2,
+      isEnding: false
+    };
+    const endingCut = {
+      ...draftResponse.cuts[1],
+      orderIndex: 3
+    };
+
+    draftResponse = {
+      ...draftResponse,
+      cuts: [draftResponse.cuts[0], middleCut, branchCut, endingCut],
+      choices: [
+        {
+          ...draftResponse.choices[0],
+          nextCutId: 'cut-middle'
+        },
+        {
+          id: 'choice-middle',
+          cutId: 'cut-middle',
+          label: 'Continue',
+          orderIndex: 0,
+          nextCutId: 'cut-branch',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }
+      ]
+    };
+
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Go' }));
+
+    await waitFor(() => {
+      const preview = screen.getByTestId('preview-cut-motion');
+      expect(preview.getAttribute('data-start-effect')).toBe('zoom-in');
+      expect(preview.getAttribute('data-start-effect-duration-ms')).toBe('1000');
+      expect(within(preview).getByText('Lazy middle body')).toBeTruthy();
+      expect(within(preview).queryByText('Branch body')).toBeNull();
+    });
+  });
+
+  it('creates and links a graph placeholder cut under the selected branch end', async () => {
+    draftResponse = {
+      ...draftResponse,
+      cuts: [
+        draftResponse.cuts[0],
+        {
+          ...draftResponse.cuts[1],
+          kind: 'scene',
+          isEnding: false
+        }
+      ]
+    };
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Graph' }));
+    fireEvent.click(await screen.findByTestId('graph-add-placeholder-button-cut-2'));
+
+    await waitFor(() => {
+      expect(createCutMutate).toHaveBeenCalledWith({
+        kind: 'scene',
+        title: 'Cut 3',
+        body: '',
+        startEffect: 'none',
+        endEffect: 'none',
+        edgeFade: 'both',
+        edgeFadeIntensity: 'minimal',
+        positionX: 200,
+        positionY: 360
+      });
+    });
+
+    expect(reorderCutsMutate).toHaveBeenCalledWith({
+      cuts: [
+        { cutId: 'cut-1', orderIndex: 0 },
+        { cutId: 'cut-2', orderIndex: 1 },
+        { cutId: 'cut-new', orderIndex: 2 }
+      ]
+    });
+    expect(createChoiceMutate).toHaveBeenCalledWith({
+      cutId: 'cut-2',
+      payload: {
+        label: 'Choice 1',
+        nextCutId: 'cut-new'
+      }
+    });
+  });
+
+  it('saves graph alignment through the layout endpoint instead of immediate cut patches', async () => {
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Graph' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Vertical' }));
+
+    await waitFor(() => {
+      expect((screen.getByRole('button', { name: 'Save Layout' }) as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save Layout' }));
+
+    await waitFor(() => {
+      expect(saveCutLayoutMutate).toHaveBeenCalledWith({
+        cuts: [
+          { cutId: 'cut-1', positionX: 0, positionY: 0 },
+          { cutId: 'cut-2', positionX: 0, positionY: 260 }
+        ]
+      });
+    });
+    expect(updateCutMutate).not.toHaveBeenCalled();
+    expect(reorderCutsMutate).not.toHaveBeenCalled();
+  });
+
   it('renders validation issues in the modal', async () => {
     validateMutate.mockResolvedValue({
       isValid: false,
@@ -500,6 +793,7 @@ describe('publish flow', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '분석' }));
 
+    expect(useEpisodeAnalyticsMock).toHaveBeenLastCalledWith('episode-1', 'daily', {});
     expect(await screen.findByText('총 조회수')).toBeTruthy();
     expect(screen.getByText('1,250')).toBeTruthy();
     expect(screen.getByText('840')).toBeTruthy();
@@ -507,14 +801,89 @@ describe('publish flow', () => {
     expect(screen.getByText('12.5%')).toBeTruthy();
     expect(screen.getByText('선택지 비율 · Opening')).toBeTruthy();
     expect(screen.queryByText('선택지 비율 · cut-single')).toBeNull();
-    expect(screen.getByText('Ending Distribution')).toBeTruthy();
-    expect(screen.getByText('Cut Engagement')).toBeTruthy();
+    expect(screen.getByTestId('choice-stats-card-body-cut-1').className).not.toContain('h-[320px]');
+    expect(screen.getByTestId('choice-stats-card-body-cut-1').className).toContain('grid');
+    expect(screen.getAllByText('Ending Distribution').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Cut Engagement').length).toBeGreaterThan(0);
     expect(screen.getByText(/2.4s/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '주별' }));
+
+    await waitFor(() => {
+      expect(useEpisodeAnalyticsMock).toHaveBeenLastCalledWith('episode-1', 'weekly', {});
+    });
+    expect(screen.getByText('주별 조회수')).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText('조회 시작일'), { target: { value: '2026-03-01' } });
+    await waitFor(() => {
+      expect(useEpisodeAnalyticsMock).toHaveBeenLastCalledWith('episode-1', 'weekly', { from: '2026-03-01' });
+    });
+
+    fireEvent.change(screen.getByLabelText('조회 종료일'), { target: { value: '2026-03-31' } });
+    await waitFor(() => {
+      expect(useEpisodeAnalyticsMock).toHaveBeenLastCalledWith('episode-1', 'weekly', { from: '2026-03-01', to: '2026-03-31' });
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '최근 기간' }));
+    await waitFor(() => {
+      expect(useEpisodeAnalyticsMock).toHaveBeenLastCalledWith('episode-1', 'weekly', {});
+    });
+  });
+
+  it('confirms full and partial analytics resets', async () => {
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: '분석' }));
+    fireEvent.click(await screen.findByRole('button', { name: '전체 분석 초기화' }));
+
+    let dialog = await screen.findByRole('dialog', { name: '분석 초기화' });
+    fireEvent.click(within(dialog).getByRole('button', { name: '초기화' }));
+
+    await waitFor(() => {
+      expect(resetAnalyticsMutate).toHaveBeenCalledWith('all');
+    });
+
+    fireEvent.change(screen.getByRole('combobox'), {
+      target: {
+        value: 'choiceStats'
+      }
+    });
+    fireEvent.click(screen.getByRole('button', { name: '선택지 비율 부분 초기화' }));
+
+    dialog = await screen.findByRole('dialog', { name: '분석 초기화' });
+    fireEvent.click(within(dialog).getByRole('button', { name: '초기화' }));
+
+    await waitFor(() => {
+      expect(resetAnalyticsMutate).toHaveBeenCalledWith('choiceStats');
+    });
+  });
+
+  it('routes analytics section reset buttons to their scopes', async () => {
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: '분석' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Ending Distribution 전체 초기화' }));
+
+    let dialog = await screen.findByRole('dialog', { name: '분석 초기화' });
+    fireEvent.click(within(dialog).getByRole('button', { name: '초기화' }));
+
+    await waitFor(() => {
+      expect(resetAnalyticsMutate).toHaveBeenCalledWith('endingDistribution');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cut Engagement 전체 초기화' }));
+
+    dialog = await screen.findByRole('dialog', { name: '분석 초기화' });
+    fireEvent.click(within(dialog).getByRole('button', { name: '초기화' }));
+
+    await waitFor(() => {
+      expect(resetAnalyticsMutate).toHaveBeenCalledWith('cutEngagement');
+    });
   });
 
   it('uploads images with the current project id', async () => {
     uploadMutate.mockResolvedValue({
-      assetUrl: '/uploads/2026/04/03/project-1/cover-1234.png'
+      assetUrl: '/uploads/2026/04/03/project-1/cover-1234.webp'
     });
 
     const { container } = renderPage();

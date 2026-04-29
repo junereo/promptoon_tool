@@ -5,6 +5,17 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { usePublishedEpisode } from '../features/viewer/hooks/use-published-episode';
 import { useViewerTelemetry } from '../features/viewer/hooks/use-viewer-telemetry';
 import { useViewerStore } from '../features/viewer/store/use-viewer-store';
+import { getCutEffectDurationMs } from '../shared/lib/cut-effects';
+import { isPromptoonEndingCut } from '../shared/lib/promptoon-ending';
+import {
+  applyChoiceStateWrites,
+  clearPromptoonViewerState,
+  readPromptoonViewerState,
+  resolveManifestStateRouterTargetCut,
+  resolveManifestStateVariantCut,
+  writePromptoonViewerState,
+  type PromptoonViewerState
+} from '../shared/lib/promptoon-state-variants';
 import { ViewerShell } from '../widgets/public-viewer/ViewerShell';
 
 type ViewerCut = PublishManifest['cuts'][number];
@@ -12,6 +23,7 @@ type ViewerChoice = ViewerCut['choices'][number];
 
 interface ViewerPathStep {
   cut: ViewerCut;
+  renderCut: ViewerCut;
   visibleChoices: ViewerChoice[];
 }
 
@@ -32,12 +44,12 @@ function getStartCutId(manifest: PublishManifest): string | null {
 }
 
 function getFeedEntryCutId(manifest: PublishManifest, startChoiceId: string | null): string | null {
-  if (!startChoiceId) {
-    return null;
-  }
+  return getFeedEntryChoice(manifest, startChoiceId)?.nextCutId ?? null;
+}
 
+function getFeedEntryChoice(manifest: PublishManifest, startChoiceId: string | null): ViewerChoice | null {
   const startCutId = getStartCutId(manifest);
-  if (!startCutId) {
+  if (!startChoiceId || !startCutId) {
     return null;
   }
 
@@ -49,10 +61,14 @@ function getFeedEntryCutId(manifest: PublishManifest, startChoiceId: string | nu
     return null;
   }
 
-  return nextCutId;
+  return selectedChoice;
 }
 
-function preloadConnectedAssets(currentCut: ViewerCut | null, cutsById: Map<string, ViewerCut>) {
+function preloadConnectedAssets(
+  currentCut: ViewerCut | null,
+  cutsById: Map<string, ViewerCut>,
+  viewerState: PromptoonViewerState
+) {
   if (!currentCut) {
     return;
   }
@@ -60,7 +76,15 @@ function preloadConnectedAssets(currentCut: ViewerCut | null, cutsById: Map<stri
   const preloadTargets = currentCut.choices
     .map((choice) => choice.nextCutId)
     .filter((cutId): cutId is string => Boolean(cutId))
-    .map((cutId) => cutsById.get(cutId)?.assetUrl)
+    .map((cutId) => {
+      const targetCut = cutsById.get(cutId);
+      if (!targetCut) {
+        return null;
+      }
+
+      const routedCut = resolveManifestStateRouterTargetCut(targetCut, viewerState, cutsById);
+      return resolveManifestStateVariantCut(routedCut, viewerState, cutsById).assetUrl;
+    })
     .filter((assetUrl): assetUrl is string => Boolean(assetUrl));
 
   for (const assetUrl of preloadTargets) {
@@ -73,14 +97,18 @@ function compareViewerChoices(left: ViewerChoice, right: ViewerChoice) {
   return left.orderIndex - right.orderIndex;
 }
 
-function buildViewerPathSteps(startCut: ViewerCut | null, cutsById: Map<string, ViewerCut>): ViewerPathStep[] {
+function buildViewerPathSteps(
+  startCut: ViewerCut | null,
+  cutsById: Map<string, ViewerCut>,
+  viewerState: PromptoonViewerState
+): ViewerPathStep[] {
   if (!startCut || !cutsById.has(startCut.id)) {
     return [];
   }
 
   const steps: ViewerPathStep[] = [];
   const visitedCutIds = new Set<string>();
-  let currentCut: ViewerCut | null = startCut;
+  let currentCut: ViewerCut | null = resolveManifestStateRouterTargetCut(startCut, viewerState, cutsById);
 
   while (currentCut && !visitedCutIds.has(currentCut.id)) {
     visitedCutIds.add(currentCut.id);
@@ -88,10 +116,11 @@ function buildViewerPathSteps(startCut: ViewerCut | null, cutsById: Map<string, 
 
     steps.push({
       cut: currentCut,
+      renderCut: currentCut,
       visibleChoices: currentCut.kind === 'scene' ? [] : sortedChoices
     });
 
-    if (currentCut.isEnding || currentCut.kind === 'ending' || currentCut.kind !== 'scene') {
+    if (isPromptoonEndingCut(currentCut) || currentCut.kind !== 'scene') {
       break;
     }
 
@@ -100,10 +129,22 @@ function buildViewerPathSteps(startCut: ViewerCut | null, cutsById: Map<string, 
       break;
     }
 
-    currentCut = cutsById.get(linkedChoices[0].nextCutId!) ?? null;
+    const nextCut = cutsById.get(linkedChoices[0].nextCutId!) ?? null;
+    currentCut = nextCut ? resolveManifestStateRouterTargetCut(nextCut, viewerState, cutsById) : null;
   }
 
   return steps;
+}
+
+function resolveViewerPathSteps(
+  pathSteps: ViewerPathStep[],
+  viewerState: PromptoonViewerState,
+  cutsById: Map<string, ViewerCut>
+): ViewerPathStep[] {
+  return pathSteps.map((step) => ({
+    ...step,
+    renderCut: resolveManifestStateVariantCut(step.cut, viewerState, cutsById)
+  }));
 }
 
 export function PromptoonViewerPage() {
@@ -119,29 +160,52 @@ export function PromptoonViewerPage() {
   const isChromeVisible = useViewerStore((state) => state.isChromeVisible);
   const pop = useViewerStore((state) => state.pop);
   const push = useViewerStore((state) => state.push);
+  const replace = useViewerStore((state) => state.replace);
   const reset = useViewerStore((state) => state.reset);
   const showChrome = useViewerStore((state) => state.showChrome);
   const [shareBannerDismissed, setShareBannerDismissed] = useState(false);
   const [shareNotice, setShareNotice] = useState<string | null>(null);
   const [userName, setUserName] = useState('');
+  const [viewerState, setViewerState] = useState<PromptoonViewerState>({});
   const [pendingChoice, setPendingChoice] = useState<{ cutId: string; choiceId: string; reactionText: string | null } | null>(null);
+  const [autoPathExpansion, setAutoPathExpansion] = useState<{ isExpanded: boolean; pathStartCutId: string | null }>({
+    isExpanded: true,
+    pathStartCutId: null
+  });
 
   const manifest = publishedEpisode.data?.manifest ?? null;
   const startCutId = useMemo(() => (manifest ? getStartCutId(manifest) : null), [manifest]);
   const cutsById = useMemo(() => new Map(manifest?.cuts.map((cut) => [cut.id, cut]) ?? []), [manifest]);
   const startChoiceId = searchParams.get('startChoice');
   const sharedEndingCutId = searchParams.get('e');
+  const feedEntryChoice = useMemo(() => (manifest ? getFeedEntryChoice(manifest, startChoiceId) : null), [manifest, startChoiceId]);
   const feedEntryCutId = useMemo(() => (manifest ? getFeedEntryCutId(manifest, startChoiceId) : null), [manifest, startChoiceId]);
   const sharedEndingCut = useMemo(
     () =>
       sharedEndingCutId
-        ? manifest?.cuts.find((cut) => cut.id === sharedEndingCutId && (cut.isEnding || cut.kind === 'ending')) ?? null
+        ? manifest?.cuts.find((cut) => cut.id === sharedEndingCutId && isPromptoonEndingCut(cut)) ?? null
         : null,
     [manifest, sharedEndingCutId]
   );
   const resolvedCutId = currentCutId ?? startCutId;
   const activeCut = resolvedCutId ? cutsById.get(resolvedCutId) ?? null : null;
-  const pathSteps = useMemo(() => buildViewerPathSteps(activeCut, cutsById), [activeCut, cutsById]);
+  const fullPathSteps = useMemo(() => buildViewerPathSteps(activeCut, cutsById, viewerState), [activeCut, cutsById, viewerState]);
+  const pathStartCut = fullPathSteps[0]?.cut ?? null;
+  const pathStartEffectDurationMs = pathStartCut
+    ? getCutEffectDurationMs(pathStartCut.startEffect, pathStartCut.startEffectDurationMs)
+    : 0;
+  const shouldStageAutoPath = Boolean(pathStartCut && fullPathSteps.length > 1 && pathStartEffectDurationMs > 0);
+  const isAutoPathExpanded =
+    !shouldStageAutoPath || (autoPathExpansion.pathStartCutId === pathStartCut?.id && autoPathExpansion.isExpanded);
+  const basePathSteps = useMemo(
+    () => (isAutoPathExpanded ? fullPathSteps : fullPathSteps.slice(0, 1)),
+    [fullPathSteps, isAutoPathExpanded]
+  );
+  const pathSteps = useMemo(
+    () => resolveViewerPathSteps(basePathSteps, viewerState, cutsById),
+    [basePathSteps, cutsById, viewerState]
+  );
+  const isPathCompact = fullPathSteps.length > 1;
   const visibleCuts = useMemo(() => pathSteps.map((step) => step.cut), [pathSteps]);
   const terminalCut = pathSteps[pathSteps.length - 1]?.cut ?? null;
   const { startNewSession, trackChoiceClick, trackEndingShare } = useViewerTelemetry({
@@ -155,14 +219,21 @@ export function PromptoonViewerPage() {
 
   useEffect(() => {
     if (publishId && startCutId) {
+      const storedViewerState = readPromptoonViewerState(publishId);
       if (feedEntryCutId) {
+        const nextViewerState = feedEntryChoice
+          ? applyChoiceStateWrites(storedViewerState, feedEntryChoice)
+          : storedViewerState;
+        setViewerState(nextViewerState);
+        writePromptoonViewerState(publishId, nextViewerState);
         initializeFromFeed(publishId, startCutId, feedEntryCutId);
         return;
       }
 
+      setViewerState(storedViewerState);
       initialize(publishId, startCutId);
     }
-  }, [feedEntryCutId, initialize, initializeFromFeed, publishId, startCutId]);
+  }, [feedEntryChoice, feedEntryCutId, initialize, initializeFromFeed, publishId, startCutId]);
 
   useEffect(() => {
     setShareBannerDismissed(false);
@@ -173,8 +244,47 @@ export function PromptoonViewerPage() {
   }, [publishId]);
 
   useEffect(() => {
-    preloadConnectedAssets(terminalCut, cutsById);
-  }, [cutsById, terminalCut]);
+    preloadConnectedAssets(terminalCut, cutsById, viewerState);
+  }, [cutsById, terminalCut, viewerState]);
+
+  useEffect(() => {
+    if (!activeCut || activeCut.kind !== 'stateRouter') {
+      return;
+    }
+
+    const routedCut = resolveManifestStateRouterTargetCut(activeCut, viewerState, cutsById);
+    if (routedCut.id !== activeCut.id) {
+      replace(routedCut.id);
+    }
+  }, [activeCut, cutsById, replace, viewerState]);
+
+  useEffect(() => {
+    if (!pathStartCut || !shouldStageAutoPath) {
+      setAutoPathExpansion({
+        isExpanded: true,
+        pathStartCutId: pathStartCut?.id ?? null
+      });
+      return;
+    }
+
+    setAutoPathExpansion({
+      isExpanded: false,
+      pathStartCutId: pathStartCut.id
+    });
+  }, [pathStartCut?.id, shouldStageAutoPath]);
+
+  function handlePathEnterComplete(pathStartCutId: string) {
+    setAutoPathExpansion((current) => {
+      if (current.pathStartCutId !== pathStartCutId) {
+        return current;
+      }
+
+      return {
+        isExpanded: true,
+        pathStartCutId
+      };
+    });
+  }
 
   useEffect(() => {
     setPendingChoice(null);
@@ -227,6 +337,11 @@ export function PromptoonViewerPage() {
       return;
     }
 
+    setViewerState((current) => {
+      const nextViewerState = applyChoiceStateWrites(current, choice);
+      writePromptoonViewerState(publishId, nextViewerState);
+      return nextViewerState;
+    });
     trackChoiceClick(choice, cutId);
     setPendingChoice({
       cutId,
@@ -272,7 +387,7 @@ export function PromptoonViewerPage() {
   }
 
   async function handleShare() {
-    if (!manifest || !(terminalCut.isEnding || terminalCut.kind === 'ending')) {
+    if (!manifest || !isPromptoonEndingCut(terminalCut)) {
       return;
     }
 
@@ -313,6 +428,8 @@ export function PromptoonViewerPage() {
       canGoBack={historyStack.length > 0}
       episodeTitle={manifest.episode.title}
       isChromeVisible={isChromeVisible}
+      isPathCompact={isPathCompact}
+      onPathEnterComplete={handlePathEnterComplete}
       onBack={() => {
         clearPendingTransition();
         pop();
@@ -323,6 +440,8 @@ export function PromptoonViewerPage() {
       onInteraction={() => showChrome()}
       onReset={() => {
         clearPendingTransition();
+        clearPromptoonViewerState(publishId);
+        setViewerState({});
         startNewSession();
         reset(startCutId);
       }}

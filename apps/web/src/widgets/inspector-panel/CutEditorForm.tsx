@@ -1,14 +1,27 @@
-import type { Cut, CutContentBlock, PatchCutRequest } from '@promptoon/shared';
+import {
+  MAX_CUT_STATE_ROUTE_CONDITIONS,
+  getCutStateRouteConditions,
+  type Cut,
+  type CutContentBlock,
+  type PromptoonResultCardContentBlock,
+  type PromptoonResultCardTheme,
+  type CutStateCondition,
+  type CutStateRoute,
+  type CutStateVariant,
+  type PatchCutRequest
+} from '@promptoon/shared';
 import type { ChangeEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { CONTENT_SPACING_OPTIONS, deriveContentBlocksBody, normalizeCutContentBlocks } from '../../shared/lib/cut-content';
+import { RESULT_CARD_THEME_OPTIONS, createResultCardBlock, getResultCardBlock, upsertResultCardBlock } from '../../shared/lib/result-card';
 import { useDebounce } from '../../shared/lib/use-debounce';
 import {
   CUT_EFFECT_OPTIONS,
   DEFAULT_CUT_EFFECT,
   DEFAULT_CUT_EFFECT_DURATION_MS,
+  EDGE_FADE_COLOR_OPTIONS,
   EDGE_FADE_INTENSITY_OPTIONS,
   EDGE_FADE_OPTIONS,
   MAX_CUT_EFFECT_DURATION_MS
@@ -17,11 +30,56 @@ import { ApiError } from '../../shared/api/client';
 import { CutContentBlocksEditor } from './CutContentBlocksEditor';
 
 function FieldLabel({ children }: { children: string }) {
-  return <label className="text-xs font-medium uppercase tracking-[0.2em] text-zinc-500">{children}</label>;
+  return <label className="text-xs font-medium text-zinc-500">{children}</label>;
 }
 
 function inputClassName() {
-  return 'mt-2 w-full rounded-2xl border border-editor-border bg-black/20 px-4 py-3 text-sm text-zinc-100 outline-none transition focus:border-editor-accentSoft';
+  return 'mt-1.5 w-full rounded-xl border border-editor-border bg-black/20 px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-editor-accentSoft';
+}
+
+function GroupTitle({ children }: { children: string }) {
+  return <p className="text-xs font-semibold text-zinc-500">{children}</p>;
+}
+
+function CoordinateInput({
+  ariaLabel,
+  onValueChange,
+  value
+}: {
+  ariaLabel: string;
+  onValueChange: (value: number) => void;
+  value: number;
+}) {
+  const [draftValue, setDraftValue] = useState(() => String(value));
+
+  useEffect(() => {
+    setDraftValue(String(value));
+  }, [value]);
+
+  return (
+    <input
+      aria-label={ariaLabel}
+      className={inputClassName()}
+      onBlur={() => {
+        if (draftValue === '' || !Number.isFinite(Number(draftValue))) {
+          setDraftValue(String(value));
+        }
+      }}
+      onChange={(event) => {
+        const nextValue = event.target.value;
+        const numericValue = Number(nextValue);
+
+        setDraftValue(nextValue);
+
+        if (nextValue !== '' && Number.isFinite(numericValue)) {
+          onValueChange(numericValue);
+        }
+      }}
+      step={1}
+      type="number"
+      value={draftValue}
+    />
+  );
 }
 
 interface CutFormState {
@@ -41,15 +99,28 @@ interface CutFormState {
   assetUrl: string;
   edgeFade: NonNullable<Cut['edgeFade']>;
   edgeFadeIntensity: NonNullable<Cut['edgeFadeIntensity']>;
+  edgeFadeColor: NonNullable<Cut['edgeFadeColor']>;
   marginBottomToken: NonNullable<Cut['marginBottomToken']>;
+  stateVariants: CutStateVariant[];
+  stateRoutes: CutStateRoute[];
+  stateFallbackCutId: string;
   isStart: boolean;
   isEnding: boolean;
+}
+
+function getInitialContentBlocks(cut: Cut): CutContentBlock[] {
+  if (cut.kind !== 'resultCard') {
+    return normalizeCutContentBlocks(cut);
+  }
+
+  const resultCardBlock = getResultCardBlock(cut) ?? createResultCardBlock('blue', { resultName: cut.title });
+  return [resultCardBlock];
 }
 
 function toFormState(cut: Cut): CutFormState {
   return {
     title: cut.title,
-    contentBlocks: normalizeCutContentBlocks(cut),
+    contentBlocks: getInitialContentBlocks(cut),
     contentViewMode: cut.contentViewMode ?? 'default',
     kind: cut.kind,
     dialogAnchorX: cut.dialogAnchorX,
@@ -64,35 +135,164 @@ function toFormState(cut: Cut): CutFormState {
     assetUrl: cut.assetUrl ?? '',
     edgeFade: cut.edgeFade ?? 'none',
     edgeFadeIntensity: cut.edgeFadeIntensity ?? 'normal',
+    edgeFadeColor: cut.edgeFadeColor ?? 'black',
     marginBottomToken: cut.marginBottomToken ?? 'none',
+    stateVariants: cut.stateVariants ?? [],
+    stateRoutes: (cut.stateRoutes ?? []).map(toFormStateRoute),
+    stateFallbackCutId: cut.stateFallbackCutId ?? '',
     isStart: cut.isStart,
-    isEnding: cut.isEnding
+    isEnding: cut.kind === 'resultCard' ? true : cut.isEnding
   };
-}
-
-function clampDialogOffset(value: number): number {
-  return Math.min(160, Math.max(0, value));
 }
 
 function clampEffectDuration(value: number): number {
   return Math.min(MAX_CUT_EFFECT_DURATION_MS, Math.max(0, value));
 }
 
+function sortJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(sortJsonValue);
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+        .map(([key, nestedValue]) => [key, sortJsonValue(nestedValue)])
+    );
+  }
+
+  return value;
+}
+
 function serializeContentBlocks(blocks: CutContentBlock[]): string {
-  return JSON.stringify(blocks);
+  return JSON.stringify(sortJsonValue(blocks));
+}
+
+function createClientId(prefix: string): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function serializeStateVariants(stateVariants: CutStateVariant[]): string {
+  return JSON.stringify(stateVariants);
+}
+
+function serializeStateRoutes(stateRoutes: CutStateRoute[]): string {
+  return JSON.stringify(stateRoutes);
+}
+
+function createEmptyStateRouteCondition(): CutStateCondition {
+  return {
+    stateKey: '',
+    equals: ''
+  };
+}
+
+function getEditableStateRouteConditions(stateRoute: CutStateRoute): CutStateCondition[] {
+  const conditions =
+    stateRoute.conditions && stateRoute.conditions.length > 0
+      ? stateRoute.conditions
+      : [
+          {
+            stateKey: stateRoute.stateKey ?? '',
+            equals: stateRoute.equals ?? ''
+          }
+        ];
+
+  const editableConditions = conditions.slice(0, MAX_CUT_STATE_ROUTE_CONDITIONS).map((condition) => ({
+    stateKey: condition.stateKey,
+    equals: condition.equals
+  }));
+
+  return editableConditions.length > 0 ? editableConditions : [createEmptyStateRouteCondition()];
+}
+
+function withStateRouteConditions(stateRoute: CutStateRoute, conditions: CutStateCondition[]): CutStateRoute {
+  const nextConditions = (conditions.length > 0 ? conditions : [createEmptyStateRouteCondition()]).slice(0, MAX_CUT_STATE_ROUTE_CONDITIONS);
+  const firstCondition = nextConditions[0] ?? createEmptyStateRouteCondition();
+
+  return {
+    ...stateRoute,
+    stateKey: firstCondition.stateKey,
+    equals: firstCondition.equals,
+    conditions: nextConditions
+  };
+}
+
+function updateStateRouteCondition(
+  stateRoute: CutStateRoute,
+  conditionIndex: number,
+  patch: Partial<CutStateCondition>
+): CutStateRoute {
+  const conditions = getEditableStateRouteConditions(stateRoute).map((condition, index) =>
+    index === conditionIndex ? { ...condition, ...patch } : condition
+  );
+
+  return withStateRouteConditions(stateRoute, conditions);
+}
+
+function toFormStateRoute(stateRoute: CutStateRoute): CutStateRoute {
+  return withStateRouteConditions(stateRoute, getEditableStateRouteConditions(stateRoute));
+}
+
+function normalizeStateVariants(stateVariants: CutStateVariant[], sourceCutId: string): CutStateVariant[] {
+  return stateVariants
+    .map((stateVariant) => ({
+      id: stateVariant.id,
+      stateKey: stateVariant.stateKey.trim(),
+      equals: stateVariant.equals.trim(),
+      variantCutId: stateVariant.variantCutId,
+      label: stateVariant.label?.trim() || undefined
+    }))
+    .filter(
+      (stateVariant) =>
+        stateVariant.stateKey.length > 0 &&
+        stateVariant.equals.length > 0 &&
+        stateVariant.variantCutId.length > 0 &&
+        stateVariant.variantCutId !== sourceCutId
+    );
+}
+
+function normalizeStateRoutes(stateRoutes: CutStateRoute[], sourceCutId: string): CutStateRoute[] {
+  return stateRoutes
+    .map((stateRoute) => {
+      const conditions = getCutStateRouteConditions(stateRoute).slice(0, MAX_CUT_STATE_ROUTE_CONDITIONS);
+      const firstCondition = conditions[0] ?? createEmptyStateRouteCondition();
+
+      return {
+        id: stateRoute.id,
+        stateKey: firstCondition.stateKey,
+        equals: firstCondition.equals,
+        conditions,
+        nextCutId: stateRoute.nextCutId,
+        label: stateRoute.label?.trim() || undefined
+      };
+    })
+    .filter(
+      (stateRoute) =>
+        (stateRoute.conditions ?? []).length > 0 &&
+        stateRoute.nextCutId.length > 0 &&
+        stateRoute.nextCutId !== sourceCutId
+    );
 }
 
 function buildCutPatch(cut: Cut, formState: CutFormState): PatchCutRequest | null {
   const patch: PatchCutRequest = {};
+  const isStateRouter = formState.kind === 'stateRouter';
+  const isResultCard = formState.kind === 'resultCard';
 
   if (formState.title !== cut.title) {
     patch.title = formState.title;
   }
 
-  const normalizedContentBlocks = normalizeCutContentBlocks(cut);
-  if (serializeContentBlocks(formState.contentBlocks) !== serializeContentBlocks(normalizedContentBlocks)) {
+  const normalizedContentBlocks = cut.kind === 'resultCard' ? getInitialContentBlocks(cut) : normalizeCutContentBlocks(cut);
+  if (!isStateRouter && serializeContentBlocks(formState.contentBlocks) !== serializeContentBlocks(normalizedContentBlocks)) {
     patch.contentBlocks = formState.contentBlocks;
-    patch.body = deriveContentBlocksBody(formState.contentBlocks, cut.body);
+    patch.body = deriveContentBlocksBody(formState.contentBlocks, '');
   }
 
   if (formState.contentViewMode !== (cut.contentViewMode ?? 'default')) {
@@ -103,52 +303,73 @@ function buildCutPatch(cut: Cut, formState: CutFormState): PatchCutRequest | nul
     patch.kind = formState.kind;
   }
 
-  if (formState.dialogAnchorX !== cut.dialogAnchorX) {
+  if (!isStateRouter && formState.dialogAnchorX !== cut.dialogAnchorX) {
     patch.dialogAnchorX = formState.dialogAnchorX;
   }
 
-  if (formState.dialogAnchorY !== cut.dialogAnchorY) {
+  if (!isStateRouter && formState.dialogAnchorY !== cut.dialogAnchorY) {
     patch.dialogAnchorY = formState.dialogAnchorY;
   }
 
-  if (formState.dialogOffsetX !== cut.dialogOffsetX) {
+  if (!isStateRouter && formState.dialogOffsetX !== cut.dialogOffsetX) {
     patch.dialogOffsetX = formState.dialogOffsetX;
   }
 
-  if (formState.dialogOffsetY !== cut.dialogOffsetY) {
+  if (!isStateRouter && formState.dialogOffsetY !== cut.dialogOffsetY) {
     patch.dialogOffsetY = formState.dialogOffsetY;
   }
 
-  if (formState.dialogTextAlign !== cut.dialogTextAlign) {
+  if (!isStateRouter && formState.dialogTextAlign !== cut.dialogTextAlign) {
     patch.dialogTextAlign = formState.dialogTextAlign;
   }
 
-  if (formState.startEffect !== (cut.startEffect ?? DEFAULT_CUT_EFFECT)) {
+  if (!isStateRouter && formState.startEffect !== (cut.startEffect ?? DEFAULT_CUT_EFFECT)) {
     patch.startEffect = formState.startEffect;
   }
 
-  if (formState.endEffect !== (cut.endEffect ?? DEFAULT_CUT_EFFECT)) {
+  if (!isStateRouter && formState.endEffect !== (cut.endEffect ?? DEFAULT_CUT_EFFECT)) {
     patch.endEffect = formState.endEffect;
   }
 
-  if (formState.startEffectDurationMs !== (cut.startEffectDurationMs ?? DEFAULT_CUT_EFFECT_DURATION_MS)) {
+  if (!isStateRouter && formState.startEffectDurationMs !== (cut.startEffectDurationMs ?? DEFAULT_CUT_EFFECT_DURATION_MS)) {
     patch.startEffectDurationMs = formState.startEffectDurationMs;
   }
 
-  if (formState.endEffectDurationMs !== (cut.endEffectDurationMs ?? DEFAULT_CUT_EFFECT_DURATION_MS)) {
+  if (!isStateRouter && formState.endEffectDurationMs !== (cut.endEffectDurationMs ?? DEFAULT_CUT_EFFECT_DURATION_MS)) {
     patch.endEffectDurationMs = formState.endEffectDurationMs;
   }
 
-  if (formState.edgeFade !== (cut.edgeFade ?? 'none')) {
+  if (!isStateRouter && formState.edgeFade !== (cut.edgeFade ?? 'none')) {
     patch.edgeFade = formState.edgeFade;
   }
 
-  if (formState.edgeFadeIntensity !== (cut.edgeFadeIntensity ?? 'normal')) {
+  if (!isStateRouter && formState.edgeFadeIntensity !== (cut.edgeFadeIntensity ?? 'normal')) {
     patch.edgeFadeIntensity = formState.edgeFadeIntensity;
   }
 
-  if (formState.marginBottomToken !== (cut.marginBottomToken ?? 'none')) {
+  if (!isStateRouter && formState.edgeFadeColor !== (cut.edgeFadeColor ?? 'black')) {
+    patch.edgeFadeColor = formState.edgeFadeColor;
+  }
+
+  if (!isStateRouter && formState.marginBottomToken !== (cut.marginBottomToken ?? 'none')) {
     patch.marginBottomToken = formState.marginBottomToken;
+  }
+
+  const nextStateVariants = isStateRouter || isResultCard ? [] : normalizeStateVariants(formState.stateVariants, cut.id);
+  const currentStateVariants = normalizeStateVariants(cut.stateVariants ?? [], cut.id);
+  if (serializeStateVariants(nextStateVariants) !== serializeStateVariants(currentStateVariants)) {
+    patch.stateVariants = nextStateVariants;
+  }
+
+  const nextStateRoutes = isStateRouter ? normalizeStateRoutes(formState.stateRoutes, cut.id) : [];
+  const currentStateRoutes = normalizeStateRoutes(cut.stateRoutes ?? [], cut.id);
+  if (serializeStateRoutes(nextStateRoutes) !== serializeStateRoutes(currentStateRoutes)) {
+    patch.stateRoutes = nextStateRoutes;
+  }
+
+  const nextStateFallbackCutId = isStateRouter ? formState.stateFallbackCutId || null : null;
+  if (nextStateFallbackCutId !== (cut.stateFallbackCutId ?? null)) {
+    patch.stateFallbackCutId = nextStateFallbackCutId;
   }
 
   if (formState.isStart !== cut.isStart) {
@@ -163,7 +384,10 @@ function buildCutPatch(cut: Cut, formState: CutFormState): PatchCutRequest | nul
 }
 
 export function CutEditorForm({
+  availableCuts = [],
   cut,
+  contentBlocksPortalEnabled = false,
+  contentBlocksPortalTarget,
   dialoguePositionPortalTarget,
   pendingAutosaveCount,
   onQueuePatch,
@@ -172,7 +396,10 @@ export function CutEditorForm({
   onKindPreviewChange,
   onUploadAsset
 }: {
+  availableCuts: Cut[];
   cut: Cut;
+  contentBlocksPortalEnabled?: boolean;
+  contentBlocksPortalTarget?: HTMLElement | null;
   dialoguePositionPortalTarget?: HTMLElement | null;
   pendingAutosaveCount: number;
   onQueuePatch: (cutId: string, patch: PatchCutRequest) => void;
@@ -200,6 +427,7 @@ export function CutEditorForm({
     onKindPreviewChange(nextState.kind);
   }, [
     cut.id,
+    cut.body,
     cut.title,
     cut.contentBlocks,
     cut.contentViewMode,
@@ -216,7 +444,11 @@ export function CutEditorForm({
     cut.assetUrl,
     cut.edgeFade,
     cut.edgeFadeIntensity,
+    cut.edgeFadeColor,
     cut.marginBottomToken,
+    cut.stateVariants,
+    cut.stateRoutes,
+    cut.stateFallbackCutId,
     cut.isStart,
     cut.isEnding,
     onKindPreviewChange
@@ -236,6 +468,32 @@ export function CutEditorForm({
     500
   );
   const displayAssetUrl = localAssetPreviewUrl ?? formState.assetUrl;
+  const isStateRouter = formState.kind === 'stateRouter';
+  const isResultCard = formState.kind === 'resultCard';
+  const resultCardBlock =
+    getResultCardBlock({
+      id: cut.id,
+      kind: formState.kind,
+      title: formState.title,
+      contentBlocks: formState.contentBlocks
+    }) ?? createResultCardBlock('blue', { resultName: formState.title });
+
+  function updateResultCardBlock(updater: (block: PromptoonResultCardContentBlock) => PromptoonResultCardContentBlock) {
+    setFormState((current) => {
+      const currentBlock =
+        getResultCardBlock({
+          id: cut.id,
+          kind: current.kind,
+          title: current.title,
+          contentBlocks: current.contentBlocks
+        }) ?? createResultCardBlock('blue', { resultName: current.title });
+
+      return {
+        ...current,
+        contentBlocks: upsertResultCardBlock(current.contentBlocks, updater(currentBlock))
+      };
+    });
+  }
 
   useEffect(() => {
     if (debouncedDraft.cutId !== cut.id) {
@@ -315,133 +573,656 @@ export function CutEditorForm({
   }
 
   const dialoguePositionEditor = (
-    <div className="rounded-2xl border border-editor-border bg-black/10 p-4">
-      <p className="text-xs font-medium uppercase tracking-[0.2em] text-zinc-500">Dialogue Position</p>
-      <div className="mt-4 grid gap-4 md:grid-cols-3">
-        <div>
-          <FieldLabel>Horizontal</FieldLabel>
-          <select
-            aria-label="Horizontal"
-            className={inputClassName()}
-            onChange={(event) =>
-              setFormState((current) => ({
-                ...current,
-                dialogAnchorX: event.target.value as Cut['dialogAnchorX']
-              }))
-            }
-            value={formState.dialogAnchorX}
-          >
-            <option value="left">Left</option>
-            <option value="right">Right</option>
-          </select>
+    <div className="inspector-card ml-auto w-[26rem] max-w-full min-w-0 rounded-2xl border border-editor-border bg-black/10 p-3">
+      <GroupTitle>대사 위치</GroupTitle>
+      <div className="mt-2 space-y-2">
+        <div className="grid grid-cols-[repeat(3,minmax(0,1fr))] gap-2">
+          <div className="min-w-0">
+            <FieldLabel>가로 기준</FieldLabel>
+            <select
+              aria-label="Horizontal"
+              className={inputClassName()}
+              onChange={(event) =>
+                setFormState((current) => ({
+                  ...current,
+                  dialogAnchorX: event.target.value as Cut['dialogAnchorX']
+                }))
+              }
+              value={formState.dialogAnchorX}
+            >
+              <option value="left">왼쪽</option>
+              <option value="center">가운데</option>
+              <option value="right">오른쪽</option>
+            </select>
+          </div>
+
+          <div className="min-w-0">
+            <FieldLabel>세로 기준</FieldLabel>
+            <select
+              aria-label="Vertical"
+              className={inputClassName()}
+              onChange={(event) =>
+                setFormState((current) => ({
+                  ...current,
+                  dialogAnchorY: event.target.value as Cut['dialogAnchorY']
+                }))
+              }
+              value={formState.dialogAnchorY}
+            >
+              <option value="top">맨 위</option>
+              <option value="upper">위쪽</option>
+              <option value="center">가운데</option>
+              <option value="lower">아래쪽</option>
+              <option value="bottom">맨 아래</option>
+            </select>
+          </div>
+
+          <div className="min-w-0">
+            <FieldLabel>텍스트 정렬</FieldLabel>
+            <select
+              aria-label="Text Align"
+              className={inputClassName()}
+              onChange={(event) =>
+                setFormState((current) => ({
+                  ...current,
+                  dialogTextAlign: event.target.value as Cut['dialogTextAlign']
+                }))
+              }
+              value={formState.dialogTextAlign}
+            >
+              <option value="left">왼쪽</option>
+              <option value="center">가운데</option>
+              <option value="right">오른쪽</option>
+            </select>
+          </div>
         </div>
 
-        <div>
-          <FieldLabel>Vertical</FieldLabel>
-          <select
-            aria-label="Vertical"
-            className={inputClassName()}
-            onChange={(event) =>
-              setFormState((current) => ({
-                ...current,
-                dialogAnchorY: event.target.value as Cut['dialogAnchorY']
-              }))
-            }
-            value={formState.dialogAnchorY}
-          >
-            <option value="top">Top</option>
-            <option value="bottom">Bottom</option>
-          </select>
-        </div>
+        <div className="grid grid-cols-[repeat(2,minmax(0,1fr))] gap-2">
+          <div className="min-w-0">
+            <FieldLabel>가로 이동</FieldLabel>
+            <CoordinateInput
+              ariaLabel="X"
+              onValueChange={(value) =>
+                setFormState((current) => ({
+                  ...current,
+                  dialogOffsetX: value
+                }))
+              }
+              value={formState.dialogOffsetX}
+            />
+          </div>
 
-        <div>
-          <FieldLabel>Text Align</FieldLabel>
-          <select
-            aria-label="Text Align"
-            className={inputClassName()}
-            onChange={(event) =>
-              setFormState((current) => ({
-                ...current,
-                dialogTextAlign: event.target.value as Cut['dialogTextAlign']
-              }))
-            }
-            value={formState.dialogTextAlign}
-          >
-            <option value="left">Left</option>
-            <option value="center">Center</option>
-            <option value="right">Right</option>
-          </select>
+          <div className="min-w-0">
+            <FieldLabel>세로 이동</FieldLabel>
+            <CoordinateInput
+              ariaLabel="Y"
+              onValueChange={(value) =>
+                setFormState((current) => ({
+                  ...current,
+                  dialogOffsetY: value
+                }))
+              }
+              value={formState.dialogOffsetY}
+            />
+          </div>
         </div>
       </div>
-
-      <div className="mt-4 grid gap-4 md:grid-cols-2">
+    </div>
+  );
+  const contentBlocksEditor = (
+    <CutContentBlocksEditor
+      blocks={formState.contentBlocks}
+      onChange={(contentBlocks) => setFormState((current) => ({ ...current, contentBlocks }))}
+      onUploadAsset={onUploadAsset}
+      onViewModeChange={(contentViewMode) => setFormState((current) => ({ ...current, contentViewMode }))}
+      viewMode={formState.contentViewMode}
+    />
+  );
+  const resultCardEditor = (
+    <div className="col-span-full rounded-2xl border border-editor-border bg-black/10 p-3">
+      <GroupTitle>결과 카드</GroupTitle>
+      <div className="mt-3 space-y-3">
         <div>
-          <FieldLabel>X</FieldLabel>
-          <input
-            aria-label="X"
+          <FieldLabel>테마</FieldLabel>
+          <select
             className={inputClassName()}
-            max={160}
-            min={0}
-            onChange={(event) =>
-              setFormState((current) => ({
-                ...current,
-                dialogOffsetX: clampDialogOffset(Number(event.target.value) || 0)
-              }))
-            }
-            step={1}
-            type="number"
-            value={formState.dialogOffsetX}
+            onChange={(event) => {
+              const theme = event.target.value as PromptoonResultCardTheme;
+              const preset = createResultCardBlock(theme, {
+                id: resultCardBlock.id,
+                inflowLabel: resultCardBlock.inflowLabel,
+                inflowUrl: resultCardBlock.inflowUrl,
+                inflowBrand: resultCardBlock.inflowBrand,
+                inflowTagline: resultCardBlock.inflowTagline
+              });
+              updateResultCardBlock(() => preset);
+            }}
+            value={resultCardBlock.theme}
+          >
+            {RESULT_CARD_THEME_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="grid grid-cols-[minmax(0,0.55fr)_minmax(0,1fr)] gap-2">
+          <div className="min-w-0">
+            <FieldLabel>배지</FieldLabel>
+            <input
+              className={inputClassName()}
+              onChange={(event) => updateResultCardBlock((block) => ({ ...block, badge: event.target.value }))}
+              type="text"
+              value={resultCardBlock.badge}
+            />
+          </div>
+          <div className="min-w-0">
+            <FieldLabel>결과명</FieldLabel>
+            <input
+              className={inputClassName()}
+              onChange={(event) => updateResultCardBlock((block) => ({ ...block, resultName: event.target.value }))}
+              type="text"
+              value={resultCardBlock.resultName}
+            />
+          </div>
+        </div>
+
+        <div>
+          <FieldLabel>한 줄 설명</FieldLabel>
+          <input
+            className={inputClassName()}
+            onChange={(event) => updateResultCardBlock((block) => ({ ...block, tagline: event.target.value }))}
+            type="text"
+            value={resultCardBlock.tagline}
           />
         </div>
 
         <div>
-          <FieldLabel>Y</FieldLabel>
+          <FieldLabel>본문 문구</FieldLabel>
+          <textarea
+            className={`${inputClassName()} min-h-28 resize-y whitespace-pre-wrap`}
+            onChange={(event) =>
+              updateResultCardBlock((block) => ({
+                ...block,
+                lines: event.target.value
+                  .split('\n')
+                  .map((line) => line.trim())
+                  .filter((line) => line.length > 0)
+                  .slice(0, 6)
+              }))
+            }
+            value={resultCardBlock.lines.join('\n')}
+          />
+        </div>
+
+        <div className="grid grid-cols-[minmax(0,0.55fr)_minmax(0,1fr)] gap-2">
+          <div className="min-w-0">
+            <FieldLabel>유입 라벨</FieldLabel>
+            <input
+              className={inputClassName()}
+              onChange={(event) => updateResultCardBlock((block) => ({ ...block, inflowLabel: event.target.value }))}
+              type="text"
+              value={resultCardBlock.inflowLabel}
+            />
+          </div>
+          <div className="min-w-0">
+            <FieldLabel>유입 URL</FieldLabel>
+            <input
+              className={inputClassName()}
+              onChange={(event) => updateResultCardBlock((block) => ({ ...block, inflowUrl: event.target.value }))}
+              type="text"
+              value={resultCardBlock.inflowUrl}
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-[minmax(0,0.55fr)_minmax(0,1fr)] gap-2">
+          <div className="min-w-0">
+            <FieldLabel>브랜드</FieldLabel>
+            <input
+              className={inputClassName()}
+              onChange={(event) => updateResultCardBlock((block) => ({ ...block, inflowBrand: event.target.value }))}
+              type="text"
+              value={resultCardBlock.inflowBrand}
+            />
+          </div>
+          <div className="min-w-0">
+            <FieldLabel>브랜드 설명</FieldLabel>
+            <input
+              className={inputClassName()}
+              onChange={(event) => updateResultCardBlock((block) => ({ ...block, inflowTagline: event.target.value }))}
+              type="text"
+              value={resultCardBlock.inflowTagline}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+  const assetEditor = (
+    <div>
+      <FieldLabel>이미지</FieldLabel>
+      <div className="mt-1.5 rounded-2xl border border-editor-border bg-black/10 p-3">
+        {displayAssetUrl ? (
+          <div className="mb-3 flex h-36 items-center justify-center overflow-hidden rounded-2xl border border-editor-border bg-black/20">
+            <img
+              alt={cut.title}
+              className="max-h-full max-w-full object-contain"
+              src={displayAssetUrl}
+            />
+          </div>
+        ) : (
+          <div className="mb-3 flex h-28 items-center justify-center rounded-2xl border border-dashed border-editor-border bg-black/10 text-sm text-zinc-500">
+            {isUploadingAsset ? '이미지를 업로드하는 중입니다...' : '업로드된 이미지가 없습니다.'}
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-2">
           <input
-            aria-label="Y"
+            accept="image/*"
+            hidden
+            id={fileInputId}
+            onChange={handleAssetFileChange}
+            type="file"
+          />
+          <label
+            className="inline-flex cursor-pointer items-center rounded-full border border-editor-border bg-black/20 px-3 py-1.5 text-sm text-zinc-100 transition hover:border-editor-accentSoft"
+            htmlFor={fileInputId}
+          >
+            {isUploadingAsset ? '업로드 중...' : '이미지 업로드'}
+          </label>
+
+          {displayAssetUrl ? (
+            <button
+              className="rounded-full border border-editor-border px-3 py-1.5 text-sm text-zinc-300 transition hover:border-zinc-500"
+              onClick={() => {
+                void handleRemoveAsset();
+              }}
+              type="button"
+            >
+              이미지 제거
+            </button>
+          ) : null}
+        </div>
+
+        <p className="mt-2 break-all text-xs text-zinc-500">
+          {displayAssetUrl || '업로드한 이미지는 자동 저장 후 프리뷰와 뷰어에 반영됩니다.'}
+        </p>
+        {uploadError ? <p className="mt-2 text-xs text-red-300">{uploadError}</p> : null}
+      </div>
+    </div>
+  );
+  const stateVariantsEditor = (
+    <div className="col-span-full rounded-2xl border border-editor-border bg-black/10 p-3">
+      <div className="flex min-w-0 items-center justify-between gap-2">
+        <GroupTitle>상태 Variant</GroupTitle>
+        <button
+          className="shrink-0 rounded-lg border border-editor-border bg-black/20 px-2.5 py-1.5 text-xs font-medium text-zinc-200 transition hover:border-editor-accentSoft"
+          onClick={() =>
+            setFormState((current) => ({
+              ...current,
+              stateVariants: [
+                ...current.stateVariants,
+                {
+                  id: createClientId('state-variant'),
+                  stateKey: '',
+                  equals: '',
+                  variantCutId: availableCuts[0]?.id ?? ''
+                }
+              ]
+            }))
+          }
+          type="button"
+        >
+          + Variant
+        </button>
+      </div>
+
+      <div className="mt-2 space-y-2">
+        {formState.stateVariants.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-editor-border bg-black/10 px-3 py-2 text-xs text-zinc-500">
+            조건이 맞을 때 대신 보여줄 컷을 지정할 수 있습니다.
+          </p>
+        ) : (
+          formState.stateVariants.map((stateVariant, index) => (
+            <div className="rounded-xl border border-editor-border bg-black/10 p-2" key={stateVariant.id}>
+              <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2">
+                <div className="min-w-0">
+                  <FieldLabel>상태 key</FieldLabel>
+                  <input
+                    className={inputClassName()}
+                    onChange={(event) =>
+                      setFormState((current) => ({
+                        ...current,
+                        stateVariants: current.stateVariants.map((currentStateVariant, currentIndex) =>
+                          currentIndex === index ? { ...currentStateVariant, stateKey: event.target.value } : currentStateVariant
+                        )
+                      }))
+                    }
+                    placeholder="first_route"
+                    type="text"
+                    value={stateVariant.stateKey}
+                  />
+                </div>
+
+                <div className="min-w-0">
+                  <FieldLabel>값</FieldLabel>
+                  <input
+                    className={inputClassName()}
+                    onChange={(event) =>
+                      setFormState((current) => ({
+                        ...current,
+                        stateVariants: current.stateVariants.map((currentStateVariant, currentIndex) =>
+                          currentIndex === index ? { ...currentStateVariant, equals: event.target.value } : currentStateVariant
+                        )
+                      }))
+                    }
+                    placeholder="A"
+                    type="text"
+                    value={stateVariant.equals}
+                  />
+                </div>
+              </div>
+
+                <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                <div className="min-w-0">
+                  <FieldLabel>대체 컷</FieldLabel>
+                  <select
+                    className={inputClassName()}
+                    onChange={(event) =>
+                      setFormState((current) => ({
+                        ...current,
+                        stateVariants: current.stateVariants.map((currentStateVariant, currentIndex) =>
+                          currentIndex === index ? { ...currentStateVariant, variantCutId: event.target.value } : currentStateVariant
+                        )
+                      }))
+                    }
+                    value={stateVariant.variantCutId}
+                  >
+                    <option value="">선택 안 함</option>
+                    {availableCuts.map((availableCut) => (
+                      <option key={availableCut.id} value={availableCut.id}>
+                        {availableCut.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <button
+                  className="mt-6 h-10 rounded-xl border border-editor-border bg-black/20 px-3 text-xs text-zinc-300 transition hover:border-red-400/60 hover:text-red-200"
+                  onClick={() =>
+                    setFormState((current) => ({
+                      ...current,
+                      stateVariants: current.stateVariants.filter((_, currentIndex) => currentIndex !== index)
+                    }))
+                  }
+                  type="button"
+                >
+                  삭제
+                </button>
+              </div>
+
+                <div className="mt-2">
+                <FieldLabel>라벨</FieldLabel>
+                <input
+                  className={inputClassName()}
+                  onChange={(event) =>
+                    setFormState((current) => ({
+                      ...current,
+                      stateVariants: current.stateVariants.map((currentStateVariant, currentIndex) =>
+                        currentIndex === index ? { ...currentStateVariant, label: event.target.value } : currentStateVariant
+                      )
+                    }))
+                  }
+                  placeholder="A 루트 연출"
+                  type="text"
+                  value={stateVariant.label ?? ''}
+                />
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+  const stateRoutesEditor = (
+    <div className="col-span-full rounded-2xl border border-violet-500/20 bg-violet-500/5 p-3">
+      <div className="flex min-w-0 items-center justify-between gap-2">
+        <GroupTitle>상태 분기</GroupTitle>
+        <button
+          className="shrink-0 rounded-lg border border-editor-border bg-black/20 px-2.5 py-1.5 text-xs font-medium text-zinc-200 transition hover:border-violet-400/70"
+          onClick={() =>
+            setFormState((current) => ({
+              ...current,
+              stateRoutes: [
+                ...current.stateRoutes,
+                {
+                  id: createClientId('state-route'),
+                  stateKey: '',
+                  equals: '',
+                  conditions: [createEmptyStateRouteCondition()],
+                  nextCutId: availableCuts[0]?.id ?? ''
+                }
+              ]
+            }))
+          }
+          type="button"
+        >
+          + Route
+        </button>
+      </div>
+
+      <div className="mt-2 space-y-2">
+        {formState.stateRoutes.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-violet-400/25 bg-black/10 px-3 py-2 text-xs text-zinc-500">
+            저장된 상태값이 맞을 때 이동할 컷을 추가하세요.
+          </p>
+        ) : (
+          formState.stateRoutes.map((stateRoute, index) => {
+            const conditions = getEditableStateRouteConditions(stateRoute);
+
+            return (
+              <div className="rounded-xl border border-editor-border bg-black/10 p-2" key={stateRoute.id}>
+                <div className="space-y-2">
+                  {conditions.map((condition, conditionIndex) => (
+                    <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2" key={`${stateRoute.id}-condition-${conditionIndex}`}>
+                      <div className="min-w-0">
+                        <FieldLabel>{`조건 ${conditionIndex + 1} key`}</FieldLabel>
+                        <input
+                          className={inputClassName()}
+                          onChange={(event) =>
+                            setFormState((current) => ({
+                              ...current,
+                              stateRoutes: current.stateRoutes.map((currentStateRoute, currentIndex) =>
+                                currentIndex === index
+                                  ? updateStateRouteCondition(currentStateRoute, conditionIndex, { stateKey: event.target.value })
+                                  : currentStateRoute
+                              )
+                            }))
+                          }
+                          placeholder={conditionIndex === 0 ? 'first_route' : 'second_route'}
+                          type="text"
+                          value={condition.stateKey}
+                        />
+                      </div>
+
+                      <div className="min-w-0">
+                        <FieldLabel>{`조건 ${conditionIndex + 1} 값`}</FieldLabel>
+                        <input
+                          className={inputClassName()}
+                          onChange={(event) =>
+                            setFormState((current) => ({
+                              ...current,
+                              stateRoutes: current.stateRoutes.map((currentStateRoute, currentIndex) =>
+                                currentIndex === index
+                                  ? updateStateRouteCondition(currentStateRoute, conditionIndex, { equals: event.target.value })
+                                  : currentStateRoute
+                              )
+                            }))
+                          }
+                          placeholder={conditionIndex === 0 ? 'A' : 'B'}
+                          type="text"
+                          value={condition.equals}
+                        />
+                      </div>
+
+                      <button
+                        className="mt-6 h-10 rounded-xl border border-editor-border bg-black/20 px-2 text-xs text-zinc-400 transition hover:border-red-400/60 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-40"
+                        disabled={conditions.length <= 1}
+                        onClick={() =>
+                          setFormState((current) => ({
+                            ...current,
+                            stateRoutes: current.stateRoutes.map((currentStateRoute, currentIndex) =>
+                              currentIndex === index
+                                ? withStateRouteConditions(
+                                    currentStateRoute,
+                                    getEditableStateRouteConditions(currentStateRoute).filter(
+                                      (_, currentConditionIndex) => currentConditionIndex !== conditionIndex
+                                    )
+                                  )
+                                : currentStateRoute
+                            )
+                          }))
+                        }
+                        type="button"
+                      >
+                        조건 삭제
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                {conditions.length < MAX_CUT_STATE_ROUTE_CONDITIONS ? (
+                  <button
+                    className="mt-2 rounded-lg border border-editor-border bg-black/20 px-2.5 py-1.5 text-xs font-medium text-zinc-300 transition hover:border-violet-400/70"
+                    onClick={() =>
+                      setFormState((current) => ({
+                        ...current,
+                        stateRoutes: current.stateRoutes.map((currentStateRoute, currentIndex) =>
+                          currentIndex === index
+                            ? withStateRouteConditions(currentStateRoute, [
+                                ...getEditableStateRouteConditions(currentStateRoute),
+                                createEmptyStateRouteCondition()
+                              ])
+                            : currentStateRoute
+                        )
+                      }))
+                    }
+                    type="button"
+                  >
+                    + 조건
+                  </button>
+                ) : null}
+
+                <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                <div className="min-w-0">
+                  <FieldLabel>이동할 컷</FieldLabel>
+                  <select
+                    className={inputClassName()}
+                    onChange={(event) =>
+                      setFormState((current) => ({
+                        ...current,
+                        stateRoutes: current.stateRoutes.map((currentStateRoute, currentIndex) =>
+                          currentIndex === index ? { ...currentStateRoute, nextCutId: event.target.value } : currentStateRoute
+                        )
+                      }))
+                    }
+                    value={stateRoute.nextCutId}
+                  >
+                    <option value="">선택 안 함</option>
+                    {availableCuts.map((availableCut) => (
+                      <option key={availableCut.id} value={availableCut.id}>
+                        {availableCut.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <button
+                  className="mt-6 h-10 rounded-xl border border-editor-border bg-black/20 px-3 text-xs text-zinc-300 transition hover:border-red-400/60 hover:text-red-200"
+                  onClick={() =>
+                    setFormState((current) => ({
+                      ...current,
+                      stateRoutes: current.stateRoutes.filter((_, currentIndex) => currentIndex !== index)
+                    }))
+                  }
+                  type="button"
+                >
+                  삭제
+                </button>
+              </div>
+
+                <div className="mt-2">
+                <FieldLabel>라벨</FieldLabel>
+                <input
+                  className={inputClassName()}
+                  onChange={(event) =>
+                    setFormState((current) => ({
+                      ...current,
+                      stateRoutes: current.stateRoutes.map((currentStateRoute, currentIndex) =>
+                        currentIndex === index ? { ...currentStateRoute, label: event.target.value } : currentStateRoute
+                      )
+                    }))
+                  }
+                  placeholder="A 루트"
+                  type="text"
+                  value={stateRoute.label ?? ''}
+                />
+              </div>
+              </div>
+            );
+          })
+        )}
+
+        <div className="rounded-xl border border-editor-border bg-black/10 p-2">
+          <FieldLabel>기본 컷</FieldLabel>
+          <select
             className={inputClassName()}
-            max={160}
-            min={0}
             onChange={(event) =>
               setFormState((current) => ({
                 ...current,
-                dialogOffsetY: clampDialogOffset(Number(event.target.value) || 0)
+                stateFallbackCutId: event.target.value
               }))
             }
-            step={1}
-            type="number"
-            value={formState.dialogOffsetY}
-          />
+            value={formState.stateFallbackCutId}
+          >
+            <option value="">선택 안 함</option>
+            {availableCuts.map((availableCut) => (
+              <option key={availableCut.id} value={availableCut.id}>
+                {availableCut.title}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
-
-      <p className="mt-3 text-xs text-zinc-500">
-        위치 기준은 선택한 화면 가장자리이며, X/Y 값은 화면 밖으로 나가지 않도록 안전 범위 안에서만 적용됩니다.
-      </p>
     </div>
   );
 
   return (
     <>
-      <section className="rounded-[24px] border border-editor-border bg-black/10 p-4">
-        <div className="flex items-start justify-between gap-3">
+      <section className="inspector-card ml-auto w-[26rem] max-w-full min-w-0 rounded-[18px] border border-editor-border bg-black/10 p-3">
+        <div className="flex items-center justify-between gap-2">
           <div>
-            <p className="font-display text-xl font-semibold text-zinc-50">Inspector</p>
-            <p className="mt-1 text-sm text-zinc-400">
-              {pendingAutosaveCount > 0 ? `Saving ${pendingAutosaveCount} change(s)...` : 'Autosaves after 500ms idle.'}
+            <p className="font-display text-base font-semibold text-zinc-50">컷 설정</p>
+            <p className="mt-0.5 text-xs text-zinc-400">
+              {pendingAutosaveCount > 0 ? `${pendingAutosaveCount}개 변경 저장 중...` : '입력 후 0.5초 뒤 자동 저장됩니다.'}
             </p>
           </div>
           <button
-            className="rounded-full border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-200 transition hover:bg-red-500/20"
+            className="rounded-full border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-200 transition hover:bg-red-500/20"
             onClick={() => onDeleteCut(cut.id)}
             type="button"
           >
-            Delete Cut
+            컷 삭제
           </button>
         </div>
 
-        <div className="mt-5 space-y-5">
+        <div className="mt-3 space-y-3">
+          {!isStateRouter ? assetEditor : null}
+
           <div>
-            <FieldLabel>Title</FieldLabel>
+            <FieldLabel>제목</FieldLabel>
             <input
               aria-label="Title"
               className={inputClassName()}
@@ -451,20 +1232,18 @@ export function CutEditorForm({
             />
           </div>
 
-          <CutContentBlocksEditor
-            blocks={formState.contentBlocks}
-            onChange={(contentBlocks) => setFormState((current) => ({ ...current, contentBlocks }))}
-            onUploadAsset={onUploadAsset}
-            onViewModeChange={(contentViewMode) => setFormState((current) => ({ ...current, contentViewMode }))}
-            viewMode={formState.contentViewMode}
-          />
+          {!isStateRouter && !isResultCard && !contentBlocksPortalEnabled ? contentBlocksEditor : null}
 
-          {!dialoguePositionPortalTarget ? dialoguePositionEditor : null}
+          {!isStateRouter && !isResultCard && !dialoguePositionPortalTarget ? dialoguePositionEditor : null}
 
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-            <div className="space-y-4">
+          <div className="inspector-form-grid grid gap-3">
+            <div className="inspector-field-grid grid gap-3">
+              <div className="col-span-full">
+                <GroupTitle>기본</GroupTitle>
+              </div>
+
               <div>
-                <FieldLabel>Kind</FieldLabel>
+                <FieldLabel>컷 종류</FieldLabel>
                 <select
                   aria-label="Kind"
                   className={inputClassName()}
@@ -473,242 +1252,239 @@ export function CutEditorForm({
                     setFormState((current) => ({
                       ...current,
                       kind,
-                      isEnding: kind === 'ending' ? true : current.isEnding
+                      contentBlocks:
+                        kind === 'resultCard'
+                          ? [createResultCardBlock('blue', { resultName: current.title })]
+                          : current.kind === 'resultCard'
+                            ? []
+                            : current.contentBlocks,
+                      stateVariants: kind === 'resultCard' || kind === 'stateRouter' ? [] : current.stateVariants,
+                      isEnding: kind === 'ending' || kind === 'resultCard' ? true : kind === 'stateRouter' ? false : current.isEnding
                     }));
                     onKindPreviewChange(kind);
                   }}
                   value={formState.kind}
                 >
-                  <option value="scene">Scene</option>
-                  <option value="choice">Choice</option>
-                  <option value="transition">Transition</option>
-                  <option value="ending">Ending</option>
+                  <option value="scene">장면</option>
+                  <option value="choice">선택</option>
+                  <option value="transition">전환</option>
+                  <option value="stateRouter">상태 분기</option>
+                  <option value="resultCard">결과 카드</option>
+                  <option value="ending">엔딩</option>
                 </select>
               </div>
 
-              <div>
-                <FieldLabel>Start Effect</FieldLabel>
-                <select
-                  aria-label="Start Effect"
-                  className={inputClassName()}
-                  onChange={(event) =>
-                    setFormState((current) => ({
-                      ...current,
-                      startEffect: event.target.value as Cut['startEffect']
-                    }))
-                  }
-                  value={formState.startEffect}
-                >
-                  {CUT_EFFECT_OPTIONS.map((effect) => (
-                    <option key={effect.value} value={effect.value}>
-                      {effect.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {isResultCard ? (
+                resultCardEditor
+              ) : !isStateRouter ? (
+                <>
+                  <div className="col-span-full mt-1">
+                    <GroupTitle>전환 효과</GroupTitle>
+                  </div>
 
-              <div>
-                <FieldLabel>Start Duration (ms)</FieldLabel>
-                <input
-                  aria-label="Start Duration"
-                  className={inputClassName()}
-                  max={MAX_CUT_EFFECT_DURATION_MS}
-                  min={0}
-                  onChange={(event) =>
-                    setFormState((current) => ({
-                      ...current,
-                      startEffectDurationMs: clampEffectDuration(Number(event.target.value) || 0)
-                    }))
-                  }
-                  type="number"
-                  value={formState.startEffectDurationMs}
-                />
-              </div>
+                  <div>
+                    <FieldLabel>시작 효과</FieldLabel>
+                    <select
+                      aria-label="Start Effect"
+                      className={inputClassName()}
+                      onChange={(event) =>
+                        setFormState((current) => ({
+                          ...current,
+                          startEffect: event.target.value as Cut['startEffect']
+                        }))
+                      }
+                      value={formState.startEffect}
+                    >
+                      {CUT_EFFECT_OPTIONS.map((effect) => (
+                        <option key={effect.value} value={effect.value}>
+                          {effect.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
-              <div>
-                <FieldLabel>End Effect</FieldLabel>
-                <select
-                  aria-label="End Effect"
-                  className={inputClassName()}
-                  onChange={(event) =>
-                    setFormState((current) => ({
-                      ...current,
-                      endEffect: event.target.value as Cut['endEffect']
-                    }))
-                  }
-                  value={formState.endEffect}
-                >
-                  {CUT_EFFECT_OPTIONS.map((effect) => (
-                    <option key={effect.value} value={effect.value}>
-                      {effect.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <FieldLabel>End Duration (ms)</FieldLabel>
-                <input
-                  aria-label="End Duration"
-                  className={inputClassName()}
-                  max={MAX_CUT_EFFECT_DURATION_MS}
-                  min={0}
-                  onChange={(event) =>
-                    setFormState((current) => ({
-                      ...current,
-                      endEffectDurationMs: clampEffectDuration(Number(event.target.value) || 0)
-                    }))
-                  }
-                  type="number"
-                  value={formState.endEffectDurationMs}
-                />
-              </div>
-
-              <div>
-                <FieldLabel>Edge Fade</FieldLabel>
-                <select
-                  aria-label="Edge Fade"
-                  className={inputClassName()}
-                  onChange={(event) =>
-                    setFormState((current) => ({
-                      ...current,
-                      edgeFade: event.target.value as NonNullable<Cut['edgeFade']>
-                    }))
-                  }
-                  value={formState.edgeFade}
-                >
-                  {EDGE_FADE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <FieldLabel>Edge Fade Intensity</FieldLabel>
-                <select
-                  aria-label="Edge Fade Intensity"
-                  className={inputClassName()}
-                  onChange={(event) =>
-                    setFormState((current) => ({
-                      ...current,
-                      edgeFadeIntensity: event.target.value as NonNullable<Cut['edgeFadeIntensity']>
-                    }))
-                  }
-                  value={formState.edgeFadeIntensity}
-                >
-                  {EDGE_FADE_INTENSITY_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <FieldLabel>Cut Bottom Spacing</FieldLabel>
-                <select
-                  aria-label="Cut Bottom Spacing"
-                  className={inputClassName()}
-                  onChange={(event) =>
-                    setFormState((current) => ({
-                      ...current,
-                      marginBottomToken: event.target.value as NonNullable<Cut['marginBottomToken']>
-                    }))
-                  }
-                  value={formState.marginBottomToken}
-                >
-                  {CONTENT_SPACING_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div>
-              <FieldLabel>Image Asset</FieldLabel>
-              <div className="mt-2 rounded-2xl border border-editor-border bg-black/10 p-4">
-                {displayAssetUrl ? (
-                  <div className="mb-4 overflow-hidden rounded-2xl border border-editor-border bg-black/20">
-                    <img
-                      alt={cut.title}
-                      className="h-40 w-full object-cover"
-                      src={displayAssetUrl}
+                  <div>
+                    <FieldLabel>시작 시간(밀리초)</FieldLabel>
+                    <input
+                      aria-label="Start Duration"
+                      className={inputClassName()}
+                      max={MAX_CUT_EFFECT_DURATION_MS}
+                      min={0}
+                      onChange={(event) =>
+                        setFormState((current) => ({
+                          ...current,
+                          startEffectDurationMs: clampEffectDuration(Number(event.target.value) || 0)
+                        }))
+                      }
+                      type="number"
+                      value={formState.startEffectDurationMs}
                     />
                   </div>
-                ) : (
-                  <div className="mb-4 flex h-32 items-center justify-center rounded-2xl border border-dashed border-editor-border bg-black/10 text-sm text-zinc-500">
-                    {isUploadingAsset ? '이미지를 업로드하는 중입니다...' : '업로드된 이미지가 없습니다.'}
-                  </div>
-                )}
 
-                <div className="flex flex-wrap items-center gap-3">
-                  <input
-                    accept="image/*"
-                    hidden
-                    id={fileInputId}
-                    onChange={handleAssetFileChange}
-                    type="file"
-                  />
-                  <label
-                    className="inline-flex cursor-pointer items-center rounded-full border border-editor-border bg-black/20 px-4 py-2 text-sm text-zinc-100 transition hover:border-editor-accentSoft"
-                    htmlFor={fileInputId}
-                  >
-                    {isUploadingAsset ? '업로드 중...' : '이미지 업로드'}
-                  </label>
-
-                  {displayAssetUrl ? (
-                    <button
-                      className="rounded-full border border-editor-border px-4 py-2 text-sm text-zinc-300 transition hover:border-zinc-500"
-                      onClick={() => {
-                        void handleRemoveAsset();
-                      }}
-                      type="button"
+                  <div>
+                    <FieldLabel>종료 효과</FieldLabel>
+                    <select
+                      aria-label="End Effect"
+                      className={inputClassName()}
+                      onChange={(event) =>
+                        setFormState((current) => ({
+                          ...current,
+                          endEffect: event.target.value as Cut['endEffect']
+                        }))
+                      }
+                      value={formState.endEffect}
                     >
-                      이미지 제거
-                    </button>
-                  ) : null}
-                </div>
+                      {CUT_EFFECT_OPTIONS.map((effect) => (
+                        <option key={effect.value} value={effect.value}>
+                          {effect.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
-                <p className="mt-3 break-all text-xs text-zinc-500">
-                  {displayAssetUrl || '업로드한 이미지는 자동 저장 후 프리뷰와 뷰어에 반영됩니다.'}
-                </p>
-                {uploadError ? <p className="mt-2 text-xs text-red-300">{uploadError}</p> : null}
-              </div>
+                  <div>
+                    <FieldLabel>종료 시간(밀리초)</FieldLabel>
+                    <input
+                      aria-label="End Duration"
+                      className={inputClassName()}
+                      max={MAX_CUT_EFFECT_DURATION_MS}
+                      min={0}
+                      onChange={(event) =>
+                        setFormState((current) => ({
+                          ...current,
+                          endEffectDurationMs: clampEffectDuration(Number(event.target.value) || 0)
+                        }))
+                      }
+                      type="number"
+                      value={formState.endEffectDurationMs}
+                    />
+                  </div>
+
+                  <div className="col-span-full mt-1">
+                    <GroupTitle>화면 마감</GroupTitle>
+                  </div>
+
+                  <div>
+                    <FieldLabel>가장자리 페이드</FieldLabel>
+                    <select
+                      aria-label="Edge Fade"
+                      className={inputClassName()}
+                      onChange={(event) =>
+                        setFormState((current) => ({
+                          ...current,
+                          edgeFade: event.target.value as NonNullable<Cut['edgeFade']>
+                        }))
+                      }
+                      value={formState.edgeFade}
+                    >
+                      {EDGE_FADE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <FieldLabel>페이드 강도</FieldLabel>
+                    <select
+                      aria-label="Edge Fade Intensity"
+                      className={inputClassName()}
+                      onChange={(event) =>
+                        setFormState((current) => ({
+                          ...current,
+                          edgeFadeIntensity: event.target.value as NonNullable<Cut['edgeFadeIntensity']>
+                        }))
+                      }
+                      value={formState.edgeFadeIntensity}
+                    >
+                      {EDGE_FADE_INTENSITY_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <FieldLabel>페이드 색상</FieldLabel>
+                    <select
+                      aria-label="Edge Fade Color"
+                      className={inputClassName()}
+                      onChange={(event) =>
+                        setFormState((current) => ({
+                          ...current,
+                          edgeFadeColor: event.target.value as NonNullable<Cut['edgeFadeColor']>
+                        }))
+                      }
+                      value={formState.edgeFadeColor}
+                    >
+                      {EDGE_FADE_COLOR_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <FieldLabel>컷 아래 여백</FieldLabel>
+                    <select
+                      aria-label="Cut Bottom Spacing"
+                      className={inputClassName()}
+                      onChange={(event) =>
+                        setFormState((current) => ({
+                          ...current,
+                          marginBottomToken: event.target.value as NonNullable<Cut['marginBottomToken']>
+                        }))
+                      }
+                      value={formState.marginBottomToken}
+                    >
+                      {CONTENT_SPACING_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="col-span-full mt-1">
+                    <GroupTitle>상태</GroupTitle>
+                  </div>
+
+                  {stateVariantsEditor}
+                </>
+              ) : (
+                stateRoutesEditor
+              )}
+
+              <label className="flex min-w-0 items-center gap-2 rounded-xl border border-editor-border bg-black/10 px-3 py-2 text-sm text-zinc-300">
+                <input
+                  checked={formState.isStart}
+                  className="h-4 w-4 shrink-0 accent-editor-accentSoft"
+                  onChange={(event) => setFormState((current) => ({ ...current, isStart: event.target.checked }))}
+                  type="checkbox"
+                />
+                <span className="min-w-0 truncate">시작 컷으로 지정</span>
+              </label>
+
+              {!isStateRouter && !isResultCard ? (
+                <label className="flex min-w-0 items-center gap-2 rounded-xl border border-editor-border bg-black/10 px-3 py-2 text-sm text-zinc-300">
+                  <input
+                    checked={formState.isEnding}
+                    className="h-4 w-4 shrink-0 accent-editor-accentSoft"
+                    onChange={(event) => setFormState((current) => ({ ...current, isEnding: event.target.checked }))}
+                    type="checkbox"
+                  />
+                  <span className="min-w-0 truncate">엔딩 컷으로 지정</span>
+                </label>
+              ) : null}
             </div>
-          </div>
-
-          <p className="rounded-2xl border border-editor-border bg-black/10 px-4 py-3 text-xs leading-6 text-zinc-400">
-            Start Effect는 이 컷이 나타날 때, End Effect는 다음 컷으로 넘어가며 이 컷이 사라질 때 적용됩니다. 각 Duration은 해당 효과의 지속 시간입니다.
-          </p>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="flex items-center gap-3 rounded-2xl border border-editor-border bg-black/10 px-4 py-3 text-sm text-zinc-300">
-              <input
-                checked={formState.isStart}
-                className="h-4 w-4 accent-editor-accentSoft"
-                onChange={(event) => setFormState((current) => ({ ...current, isStart: event.target.checked }))}
-                type="checkbox"
-              />
-              Mark as start cut
-            </label>
-
-            <label className="flex items-center gap-3 rounded-2xl border border-editor-border bg-black/10 px-4 py-3 text-sm text-zinc-300">
-              <input
-                checked={formState.isEnding}
-                className="h-4 w-4 accent-editor-accentSoft"
-                onChange={(event) => setFormState((current) => ({ ...current, isEnding: event.target.checked }))}
-                type="checkbox"
-              />
-              Mark as ending cut
-            </label>
           </div>
         </div>
       </section>
-      {dialoguePositionPortalTarget ? createPortal(dialoguePositionEditor, dialoguePositionPortalTarget) : null}
+      {!isStateRouter && !isResultCard && contentBlocksPortalEnabled && contentBlocksPortalTarget ? createPortal(contentBlocksEditor, contentBlocksPortalTarget) : null}
+      {!isStateRouter && !isResultCard && dialoguePositionPortalTarget ? createPortal(dialoguePositionEditor, dialoguePositionPortalTarget) : null}
     </>
   );
 }

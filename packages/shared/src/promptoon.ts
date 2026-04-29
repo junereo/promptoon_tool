@@ -1,4 +1,4 @@
-export type PromptoonCutKind = 'scene' | 'choice' | 'ending' | 'transition';
+export type PromptoonCutKind = 'scene' | 'choice' | 'ending' | 'transition' | 'stateRouter' | 'resultCard';
 export type PromptoonCutEffect =
   | 'none'
   | 'fade'
@@ -8,8 +8,8 @@ export type PromptoonCutEffect =
   | 'slide-down'
   | 'zoom-in'
   | 'zoom-out';
-export type PromptoonDialogAnchorX = 'left' | 'right';
-export type PromptoonDialogAnchorY = 'top' | 'bottom';
+export type PromptoonDialogAnchorX = 'left' | 'center' | 'right';
+export type PromptoonDialogAnchorY = 'top' | 'upper' | 'center' | 'lower' | 'bottom';
 export type PromptoonDialogTextAlign = 'left' | 'center' | 'right';
 export type PromptoonContentTextAlign = 'left' | 'center' | 'right';
 export type PromptoonContentViewMode = 'default' | 'inverse';
@@ -18,10 +18,29 @@ export type PromptoonFontSizeToken = 'sm' | 'base' | 'lg' | 'xl' | '2xl' | '3xl'
 export type PromptoonLineHeightToken = 'tight' | 'normal' | 'relaxed' | 'loose';
 export type PromptoonSpacingToken = 'none' | 'sm' | 'base' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl' | '6xl' | '7xl' | '8xl' | '9xl' | '10xl';
 export type PromptoonEdgeFade = 'none' | 'top' | 'bottom' | 'both';
-export type PromptoonEdgeFadeIntensity = 'soft' | 'normal' | 'strong';
+export type PromptoonEdgeFadeIntensity =
+  | 'minimal'
+  | 'barely-soft'
+  | 'ultra-soft'
+  | 'very-soft'
+  | 'soft'
+  | 'semi-soft'
+  | 'normal'
+  | 'strong';
+export type PromptoonEdgeFadeColor = 'black' | 'white';
 export type PromptoonContentBindingKey = 'userName';
 export type PromptoonContentPlacement = 'overlay' | 'flow';
-export type PromptoonContentBlockType = 'heading' | 'narration' | 'quote' | 'emphasis' | 'image' | 'nameInput' | 'dialogue';
+export type PromptoonContentBlockType =
+  | 'heading'
+  | 'narration'
+  | 'quote'
+  | 'emphasis'
+  | 'image'
+  | 'nameInput'
+  | 'dialogue'
+  | 'resultCard';
+export type PromptoonResultCardTemplateId = 'the-replace-final';
+export type PromptoonResultCardTheme = 'blue' | 'gold' | 'violet' | 'red';
 
 export type PromptoonProjectStatus = 'draft' | 'published';
 export type PromptoonEpisodeStatus = 'draft' | 'published';
@@ -32,13 +51,14 @@ export const DEFAULT_CUT_EFFECT_DURATION_MS = 320;
 export const MAX_CUT_EFFECT_DURATION_MS = 10000;
 export const DEFAULT_NAME_INPUT_MAX_LENGTH = 20;
 export const DEFAULT_CONTENT_FONT_TOKEN: PromptoonFontToken = 'sans-kr';
-export const DEFAULT_CONTENT_FONT_SIZE: PromptoonFontSizeToken = 'base';
+export const DEFAULT_CONTENT_FONT_SIZE: PromptoonFontSizeToken = 'lg';
 export const DEFAULT_CONTENT_TEXT_ALIGN: PromptoonContentTextAlign = 'left';
 export const DEFAULT_CONTENT_VIEW_MODE: PromptoonContentViewMode = 'default';
 export const DEFAULT_CONTENT_LINE_HEIGHT: PromptoonLineHeightToken = 'normal';
 export const DEFAULT_CONTENT_SPACING: PromptoonSpacingToken = 'none';
 export const DEFAULT_EDGE_FADE: PromptoonEdgeFade = 'none';
 export const DEFAULT_EDGE_FADE_INTENSITY: PromptoonEdgeFadeIntensity = 'normal';
+export const DEFAULT_EDGE_FADE_COLOR: PromptoonEdgeFadeColor = 'black';
 
 interface PromptoonTextContentBlockBase {
   id: string;
@@ -91,6 +111,21 @@ export interface PromptoonNameInputContentBlock {
   bindingKey: PromptoonContentBindingKey;
 }
 
+export interface PromptoonResultCardContentBlock {
+  id: string;
+  type: 'resultCard';
+  templateId: PromptoonResultCardTemplateId;
+  theme: PromptoonResultCardTheme;
+  badge: string;
+  resultName: string;
+  tagline: string;
+  lines: string[];
+  inflowLabel: string;
+  inflowUrl: string;
+  inflowBrand: string;
+  inflowTagline: string;
+}
+
 export type CutContentBlock =
   | PromptoonHeadingContentBlock
   | PromptoonNarrationContentBlock
@@ -98,7 +133,8 @@ export type CutContentBlock =
   | PromptoonEmphasisContentBlock
   | PromptoonDialogueContentBlock
   | PromptoonImageContentBlock
-  | PromptoonNameInputContentBlock;
+  | PromptoonNameInputContentBlock
+  | PromptoonResultCardContentBlock;
 
 export interface Project {
   id: string;
@@ -120,10 +156,74 @@ export interface Episode {
   projectId: string;
   title: string;
   episodeNo: number;
+  coverImageUrl: string | null;
   startCutId: string | null;
   status: PromptoonEpisodeStatus;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ChoiceStateWrite {
+  key: string;
+  value: string;
+}
+
+export interface CutStateVariant {
+  id: string;
+  stateKey: string;
+  equals: string;
+  variantCutId: string;
+  label?: string;
+}
+
+export const MAX_CUT_STATE_ROUTE_CONDITIONS = 2;
+
+export interface CutStateCondition {
+  stateKey: string;
+  equals: string;
+}
+
+export interface CutStateRoute {
+  id: string;
+  stateKey?: string;
+  equals?: string;
+  conditions?: CutStateCondition[];
+  nextCutId: string;
+  label?: string;
+}
+
+export function getCutStateRouteConditions(
+  stateRoute: Pick<CutStateRoute, 'stateKey' | 'equals' | 'conditions'>
+): CutStateCondition[] {
+  const sourceConditions =
+    stateRoute.conditions && stateRoute.conditions.length > 0
+      ? stateRoute.conditions
+      : [
+          {
+            stateKey: stateRoute.stateKey ?? '',
+            equals: stateRoute.equals ?? ''
+          }
+        ];
+
+  return sourceConditions
+    .map((condition) => ({
+      stateKey: condition.stateKey.trim(),
+      equals: condition.equals.trim()
+    }))
+    .filter((condition) => condition.stateKey.length > 0 && condition.equals.length > 0);
+}
+
+export function doesCutStateRouteMatch(
+  stateRoute: Pick<CutStateRoute, 'stateKey' | 'equals' | 'conditions'>,
+  viewerState: Record<string, string>
+): boolean {
+  const conditions = getCutStateRouteConditions(stateRoute);
+  return conditions.length > 0 && conditions.every((condition) => viewerState[condition.stateKey] === condition.equals);
+}
+
+export function getCutStateRouteConditionLabel(stateRoute: Pick<CutStateRoute, 'stateKey' | 'equals' | 'conditions'>): string {
+  const conditions = getCutStateRouteConditions(stateRoute);
+  return conditions.map((condition) => `${condition.stateKey}=${condition.equals}`).join(' + ');
 }
 
 export interface Cut {
@@ -146,7 +246,11 @@ export interface Cut {
   assetUrl: string | null;
   edgeFade?: PromptoonEdgeFade;
   edgeFadeIntensity?: PromptoonEdgeFadeIntensity;
+  edgeFadeColor?: PromptoonEdgeFadeColor;
   marginBottomToken?: PromptoonSpacingToken;
+  stateVariants?: CutStateVariant[];
+  stateRoutes?: CutStateRoute[];
+  stateFallbackCutId?: string | null;
   positionX: number;
   positionY: number;
   orderIndex: number;
@@ -163,8 +267,13 @@ export interface Choice {
   orderIndex: number;
   nextCutId: string | null;
   afterSelectReactionText?: string;
+  stateWrites?: ChoiceStateWrite[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface PromptoonBackupChoice extends Choice {
+  afterSelectDelayMs: number | null;
 }
 
 export type EditorSelection =
@@ -228,8 +337,14 @@ export type ValidationIssueCode =
   | 'multiple_start_cuts'
   | 'missing_ending_cut'
   | 'invalid_choice_target'
+  | 'invalid_state_variant_target'
+  | 'invalid_state_router_target'
+  | 'invalid_state_router_condition'
+  | 'missing_state_router_route'
+  | 'missing_state_router_fallback'
   | 'unreachable_cut'
-  | 'dead_path';
+  | 'dead_path'
+  | 'missing_episode_cover';
 
 export interface ValidationIssue {
   code: ValidationIssueCode;
@@ -256,6 +371,12 @@ export interface CreateProjectRequest {
 export interface CreateEpisodeRequest {
   title: string;
   episodeNo: number;
+  coverImageUrl?: string | null;
+}
+
+export interface PatchEpisodeRequest {
+  title?: string;
+  coverImageUrl?: string | null;
 }
 
 export interface CreateCutRequest {
@@ -276,7 +397,11 @@ export interface CreateCutRequest {
   assetUrl?: string | null;
   edgeFade?: PromptoonEdgeFade;
   edgeFadeIntensity?: PromptoonEdgeFadeIntensity;
+  edgeFadeColor?: PromptoonEdgeFadeColor;
   marginBottomToken?: PromptoonSpacingToken;
+  stateVariants?: CutStateVariant[];
+  stateRoutes?: CutStateRoute[];
+  stateFallbackCutId?: string | null;
   orderIndex?: number;
   positionX?: number;
   positionY?: number;
@@ -302,7 +427,11 @@ export interface PatchCutRequest {
   assetUrl?: string | null;
   edgeFade?: PromptoonEdgeFade;
   edgeFadeIntensity?: PromptoonEdgeFadeIntensity;
+  edgeFadeColor?: PromptoonEdgeFadeColor;
   marginBottomToken?: PromptoonSpacingToken;
+  stateVariants?: CutStateVariant[];
+  stateRoutes?: CutStateRoute[];
+  stateFallbackCutId?: string | null;
   orderIndex?: number;
   positionX?: number;
   positionY?: number;
@@ -310,11 +439,16 @@ export interface PatchCutRequest {
   isEnding?: boolean;
 }
 
+export interface DeleteCutRequest {
+  reconnectToCutId?: string | null;
+}
+
 export interface CreateChoiceRequest {
   label: string;
   orderIndex?: number;
   nextCutId?: string | null;
   afterSelectReactionText?: string;
+  stateWrites?: ChoiceStateWrite[];
 }
 
 export interface PatchChoiceRequest {
@@ -322,6 +456,7 @@ export interface PatchChoiceRequest {
   orderIndex?: number;
   nextCutId?: string | null;
   afterSelectReactionText?: string;
+  stateWrites?: ChoiceStateWrite[];
 }
 
 export interface ReorderEpisodeCutsRequest {
@@ -332,6 +467,18 @@ export interface ReorderEpisodeCutsRequest {
 }
 
 export interface ReorderEpisodeCutsResponse {
+  cuts: Cut[];
+}
+
+export interface PatchEpisodeCutLayoutRequest {
+  cuts: Array<{
+    cutId: string;
+    positionX: number;
+    positionY: number;
+  }>;
+}
+
+export interface PatchEpisodeCutLayoutResponse {
   cuts: Cut[];
 }
 
@@ -361,9 +508,64 @@ export interface AnalyticsEndingStat {
   percentage: number;
 }
 
-export interface AnalyticsDailyView {
-  date: string;
+export type AnalyticsViewGranularity = 'daily' | 'weekly' | 'monthly';
+
+export interface AnalyticsViewPoint {
+  periodStart: string;
   views: number;
+  uniqueViewers: number;
+}
+
+export interface AnalyticsViewRange {
+  from?: string;
+  to?: string;
+}
+
+export type AnalyticsResetScope = 'all' | 'views' | 'choiceStats' | 'endingDistribution' | 'cutEngagement' | 'feedEntry';
+
+export interface ResetEpisodeAnalyticsRequest {
+  scope: AnalyticsResetScope;
+}
+
+export interface PromptoonBackupViewerEvent {
+  id: string;
+  publishId: string;
+  episodeId: string;
+  anonymousId: string;
+  sessionId: string | null;
+  eventType: TelemetryEventType;
+  cutId: string;
+  choiceId?: string;
+  durationMs?: number;
+  createdAt: string;
+}
+
+export interface PromptoonBackupEpisode {
+  episode: Episode;
+  cuts: Cut[];
+  choices: PromptoonBackupChoice[];
+  publishes: Publish[];
+  viewerEvents: PromptoonBackupViewerEvent[];
+}
+
+export interface PromptoonBackupProject {
+  project: Project;
+  episodes: PromptoonBackupEpisode[];
+}
+
+export interface PromptoonBackupExport {
+  schemaVersion: 1;
+  exportedAt: string;
+  ownerId: string;
+  projects: PromptoonBackupProject[];
+  totals: {
+    projects: number;
+    episodes: number;
+    cuts: number;
+    choices: number;
+    publishes: number;
+    viewerEvents: number;
+  };
 }
 
 export interface AnalyticsFeedEntry {
@@ -381,16 +583,17 @@ export interface AnalyticsEpisodeResponse {
   cutEngagement: AnalyticsCutEngagement[];
   choiceStats: Record<string, AnalyticsChoiceStat[]>;
   endingDistribution: AnalyticsEndingStat[];
-  dailyViews: AnalyticsDailyView[];
+  viewGranularity: AnalyticsViewGranularity;
+  viewsByPeriod: AnalyticsViewPoint[];
   feedEntry: AnalyticsFeedEntry;
 }
 
 export interface FeedItem {
   publishId: string;
   episodeId: string;
-  projectId: string;
   episodeTitle: string;
   projectTitle: string;
+  coverImageUrl: string | null;
   publishedAt: string;
   startCut: Pick<
     PublishManifest['cuts'][number],
@@ -411,6 +614,7 @@ export interface FeedItem {
     | 'endEffectDurationMs'
     | 'edgeFade'
     | 'edgeFadeIntensity'
+    | 'edgeFadeColor'
     | 'marginBottomToken'
   >;
   startChoices: PublishManifest['cuts'][number]['choices'];
@@ -423,7 +627,7 @@ export interface FeedResponse {
 
 export interface PublishManifest {
   project: Pick<Project, 'id' | 'title' | 'description' | 'thumbnailUrl' | 'status'>;
-  episode: Pick<Episode, 'id' | 'title' | 'episodeNo' | 'status' | 'startCutId'>;
+  episode: Pick<Episode, 'id' | 'title' | 'episodeNo' | 'coverImageUrl' | 'status' | 'startCutId'>;
   cuts: Array<{
     id: string;
     kind: PromptoonCutKind;
@@ -443,7 +647,11 @@ export interface PublishManifest {
     assetUrl: string | null;
     edgeFade?: PromptoonEdgeFade;
     edgeFadeIntensity?: PromptoonEdgeFadeIntensity;
+    edgeFadeColor?: PromptoonEdgeFadeColor;
     marginBottomToken?: PromptoonSpacingToken;
+    stateVariants?: CutStateVariant[];
+    stateRoutes?: CutStateRoute[];
+    stateFallbackCutId?: string | null;
     positionX: number;
     positionY: number;
     orderIndex: number;
@@ -455,6 +663,7 @@ export interface PublishManifest {
       orderIndex: number;
       nextCutId: string | null;
       afterSelectReactionText?: string;
+      stateWrites?: ChoiceStateWrite[];
     }>;
   }>;
 }
@@ -498,6 +707,8 @@ export function deriveCutBody(contentBlocks: CutContentBlock[], fallback = ''): 
         case 'image':
         case 'nameInput':
           return [];
+        case 'resultCard':
+          return [block.resultName.trim(), block.tagline.trim(), ...block.lines.map((line) => line.trim())];
         default:
           return [];
       }

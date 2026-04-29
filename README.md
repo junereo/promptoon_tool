@@ -49,7 +49,7 @@ pnpm run db:up
 호스트에서 `5432`가 이미 사용 중이면 포트를 바꿔 실행합니다.
 
 ```bash
-POSTGRES_PORT=5435 docker compose up -d postgres
+POSTGRES_PORT=5436 docker compose up -d postgres
 ```
 
 종료:

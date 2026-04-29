@@ -1,9 +1,15 @@
 import type { PublishManifest } from '@promptoon/shared';
 import { DEFAULT_CUT_EFFECT_DURATION_MS } from '@promptoon/shared';
-import { act, cleanup, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { saveResultCardAsWebp } from '../src/shared/lib/result-card-export';
+import { CutContentBlocksView } from '../src/widgets/content-blocks/CutContentBlocksView';
 import { ViewerCutCard } from '../src/widgets/public-viewer/ViewerCutCard';
+
+vi.mock('../src/shared/lib/result-card-export', () => ({
+  saveResultCardAsWebp: vi.fn().mockResolvedValue(undefined)
+}));
 
 type TriggerableIntersectionObserverGlobal = typeof globalThis & {
   __triggerIntersection?: (element: Element, ratio?: number) => void;
@@ -11,6 +17,8 @@ type TriggerableIntersectionObserverGlobal = typeof globalThis & {
 
 afterEach(() => {
   cleanup();
+  vi.clearAllMocks();
+  vi.restoreAllMocks();
   vi.useRealTimers();
 });
 
@@ -42,8 +50,71 @@ function buildViewerCut(overrides?: Partial<PublishManifest['cuts'][number]>): P
   };
 }
 
+function mockElementRects(rectsByTestId: Record<string, { bottom: number; height: number; top: number; width: number }>) {
+  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function getMockRect() {
+    if (this instanceof HTMLElement) {
+      const rect = rectsByTestId[this.dataset.testid ?? ''];
+
+      if (rect) {
+        return {
+          bottom: rect.bottom,
+          height: rect.height,
+          left: 20,
+          right: 20 + rect.width,
+          top: rect.top,
+          width: rect.width,
+          x: 20,
+          y: rect.top,
+          toJSON: () => ({})
+        };
+      }
+    }
+
+    return {
+      bottom: 0,
+      height: 0,
+      left: 0,
+      right: 0,
+      top: 0,
+      width: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => ({})
+    };
+  });
+}
+
 describe('ViewerCutCard', () => {
-  it('splits overlay and flow content by placement', () => {
+  it('splits overlay and flow content by placement', async () => {
+    let isFlowAboveRevealLine = false;
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function getMockRect() {
+      if (this instanceof HTMLElement && this.dataset.testid === 'content-block-reveal-cut-1:flow:flow-1') {
+        return {
+          bottom: isFlowAboveRevealLine ? 180 : 780,
+          height: 80,
+          left: 20,
+          right: 260,
+          top: isFlowAboveRevealLine ? 100 : 700,
+          width: 240,
+          x: 20,
+          y: isFlowAboveRevealLine ? 100 : 700,
+          toJSON: () => ({})
+        };
+      }
+
+      return {
+        bottom: 0,
+        height: 0,
+        left: 0,
+        right: 0,
+        top: 0,
+        width: 0,
+        x: 0,
+        y: 0,
+        toJSON: () => ({})
+      };
+    });
+
     const cut = buildViewerCut({
       contentBlocks: [
         {
@@ -79,13 +150,25 @@ describe('ViewerCutCard', () => {
       />
     );
 
-    expect(screen.getByLabelText('Overlay line').className).toContain('text-3xl');
-    expect(screen.getByText('Hero')).toBeTruthy();
+    const overlayFrame = screen.getByTestId('viewer-content-frame-cut-1:overlay');
+    expect(overlayFrame.className).toContain('px-2 py-1.5');
+    expect(overlayFrame.className).not.toContain('px-5 py-4');
+    expect(screen.getByLabelText('Overlay line').className).toContain('text-[clamp(1.4375rem');
+    expect(screen.getByText('Hero').className).toContain('text-[14.667px]');
     const flowLine = within(screen.getByTestId('viewer-flow-content')).getByText('Flow line');
-    expect(flowLine.className).toContain('text-sm');
+    const flowReveal = screen.getByTestId('content-block-reveal-cut-1:flow:flow-1');
+    expect(flowLine.className).toContain('text-[clamp(0.75rem');
     expect(flowLine.className).toContain('leading-loose');
-    expect(flowLine.className).toContain('mt-4');
-    expect(flowLine.className).toContain('mb-8');
+    expect(flowReveal.className).toContain('mt-4');
+    expect(flowReveal.className).toContain('mb-8');
+    expect(flowReveal.getAttribute('data-content-revealed')).toBe('false');
+
+    await act(async () => {
+      isFlowAboveRevealLine = true;
+      (globalThis as TriggerableIntersectionObserverGlobal).__triggerIntersection?.(flowReveal, 1);
+    });
+
+    expect(flowReveal.getAttribute('data-content-revealed')).toBe('true');
   });
 
   it('does not render an empty flow wrapper for all-overlay cuts', () => {
@@ -115,11 +198,281 @@ describe('ViewerCutCard', () => {
     expect(screen.queryByTestId('viewer-flow-content')).toBeNull();
   });
 
+  it('applies dialog text align to overlay content without changing flow block align', () => {
+    const cut = buildViewerCut({
+      dialogTextAlign: 'right',
+      contentBlocks: [
+        {
+          id: 'overlay-1',
+          type: 'narration',
+          text: 'Aligned overlay',
+          textAlign: 'left',
+          fontToken: 'sans-kr',
+          placement: 'overlay'
+        },
+        {
+          id: 'flow-1',
+          type: 'narration',
+          text: 'Aligned flow',
+          textAlign: 'center',
+          fontToken: 'sans-kr',
+          placement: 'flow'
+        }
+      ]
+    });
+
+    render(
+      <ViewerCutCard
+        cut={cut}
+        showChoices={false}
+        showEndingActions={false}
+        visibleChoices={[]}
+      />
+    );
+
+    expect(screen.getByText('Aligned overlay').getAttribute('style')).toContain('text-align: right');
+    expect(screen.getByText('Aligned flow').getAttribute('style')).toContain('text-align: center');
+  });
+
+  it('places overlay dialogue at intermediate vertical anchors with signed offsets', () => {
+    const cut = buildViewerCut({
+      dialogAnchorX: 'center',
+      dialogAnchorY: 'center',
+      dialogOffsetY: 12,
+      contentBlocks: [
+        {
+          id: 'overlay-1',
+          type: 'narration',
+          text: 'Centered overlay',
+          textAlign: 'left',
+          fontToken: 'sans-kr',
+          placement: 'overlay'
+        }
+      ]
+    });
+
+    const { container } = render(
+      <ViewerCutCard
+        cut={cut}
+        showChoices={false}
+        showEndingActions={false}
+        visibleChoices={[]}
+      />
+    );
+
+    expect(screen.getByText('Centered overlay')).toBeTruthy();
+    const positionedPanel = container.querySelector<HTMLElement>('[style*="top: 50%"]');
+    expect(positionedPanel?.getAttribute('style')).toContain('translateY(calc(-50% - 12px))');
+  });
+
+  it('supports signed horizontal and vertical dialogue offsets', () => {
+    const cut = buildViewerCut({
+      dialogAnchorX: 'center',
+      dialogAnchorY: 'center',
+      dialogOffsetX: 18,
+      dialogOffsetY: -24,
+      contentBlocks: [
+        {
+          id: 'overlay-1',
+          type: 'narration',
+          text: 'Centered horizontal overlay',
+          textAlign: 'left',
+          fontToken: 'sans-kr',
+          placement: 'overlay'
+        }
+      ]
+    });
+
+    const { container } = render(
+      <ViewerCutCard
+        cut={cut}
+        showChoices={false}
+        showEndingActions={false}
+        visibleChoices={[]}
+      />
+    );
+
+    const placementRoot = container.querySelector<HTMLElement>('.justify-center');
+    const positionedPanel = container.querySelector<HTMLElement>('[style*="top: 50%"]');
+    const positionedPanelStyle = positionedPanel?.getAttribute('style') ?? '';
+
+    expect(placementRoot).toBeTruthy();
+    expect(positionedPanelStyle).toContain('translateX(18px)');
+    expect(positionedPanelStyle).toContain('translateY(calc(-50% + 24px))');
+    expect(positionedPanelStyle).not.toContain('margin-left');
+    expect(positionedPanelStyle).not.toContain('margin-right');
+  });
+
+  it('reveals upper overlay text when it is already above the trigger line', async () => {
+    mockElementRects({
+      'content-block-reveal-cut-1:overlay:upper-overlay': {
+        bottom: 180,
+        height: 80,
+        top: 100,
+        width: 240
+      }
+    });
+
+    const cut = buildViewerCut({
+      dialogAnchorY: 'upper',
+      contentBlocks: [
+        {
+          id: 'upper-overlay',
+          type: 'narration',
+          text: 'Upper narration',
+          textAlign: 'left',
+          fontToken: 'sans-kr',
+          placement: 'overlay'
+        }
+      ]
+    });
+
+    render(
+      <ViewerCutCard
+        cut={cut}
+        showChoices={false}
+        showEndingActions={false}
+        visibleChoices={[]}
+      />
+    );
+
+    const revealRoot = screen.getByTestId('content-block-reveal-cut-1:overlay:upper-overlay');
+
+    await waitFor(() => {
+      expect(revealRoot.getAttribute('data-content-revealed')).toBe('true');
+    });
+  });
+
+  it('does not reveal text from an observer event while the block box is below the lower fifth trigger line', async () => {
+    mockElementRects({
+      'content-block-reveal-cut-1:flow:delayed-flow': {
+        bottom: 800,
+        height: 80,
+        top: 720,
+        width: 240
+      }
+    });
+
+    const cut = buildViewerCut({
+      contentBlocks: [
+        {
+          id: 'delayed-flow',
+          type: 'narration',
+          text: 'Wait for the block box',
+          textAlign: 'left',
+          fontToken: 'sans-kr',
+          placement: 'flow'
+        }
+      ]
+    });
+
+    render(
+      <ViewerCutCard
+        cut={cut}
+        showChoices={false}
+        showEndingActions={false}
+        visibleChoices={[]}
+      />
+    );
+
+    const revealRoot = screen.getByTestId('content-block-reveal-cut-1:flow:delayed-flow');
+
+    await act(async () => {
+      (globalThis as TriggerableIntersectionObserverGlobal).__triggerIntersection?.(revealRoot, 1);
+    });
+
+    expect(revealRoot.getAttribute('data-content-revealed')).toBe('false');
+  });
+
+  it('reveals delayed text from the viewer scroll container when the block box reaches the lower fifth trigger line', async () => {
+    let isBlockAboveRevealLine = false;
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function getMockRect() {
+      if (this instanceof HTMLElement && this.dataset.testid === 'viewer-scroll-root') {
+        return {
+          bottom: 500,
+          height: 500,
+          left: 0,
+          right: 320,
+          top: 0,
+          width: 320,
+          x: 0,
+          y: 0,
+          toJSON: () => ({})
+        };
+      }
+
+      if (this instanceof HTMLElement && this.dataset.testid === 'content-block-reveal-scroll-cut:flow:scroll-flow') {
+        return {
+          bottom: isBlockAboveRevealLine ? 390 : 530,
+          height: 80,
+          left: 20,
+          right: 260,
+          top: isBlockAboveRevealLine ? 310 : 450,
+          width: 240,
+          x: 20,
+          y: isBlockAboveRevealLine ? 310 : 450,
+          toJSON: () => ({})
+        };
+      }
+
+      return {
+        bottom: 0,
+        height: 0,
+        left: 0,
+        right: 0,
+        top: 0,
+        width: 0,
+        x: 0,
+        y: 0,
+        toJSON: () => ({})
+      };
+    });
+
+    const cut = buildViewerCut({
+      id: 'scroll-cut',
+      contentBlocks: [
+        {
+          id: 'scroll-flow',
+          type: 'narration',
+          text: 'Scroll container reveals me',
+          textAlign: 'left',
+          fontToken: 'sans-kr',
+          placement: 'flow'
+        }
+      ]
+    });
+
+    render(
+      <div data-testid="viewer-scroll-root" style={{ height: '500px', overflowY: 'auto' }}>
+        <CutContentBlocksView bindings={{ userName: '' }} cut={cut} placement="flow" />
+      </div>
+    );
+
+    const scrollRoot = screen.getByTestId('viewer-scroll-root');
+    const revealRoot = screen.getByTestId('content-block-reveal-scroll-cut:flow:scroll-flow');
+
+    await act(async () => {
+      (globalThis as TriggerableIntersectionObserverGlobal).__triggerIntersection?.(revealRoot, 1);
+    });
+
+    expect(revealRoot.getAttribute('data-content-revealed')).toBe('false');
+
+    await act(async () => {
+      isBlockAboveRevealLine = true;
+      scrollRoot.dispatchEvent(new Event('scroll'));
+    });
+
+    await waitFor(() => {
+      expect(revealRoot.getAttribute('data-content-revealed')).toBe('true');
+    });
+  });
+
   it('applies edge fade mask and cut bottom spacing to image cuts', () => {
     const cut = buildViewerCut({
       assetUrl: '/scene.jpg',
       edgeFade: 'both',
-      edgeFadeIntensity: 'strong',
+      edgeFadeIntensity: 'minimal',
+      edgeFadeColor: 'white',
       marginBottomToken: 'lg'
     });
 
@@ -137,9 +490,10 @@ describe('ViewerCutCard', () => {
 
     expect(article?.className).toContain('mb-16');
     expect(image.getAttribute('style')).toContain('mask-image');
-    expect(image.getAttribute('style')).toContain('black 72%');
+    expect(image.getAttribute('style')).toContain('black 99.5%');
     expect(container.querySelector('.bg-gradient-to-t')).toBeTruthy();
     expect(container.querySelector('.bg-gradient-to-b')).toBeTruthy();
+    expect(container.querySelector('.from-white')).toBeTruthy();
   });
 
   it('centers flow text within cut bottom spacing height', () => {
@@ -180,6 +534,34 @@ describe('ViewerCutCard', () => {
 
   it('types dialogue text once and keeps it visible on repeat renders', async () => {
     vi.useFakeTimers();
+    let isDialogueAboveRevealLine = false;
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function getMockRect() {
+      if (this instanceof HTMLElement && this.dataset.testid === 'content-block-reveal-typewriter-cut:overlay:typewriter-dialogue') {
+        return {
+          bottom: isDialogueAboveRevealLine ? 180 : 780,
+          height: 80,
+          left: 20,
+          right: 260,
+          top: isDialogueAboveRevealLine ? 100 : 700,
+          width: 240,
+          x: 20,
+          y: isDialogueAboveRevealLine ? 100 : 700,
+          toJSON: () => ({})
+        };
+      }
+
+      return {
+        bottom: 0,
+        height: 0,
+        left: 0,
+        right: 0,
+        top: 0,
+        width: 0,
+        x: 0,
+        y: 0,
+        toJSON: () => ({})
+      };
+    });
 
     const cut = buildViewerCut({
       id: 'typewriter-cut',
@@ -204,7 +586,7 @@ describe('ViewerCutCard', () => {
         visibleChoices={[]}
       />
     );
-    const typewriterRoot = screen.getByTestId('dialogue-typewriter-typewriter-cut:overlay:typewriter-dialogue:Prompt-like line');
+    const revealRoot = screen.getByTestId('content-block-reveal-typewriter-cut:overlay:typewriter-dialogue');
     const typewriter = screen.getByTestId('dialogue-typewriter-visible-typewriter-cut:overlay:typewriter-dialogue:Prompt-like line');
 
     expect(typewriter.textContent).not.toBe('Prompt-like line');
@@ -214,10 +596,14 @@ describe('ViewerCutCard', () => {
     });
 
     expect(screen.getByTestId('dialogue-typewriter-visible-typewriter-cut:overlay:typewriter-dialogue:Prompt-like line').textContent).toBe('');
+    expect(revealRoot.getAttribute('data-content-revealed')).toBe('false');
 
     await act(async () => {
-      (globalThis as TriggerableIntersectionObserverGlobal).__triggerIntersection?.(typewriterRoot, 1);
+      isDialogueAboveRevealLine = true;
+      (globalThis as TriggerableIntersectionObserverGlobal).__triggerIntersection?.(revealRoot, 1);
     });
+
+    expect(revealRoot.getAttribute('data-content-revealed')).toBe('true');
 
     for (let index = 0; index < 'Prompt-like line'.length + 1; index += 1) {
       await act(async () => {
@@ -238,5 +624,62 @@ describe('ViewerCutCard', () => {
     );
 
     expect(screen.getByTestId('dialogue-typewriter-visible-typewriter-cut:overlay:typewriter-dialogue:Prompt-like line').textContent).toContain('Prompt-like line');
+  });
+
+  it('saves result card cuts as WebP without calling share', async () => {
+    const onShare = vi.fn();
+    const cut = buildViewerCut({
+      kind: 'resultCard',
+      title: 'THE REPLACE',
+      isEnding: true,
+      assetUrl: '/uploads/result-poster.webp',
+      contentBlocks: [
+        {
+          id: 'result-card-1',
+          type: 'resultCard',
+          templateId: 'the-replace-final',
+          theme: 'red',
+          badge: 'TYPE 04',
+          resultName: '본능의 선택자',
+          tagline: '생존은 가장 빠른 대답이었다',
+          lines: ['당신은 오래 생각하지 않았다.', '몸이 먼저 방향을 정했다.'],
+          inflowLabel: 'CHECK IN',
+          inflowUrl: 'promtoon.ai',
+          inflowBrand: 'PROMTOON',
+          inflowTagline: '반응형 웹툰'
+        }
+      ]
+    });
+
+    render(
+      <ViewerCutCard
+        cut={cut}
+        onReset={vi.fn()}
+        onShare={onShare}
+        showChoices={false}
+        showEndingActions
+        visibleChoices={[]}
+      />
+    );
+
+    expect(screen.getByTestId('result-card')).toBeTruthy();
+    expect(screen.getByText('본능의 선택자')).toBeTruthy();
+    expect(screen.getByText('이미지 저장하기')).toBeTruthy();
+    expect(screen.queryByText('결과 공유하기')).toBeNull();
+    expect(screen.queryByRole('link', { name: '공유하기' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '이미지 저장하기' }));
+
+    await waitFor(() => {
+      expect(saveResultCardAsWebp).toHaveBeenCalledWith({
+        assetUrl: '/uploads/result-poster.webp',
+        block: expect.objectContaining({
+          resultName: '본능의 선택자',
+          type: 'resultCard'
+        })
+      });
+    });
+    expect(screen.getByRole('link', { name: '공유하기' }).getAttribute('href')).toBe('https://www.instagram.com/promptoon_ai/');
+    expect(onShare).not.toHaveBeenCalled();
   });
 });

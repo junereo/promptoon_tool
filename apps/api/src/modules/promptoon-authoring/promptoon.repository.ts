@@ -1,21 +1,36 @@
 import type {
   AnalyticsChoiceStat,
   AnalyticsCutEngagement,
-  AnalyticsDailyView,
   AnalyticsEndingStat,
+  AnalyticsResetScope,
+  AnalyticsViewGranularity,
+  AnalyticsViewPoint,
   Choice,
+  ChoiceStateWrite,
   Cut,
   CutContentBlock,
+  CutStateRoute,
+  CutStateVariant,
   Episode,
   EpisodeDraftResponse,
   Project,
   ProjectWithEpisodes,
   Publish,
   PublishManifest,
+  PatchEpisodeCutLayoutRequest,
+  PromptoonBackupChoice,
+  PromptoonBackupProject,
+  PromptoonBackupViewerEvent,
   ReorderEpisodeCutsRequest,
   TelemetryEventType
 } from '@promptoon/shared';
-import { DEFAULT_CONTENT_SPACING, DEFAULT_CUT_EFFECT_DURATION_MS, DEFAULT_EDGE_FADE, DEFAULT_EDGE_FADE_INTENSITY } from '@promptoon/shared';
+import {
+  DEFAULT_CONTENT_SPACING,
+  DEFAULT_CUT_EFFECT_DURATION_MS,
+  DEFAULT_EDGE_FADE,
+  DEFAULT_EDGE_FADE_COLOR,
+  DEFAULT_EDGE_FADE_INTENSITY
+} from '@promptoon/shared';
 import { randomUUID } from 'node:crypto';
 
 import type { DbExecutor } from '../../db';
@@ -40,6 +55,7 @@ interface EpisodeRow {
   project_id: string;
   title: string;
   episode_no: number;
+  cover_image_url: string | null;
   start_cut_id: string | null;
   status: 'draft' | 'published';
   created_at: Date;
@@ -49,13 +65,16 @@ interface EpisodeRow {
 interface CutRow {
   id: string;
   episode_id: string;
-  kind: 'scene' | 'choice' | 'ending' | 'transition';
+  kind: Cut['kind'];
   title: string;
   body: string;
   content_blocks: CutContentBlock[] | null;
   content_view_mode: Cut['contentViewMode'] | null;
-  dialog_anchor_x: 'left' | 'right';
-  dialog_anchor_y: 'top' | 'bottom';
+  state_variants: CutStateVariant[] | null;
+  state_routes: CutStateRoute[] | null;
+  state_fallback_cut_id: string | null;
+  dialog_anchor_x: Cut['dialogAnchorX'];
+  dialog_anchor_y: Cut['dialogAnchorY'];
   dialog_offset_x: number;
   dialog_offset_y: number;
   dialog_text_align: 'left' | 'center' | 'right';
@@ -66,6 +85,7 @@ interface CutRow {
   asset_url: string | null;
   edge_fade: Cut['edgeFade'] | null;
   edge_fade_intensity: Cut['edgeFadeIntensity'] | null;
+  edge_fade_color: Cut['edgeFadeColor'] | null;
   margin_bottom_token: Cut['marginBottomToken'] | null;
   position_x: number;
   position_y: number;
@@ -84,6 +104,7 @@ interface ChoiceRow {
   next_cut_id: string | null;
   after_select_reaction_text: string | null;
   after_select_delay_ms: number | null;
+  state_writes: ChoiceStateWrite[] | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -103,13 +124,31 @@ interface ViewerEventInsertRow {
   id: string;
 }
 
+interface ViewerEventRow {
+  id: string;
+  publish_id: string;
+  episode_id: string;
+  anonymous_id: string;
+  session_id: string | null;
+  event_type: TelemetryEventType;
+  cut_id: string;
+  choice_id: string | null;
+  duration_ms: number | null;
+  created_at: Date;
+}
+
 interface ViewerEventCountRow {
   count: string;
 }
 
-interface DailyViewsRow {
-  date: string;
+interface ChoiceBackupRow extends ChoiceRow {
+  episode_id: string;
+}
+
+interface ViewsByPeriodRow {
+  period_start: string;
   views: string;
+  unique_viewers: string;
 }
 
 interface ChoiceStatRow {
@@ -159,6 +198,7 @@ function mapEpisode(row: EpisodeRow): Episode {
     projectId: row.project_id,
     title: row.title,
     episodeNo: row.episode_no,
+    coverImageUrl: row.cover_image_url,
     startCutId: row.start_cut_id,
     status: row.status,
     createdAt: toIsoString(row.created_at),
@@ -187,7 +227,11 @@ function mapCut(row: CutRow): Cut {
     assetUrl: row.asset_url,
     edgeFade: row.edge_fade ?? DEFAULT_EDGE_FADE,
     edgeFadeIntensity: row.edge_fade_intensity ?? DEFAULT_EDGE_FADE_INTENSITY,
+    edgeFadeColor: row.edge_fade_color ?? DEFAULT_EDGE_FADE_COLOR,
     marginBottomToken: row.margin_bottom_token ?? DEFAULT_CONTENT_SPACING,
+    stateVariants: Array.isArray(row.state_variants) ? row.state_variants : [],
+    stateRoutes: Array.isArray(row.state_routes) ? row.state_routes : [],
+    stateFallbackCutId: row.state_fallback_cut_id,
     positionX: row.position_x,
     positionY: row.position_y,
     orderIndex: row.order_index,
@@ -206,8 +250,16 @@ function mapChoice(row: ChoiceRow): Choice {
     orderIndex: row.order_index,
     nextCutId: row.next_cut_id,
     afterSelectReactionText: row.after_select_reaction_text ?? undefined,
+    stateWrites: Array.isArray(row.state_writes) ? row.state_writes : [],
     createdAt: toIsoString(row.created_at),
     updatedAt: toIsoString(row.updated_at)
+  };
+}
+
+function mapBackupChoice(row: ChoiceRow): PromptoonBackupChoice {
+  return {
+    ...mapChoice(row),
+    afterSelectDelayMs: row.after_select_delay_ms
   };
 }
 
@@ -220,6 +272,21 @@ function mapPublish(row: PublishRow): Publish {
     status: row.status,
     manifest: row.manifest,
     createdBy: row.created_by,
+    createdAt: toIsoString(row.created_at)
+  };
+}
+
+function mapViewerEvent(row: ViewerEventRow): PromptoonBackupViewerEvent {
+  return {
+    id: row.id,
+    publishId: row.publish_id,
+    episodeId: row.episode_id,
+    anonymousId: row.anonymous_id,
+    sessionId: row.session_id,
+    eventType: row.event_type,
+    cutId: row.cut_id,
+    choiceId: row.choice_id ?? undefined,
+    durationMs: row.duration_ms ?? undefined,
     createdAt: toIsoString(row.created_at)
   };
 }
@@ -254,6 +321,7 @@ export async function listProjectsWithEpisodes(db: DbExecutor, ownerId?: string)
              'projectId', episode.project_id,
              'title', episode.title,
              'episodeNo', episode.episode_no,
+             'coverImageUrl', episode.cover_image_url,
              'startCutId', episode.start_cut_id,
              'status', episode.status,
              'createdAt', episode.created_at,
@@ -277,6 +345,96 @@ export async function listProjectsWithEpisodes(db: DbExecutor, ownerId?: string)
     ...mapProject(row),
     episodes: row.episodes
   }));
+}
+
+function groupByKey<T>(items: T[], getKey: (item: T) => string): Map<string, T[]> {
+  const grouped = new Map<string, T[]>();
+
+  for (const item of items) {
+    const key = getKey(item);
+    const list = grouped.get(key) ?? [];
+    list.push(item);
+    grouped.set(key, list);
+  }
+
+  return grouped;
+}
+
+export async function getUserBackupProjects(db: DbExecutor, ownerId: string): Promise<PromptoonBackupProject[]> {
+  const [projectsResult, episodesResult, cutsResult, choicesResult, publishesResult, viewerEventsResult] = await Promise.all([
+    db.query<ProjectRow>('SELECT * FROM promptoon_project WHERE created_by = $1 ORDER BY updated_at DESC, created_at DESC', [ownerId]),
+    db.query<EpisodeRow>(
+      `SELECT episode.*
+       FROM promptoon_episode AS episode
+       INNER JOIN promptoon_project AS project ON project.id = episode.project_id
+       WHERE project.created_by = $1
+       ORDER BY episode.project_id ASC, episode.episode_no ASC, episode.created_at ASC`,
+      [ownerId]
+    ),
+    db.query<CutRow>(
+      `SELECT cut.*
+       FROM promptoon_cut AS cut
+       INNER JOIN promptoon_episode AS episode ON episode.id = cut.episode_id
+       INNER JOIN promptoon_project AS project ON project.id = episode.project_id
+       WHERE project.created_by = $1
+       ORDER BY cut.episode_id ASC, cut.order_index ASC, cut.created_at ASC`,
+      [ownerId]
+    ),
+    db.query<ChoiceBackupRow>(
+      `SELECT choice.*, cut.episode_id
+       FROM promptoon_choice AS choice
+       INNER JOIN promptoon_cut AS cut ON cut.id = choice.cut_id
+       INNER JOIN promptoon_episode AS episode ON episode.id = cut.episode_id
+       INNER JOIN promptoon_project AS project ON project.id = episode.project_id
+       WHERE project.created_by = $1
+       ORDER BY cut.episode_id ASC, choice.cut_id ASC, choice.order_index ASC, choice.created_at ASC`,
+      [ownerId]
+    ),
+    db.query<PublishRow>(
+      `SELECT publish.*
+       FROM promptoon_publish AS publish
+       INNER JOIN promptoon_project AS project ON project.id = publish.project_id
+       WHERE project.created_by = $1
+       ORDER BY publish.project_id ASC, publish.episode_id ASC, publish.version_no ASC, publish.created_at ASC`,
+      [ownerId]
+    ),
+    db.query<ViewerEventRow>(
+      `SELECT event.*
+       FROM promptoon_viewer_event AS event
+       INNER JOIN promptoon_episode AS episode ON episode.id = event.episode_id
+       INNER JOIN promptoon_project AS project ON project.id = episode.project_id
+       WHERE project.created_by = $1
+       ORDER BY event.episode_id ASC, event.created_at ASC, event.id ASC`,
+      [ownerId]
+    )
+  ]);
+  const episodesByProjectId = groupByKey(episodesResult.rows.map(mapEpisode), (episode) => episode.projectId);
+  const cutsByEpisodeId = groupByKey(cutsResult.rows.map(mapCut), (cut) => cut.episodeId);
+  const choicesByEpisodeId = groupByKey(
+    choicesResult.rows.map((row) => ({
+      episodeId: row.episode_id,
+      choice: mapBackupChoice(row)
+    })),
+    (entry) => entry.episodeId
+  );
+  const publishesByEpisodeId = groupByKey(publishesResult.rows.map(mapPublish), (publish) => publish.episodeId);
+  const viewerEventsByEpisodeId = groupByKey(viewerEventsResult.rows.map(mapViewerEvent), (event) => event.episodeId);
+
+  return projectsResult.rows.map((projectRow) => {
+    const project = mapProject(projectRow);
+    const episodes = episodesByProjectId.get(project.id) ?? [];
+
+    return {
+      project,
+      episodes: episodes.map((episode) => ({
+        episode,
+        cuts: cutsByEpisodeId.get(episode.id) ?? [],
+        choices: (choicesByEpisodeId.get(episode.id) ?? []).map((entry) => entry.choice),
+        publishes: publishesByEpisodeId.get(episode.id) ?? [],
+        viewerEvents: viewerEventsByEpisodeId.get(episode.id) ?? []
+      }))
+    };
+  });
 }
 
 export async function createProject(
@@ -305,13 +463,13 @@ export async function getProjectOwnerId(db: DbExecutor, projectId: string): Prom
 
 export async function createEpisode(
   db: DbExecutor,
-  input: { projectId: string; title: string; episodeNo: number }
+  input: { projectId: string; title: string; episodeNo: number; coverImageUrl?: string | null }
 ): Promise<Episode> {
   const result = await db.query<EpisodeRow>(
-    `INSERT INTO promptoon_episode (id, project_id, title, episode_no)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO promptoon_episode (id, project_id, title, episode_no, cover_image_url)
+     VALUES ($1, $2, $3, $4, $5)
      RETURNING *`,
-    [randomUUID(), input.projectId, input.title, input.episodeNo]
+    [randomUUID(), input.projectId, input.title, input.episodeNo, input.coverImageUrl ?? null]
   );
 
   return mapEpisode(result.rows[0]);
@@ -319,6 +477,35 @@ export async function createEpisode(
 
 export async function getEpisodeById(db: DbExecutor, episodeId: string): Promise<Episode | null> {
   const result = await db.query<EpisodeRow>('SELECT * FROM promptoon_episode WHERE id = $1', [episodeId]);
+  return result.rows[0] ? mapEpisode(result.rows[0]) : null;
+}
+
+export async function updateEpisode(
+  db: DbExecutor,
+  episodeId: string,
+  patch: Partial<{
+    title: string;
+    coverImageUrl: string | null;
+  }>
+): Promise<Episode | null> {
+  const existing = await getEpisodeById(db, episodeId);
+  if (!existing) {
+    return null;
+  }
+
+  const nextCoverImageUrl = Object.prototype.hasOwnProperty.call(patch, 'coverImageUrl')
+    ? patch.coverImageUrl ?? null
+    : existing.coverImageUrl;
+  const result = await db.query<EpisodeRow>(
+    `UPDATE promptoon_episode
+     SET title = $1,
+         cover_image_url = $2,
+         updated_at = NOW()
+     WHERE id = $3
+     RETURNING *`,
+    [patch.title ?? existing.title, nextCoverImageUrl, episodeId]
+  );
+
   return result.rows[0] ? mapEpisode(result.rows[0]) : null;
 }
 
@@ -413,6 +600,9 @@ export async function createCut(
     body?: string;
     contentBlocks?: CutContentBlock[];
     contentViewMode?: Cut['contentViewMode'];
+    stateVariants?: CutStateVariant[];
+    stateRoutes?: CutStateRoute[];
+    stateFallbackCutId?: string | null;
     dialogAnchorX?: Cut['dialogAnchorX'];
     dialogAnchorY?: Cut['dialogAnchorY'];
     dialogOffsetX?: number;
@@ -425,6 +615,7 @@ export async function createCut(
     assetUrl?: string | null;
     edgeFade?: Cut['edgeFade'];
     edgeFadeIntensity?: Cut['edgeFadeIntensity'];
+    edgeFadeColor?: Cut['edgeFadeColor'];
     marginBottomToken?: Cut['marginBottomToken'];
     orderIndex?: number;
     positionX?: number;
@@ -443,9 +634,9 @@ export async function createCut(
 
   const result = await db.query<CutRow>(
     `INSERT INTO promptoon_cut (
-      id, episode_id, kind, title, body, content_blocks, content_view_mode, dialog_anchor_x, dialog_anchor_y, dialog_offset_x, dialog_offset_y, dialog_text_align,
-      start_effect, end_effect, start_effect_duration_ms, end_effect_duration_ms, asset_url, edge_fade, edge_fade_intensity, margin_bottom_token, position_x, position_y, order_index, is_start, is_ending
-     ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
+      id, episode_id, kind, title, body, content_blocks, content_view_mode, state_variants, state_routes, state_fallback_cut_id, dialog_anchor_x, dialog_anchor_y, dialog_offset_x, dialog_offset_y, dialog_text_align,
+      start_effect, end_effect, start_effect_duration_ms, end_effect_duration_ms, asset_url, edge_fade, edge_fade_intensity, edge_fade_color, margin_bottom_token, position_x, position_y, order_index, is_start, is_ending
+     ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8::jsonb, $9::jsonb, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
      RETURNING *`,
     [
       randomUUID(),
@@ -455,6 +646,9 @@ export async function createCut(
       input.body ?? '',
       JSON.stringify(input.contentBlocks ?? []),
       input.contentViewMode ?? 'default',
+      JSON.stringify(input.stateVariants ?? []),
+      JSON.stringify(input.stateRoutes ?? []),
+      input.stateFallbackCutId ?? null,
       input.dialogAnchorX ?? 'left',
       input.dialogAnchorY ?? 'bottom',
       input.dialogOffsetX ?? 0,
@@ -467,12 +661,13 @@ export async function createCut(
       input.assetUrl ?? null,
       input.edgeFade ?? DEFAULT_EDGE_FADE,
       input.edgeFadeIntensity ?? DEFAULT_EDGE_FADE_INTENSITY,
+      input.edgeFadeColor ?? DEFAULT_EDGE_FADE_COLOR,
       input.marginBottomToken ?? DEFAULT_CONTENT_SPACING,
       input.positionX ?? defaultPositionX,
       input.positionY ?? defaultPositionY,
       input.orderIndex ?? defaultOrderIndex,
       input.isStart ?? false,
-      input.isEnding ?? input.kind === 'ending'
+      input.isEnding ?? (input.kind === 'ending' || input.kind === 'resultCard')
     ]
   );
 
@@ -497,6 +692,9 @@ export async function updateCut(
     body: string;
     contentBlocks: CutContentBlock[];
     contentViewMode: Cut['contentViewMode'];
+    stateVariants: CutStateVariant[];
+    stateRoutes: CutStateRoute[];
+    stateFallbackCutId: string | null;
     dialogAnchorX: Cut['dialogAnchorX'];
     dialogAnchorY: Cut['dialogAnchorY'];
     dialogOffsetX: number;
@@ -509,6 +707,7 @@ export async function updateCut(
     assetUrl: string | null;
     edgeFade: Cut['edgeFade'];
     edgeFadeIntensity: Cut['edgeFadeIntensity'];
+    edgeFadeColor: Cut['edgeFadeColor'];
     marginBottomToken: Cut['marginBottomToken'];
     orderIndex: number;
     positionX: number;
@@ -523,8 +722,15 @@ export async function updateCut(
   }
 
   const nextAssetUrl = Object.prototype.hasOwnProperty.call(patch, 'assetUrl') ? patch.assetUrl ?? null : existing.assetUrl;
+  const nextStateFallbackCutId = Object.prototype.hasOwnProperty.call(patch, 'stateFallbackCutId')
+    ? patch.stateFallbackCutId ?? null
+    : existing.stateFallbackCutId ?? null;
   const nextIsEnding =
-    patch.isEnding !== undefined ? patch.isEnding : patch.kind === 'ending' ? true : existing.isEnding;
+    patch.isEnding !== undefined
+      ? patch.isEnding
+      : patch.kind === 'ending' || patch.kind === 'resultCard'
+        ? true
+        : existing.isEnding;
   const result = await db.query<CutRow>(
     `UPDATE promptoon_cut
      SET kind = $1,
@@ -532,26 +738,30 @@ export async function updateCut(
          body = $3,
          content_blocks = $4::jsonb,
          content_view_mode = $5,
-         dialog_anchor_x = $6,
-         dialog_anchor_y = $7,
-         dialog_offset_x = $8,
-         dialog_offset_y = $9,
-         dialog_text_align = $10,
-         start_effect = $11,
-         end_effect = $12,
-         start_effect_duration_ms = $13,
-         end_effect_duration_ms = $14,
-         asset_url = $15,
-         edge_fade = $16,
-         edge_fade_intensity = $17,
-         margin_bottom_token = $18,
-         position_x = $19,
-         position_y = $20,
-         order_index = $21,
-         is_start = $22,
-         is_ending = $23,
+         state_variants = $6::jsonb,
+         state_routes = $7::jsonb,
+         state_fallback_cut_id = $8,
+         dialog_anchor_x = $9,
+         dialog_anchor_y = $10,
+         dialog_offset_x = $11,
+         dialog_offset_y = $12,
+         dialog_text_align = $13,
+         start_effect = $14,
+         end_effect = $15,
+         start_effect_duration_ms = $16,
+         end_effect_duration_ms = $17,
+         asset_url = $18,
+         edge_fade = $19,
+         edge_fade_intensity = $20,
+         edge_fade_color = $21,
+         margin_bottom_token = $22,
+         position_x = $23,
+         position_y = $24,
+         order_index = $25,
+         is_start = $26,
+         is_ending = $27,
          updated_at = NOW()
-     WHERE id = $24
+     WHERE id = $28
      RETURNING *`,
     [
       patch.kind ?? existing.kind,
@@ -559,6 +769,9 @@ export async function updateCut(
       patch.body ?? existing.body,
       JSON.stringify(patch.contentBlocks ?? existing.contentBlocks),
       patch.contentViewMode ?? existing.contentViewMode ?? 'default',
+      JSON.stringify(patch.stateVariants ?? existing.stateVariants),
+      JSON.stringify(patch.stateRoutes ?? existing.stateRoutes),
+      nextStateFallbackCutId,
       patch.dialogAnchorX ?? existing.dialogAnchorX,
       patch.dialogAnchorY ?? existing.dialogAnchorY,
       patch.dialogOffsetX ?? existing.dialogOffsetX,
@@ -571,6 +784,7 @@ export async function updateCut(
       nextAssetUrl,
       patch.edgeFade ?? existing.edgeFade ?? DEFAULT_EDGE_FADE,
       patch.edgeFadeIntensity ?? existing.edgeFadeIntensity ?? DEFAULT_EDGE_FADE_INTENSITY,
+      patch.edgeFadeColor ?? existing.edgeFadeColor ?? DEFAULT_EDGE_FADE_COLOR,
       patch.marginBottomToken ?? existing.marginBottomToken ?? DEFAULT_CONTENT_SPACING,
       patch.positionX ?? existing.positionX,
       patch.positionY ?? existing.positionY,
@@ -612,6 +826,57 @@ export async function deleteCut(db: DbExecutor, cutId: string): Promise<boolean>
   return true;
 }
 
+export async function reconnectChoicesTargetingCut(
+  db: DbExecutor,
+  input: {
+    cutId: string;
+    reconnectToCutId: string | null;
+  }
+): Promise<void> {
+  await db.query(
+    `UPDATE promptoon_choice
+     SET next_cut_id = $2,
+         updated_at = NOW()
+     WHERE next_cut_id = $1`,
+    [input.cutId, input.reconnectToCutId]
+  );
+}
+
+export async function removeStateVariantsTargetingCut(db: DbExecutor, input: { episodeId: string; cutId: string }): Promise<void> {
+  await db.query(
+    `UPDATE promptoon_cut
+     SET state_variants = COALESCE(
+           (
+             SELECT jsonb_agg(state_variant.value)
+             FROM jsonb_array_elements(COALESCE(state_variants, '[]'::jsonb)) AS state_variant(value)
+             WHERE state_variant.value->>'variantCutId' <> $1
+           ),
+           '[]'::jsonb
+         ),
+         updated_at = NOW()
+     WHERE episode_id = $2`,
+    [input.cutId, input.episodeId]
+  );
+}
+
+export async function removeStateRoutesTargetingCut(db: DbExecutor, input: { episodeId: string; cutId: string }): Promise<void> {
+  await db.query(
+    `UPDATE promptoon_cut
+     SET state_routes = COALESCE(
+           (
+             SELECT jsonb_agg(state_route.value)
+             FROM jsonb_array_elements(COALESCE(state_routes, '[]'::jsonb)) AS state_route(value)
+             WHERE state_route.value->>'nextCutId' <> $1
+           ),
+           '[]'::jsonb
+         ),
+         state_fallback_cut_id = CASE WHEN state_fallback_cut_id = $1::uuid THEN NULL ELSE state_fallback_cut_id END,
+         updated_at = NOW()
+     WHERE episode_id = $2`,
+    [input.cutId, input.episodeId]
+  );
+}
+
 export async function createChoice(
   db: DbExecutor,
   input: {
@@ -620,6 +885,7 @@ export async function createChoice(
     orderIndex?: number;
     nextCutId?: string | null;
     afterSelectReactionText?: string;
+    stateWrites?: ChoiceStateWrite[];
   }
 ): Promise<Choice> {
   const countResult = await db.query<{ count: string }>('SELECT COUNT(*)::text AS count FROM promptoon_choice WHERE cut_id = $1', [
@@ -627,8 +893,8 @@ export async function createChoice(
   ]);
   const defaultOrderIndex = Number(countResult.rows[0].count);
   const result = await db.query<ChoiceRow>(
-    `INSERT INTO promptoon_choice (id, cut_id, label, order_index, next_cut_id, after_select_reaction_text)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO promptoon_choice (id, cut_id, label, order_index, next_cut_id, after_select_reaction_text, state_writes)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
      RETURNING *`,
     [
       randomUUID(),
@@ -636,7 +902,8 @@ export async function createChoice(
       input.label,
       input.orderIndex ?? defaultOrderIndex,
       input.nextCutId ?? null,
-      input.afterSelectReactionText?.trim() ? input.afterSelectReactionText : null
+      input.afterSelectReactionText?.trim() ? input.afterSelectReactionText : null,
+      JSON.stringify(input.stateWrites ?? [])
     ]
   );
   return mapChoice(result.rows[0]);
@@ -650,6 +917,7 @@ export async function updateChoice(
     orderIndex: number;
     nextCutId: string | null;
     afterSelectReactionText: string;
+    stateWrites: ChoiceStateWrite[];
   }>
 ): Promise<Choice | null> {
   const existing = await getChoiceById(db, choiceId);
@@ -669,10 +937,18 @@ export async function updateChoice(
          order_index = $2,
          next_cut_id = $3,
          after_select_reaction_text = $4,
+         state_writes = $5::jsonb,
          updated_at = NOW()
-     WHERE id = $5
+     WHERE id = $6
      RETURNING *`,
-    [patch.label ?? existing.label, patch.orderIndex ?? existing.orderIndex, nextCutId, nextReactionText, choiceId]
+    [
+      patch.label ?? existing.label,
+      patch.orderIndex ?? existing.orderIndex,
+      nextCutId,
+      nextReactionText,
+      JSON.stringify(patch.stateWrites ?? existing.stateWrites),
+      choiceId
+    ]
   );
 
   return mapChoice(result.rows[0]);
@@ -719,6 +995,39 @@ export async function reorderEpisodeCuts(
   const result = await db.query<CutRow>(
     `UPDATE promptoon_cut
      SET order_index = CASE id ${caseClauses.join(' ')} END,
+         updated_at = NOW()
+     WHERE episode_id = $1
+       AND id = ANY($${idsParamIndex}::uuid[])
+     RETURNING *`,
+    values
+  );
+
+  return result.rows.map(mapCut).sort((left, right) => left.orderIndex - right.orderIndex);
+}
+
+export async function updateEpisodeCutLayout(
+  db: DbExecutor,
+  episodeId: string,
+  input: PatchEpisodeCutLayoutRequest
+): Promise<Cut[]> {
+  const cutIds = input.cuts.map((cut) => cut.cutId);
+  const caseXClauses: string[] = [];
+  const caseYClauses: string[] = [];
+  const values: unknown[] = [episodeId];
+
+  for (const cut of input.cuts) {
+    values.push(cut.cutId, cut.positionX, cut.positionY);
+    caseXClauses.push(`WHEN $${values.length - 2}::uuid THEN $${values.length - 1}::double precision`);
+    caseYClauses.push(`WHEN $${values.length - 2}::uuid THEN $${values.length}::double precision`);
+  }
+
+  values.push(cutIds);
+  const idsParamIndex = values.length;
+
+  const result = await db.query<CutRow>(
+    `UPDATE promptoon_cut
+     SET position_x = CASE id ${caseXClauses.join(' ')} END,
+         position_y = CASE id ${caseYClauses.join(' ')} END,
          updated_at = NOW()
      WHERE episode_id = $1
        AND id = ANY($${idsParamIndex}::uuid[])
@@ -1006,28 +1315,90 @@ export async function countReplayViewers(db: DbExecutor, input: { episodeId: str
   return Number(result.rows[0]?.count ?? 0);
 }
 
-export async function getDailyStartViews(
+function getAnalyticsDateTruncUnit(granularity: AnalyticsViewGranularity): 'day' | 'week' | 'month' {
+  if (granularity === 'weekly') {
+    return 'week';
+  }
+
+  if (granularity === 'monthly') {
+    return 'month';
+  }
+
+  return 'day';
+}
+
+export async function getStartViewsByPeriod(
   db: DbExecutor,
-  input: { episodeId: string; startCutId: string; days: number }
-): Promise<AnalyticsDailyView[]> {
-  const result = await db.query<DailyViewsRow>(
+  input: { episodeId: string; startCutId: string; granularity: AnalyticsViewGranularity; fromDate: string; toDate?: string | null }
+): Promise<AnalyticsViewPoint[]> {
+  const truncUnit = getAnalyticsDateTruncUnit(input.granularity);
+  const result = await db.query<ViewsByPeriodRow>(
     `SELECT
-       TO_CHAR(DATE_TRUNC('day', created_at), 'YYYY-MM-DD') AS date,
-       COUNT(*)::text AS views
+       TO_CHAR(DATE_TRUNC('${truncUnit}', created_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS period_start,
+       COUNT(*)::text AS views,
+       COUNT(DISTINCT anonymous_id)::text AS unique_viewers
      FROM promptoon_viewer_event
      WHERE episode_id = $1
        AND event_type = 'cut_view'
        AND cut_id = $2
-       AND created_at >= NOW() - ($3::text || ' days')::interval
-     GROUP BY DATE_TRUNC('day', created_at)
-     ORDER BY DATE_TRUNC('day', created_at) ASC`,
-    [input.episodeId, input.startCutId, input.days]
+       AND created_at >= $3::timestamptz
+       AND ($4::timestamptz IS NULL OR created_at < $4::timestamptz)
+     GROUP BY DATE_TRUNC('${truncUnit}', created_at AT TIME ZONE 'UTC')
+     ORDER BY DATE_TRUNC('${truncUnit}', created_at AT TIME ZONE 'UTC') ASC`,
+    [input.episodeId, input.startCutId, input.fromDate, input.toDate ?? null]
   );
 
   return result.rows.map((row) => ({
-    date: row.date,
-    views: Number(row.views)
+    periodStart: row.period_start,
+    views: Number(row.views),
+    uniqueViewers: Number(row.unique_viewers)
   }));
+}
+
+export async function deleteViewerEventsForAnalyticsScope(
+  db: DbExecutor,
+  input: { episodeId: string; scope: AnalyticsResetScope; startCutId?: string | null }
+): Promise<number> {
+  const values: unknown[] = [input.episodeId];
+  let filter = '';
+
+  switch (input.scope) {
+    case 'all':
+      break;
+    case 'views':
+      if (!input.startCutId) {
+        return 0;
+      }
+      values.push(input.startCutId);
+      filter = ` AND event_type = 'cut_view' AND cut_id = $${values.length}`;
+      break;
+    case 'choiceStats':
+      filter = " AND event_type = 'choice_click'";
+      break;
+    case 'endingDistribution':
+      filter = " AND event_type = 'ending_reach'";
+      break;
+    case 'cutEngagement':
+      filter = " AND event_type IN ('cut_view', 'cut_leave')";
+      break;
+    case 'feedEntry':
+      filter = " AND event_type IN ('feed_impression', 'feed_choice_click')";
+      break;
+    default:
+      return 0;
+  }
+
+  const result = await db.query<{ count: string }>(
+    `WITH deleted AS (
+       DELETE FROM promptoon_viewer_event
+       WHERE episode_id = $1${filter}
+       RETURNING 1
+     )
+     SELECT COUNT(*)::text AS count FROM deleted`,
+    values
+  );
+
+  return Number(result.rows[0]?.count ?? 0);
 }
 
 export async function createPublish(
