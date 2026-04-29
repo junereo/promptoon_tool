@@ -461,6 +461,8 @@ function getStartCutId(draft: EpisodeDraftResponse): string | null {
   return draft.episode.startCutId ?? draft.cuts.find((cut) => cut.isStart)?.id ?? draft.cuts[0]?.id ?? null;
 }
 
+const ANALYTICS_DAILY_VIEW_DAYS = 365;
+
 function fillDailyViews(rows: AnalyticsDailyView[], days: number): AnalyticsDailyView[] {
   const byDate = new Map(rows.map((row) => [row.date, row.views]));
   const result: AnalyticsDailyView[] = [];
@@ -928,7 +930,7 @@ export async function getEpisodeAnalytics(episodeId: string, userId: string): Pr
     repository.getCutEngagementStats(db, episodeId),
     repository.getEndingDistributionStats(db, episodeId),
     startCutId ? repository.countReplayViewers(db, { episodeId, startCutId }) : Promise.resolve(0),
-    startCutId ? repository.getDailyStartViews(db, { episodeId, startCutId, days: 14 }) : Promise.resolve([]),
+    startCutId ? repository.getDailyStartViews(db, { episodeId, startCutId, days: ANALYTICS_DAILY_VIEW_DAYS }) : Promise.resolve([]),
     startCutId ? repository.countViewerEvents(db, { episodeId, eventType: 'cut_view', cutId: startCutId }) : Promise.resolve(0),
     startCutId
       ? repository.countViewerEvents(db, { episodeId, eventType: 'cut_view', cutId: startCutId, distinctAnonymous: true })
@@ -954,7 +956,7 @@ export async function getEpisodeAnalytics(episodeId: string, userId: string): Pr
     })),
     choiceStats: buildChoiceStats(draft, choiceStatsMap),
     endingDistribution,
-    dailyViews: fillDailyViews(rawDailyViews, 14),
+    dailyViews: fillDailyViews(rawDailyViews, ANALYTICS_DAILY_VIEW_DAYS),
     feedEntry: {
       impressions: feedImpressions,
       choiceClicks: feedChoiceClicks,
