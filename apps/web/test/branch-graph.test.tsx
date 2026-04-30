@@ -237,6 +237,8 @@ describe('BranchCanvas', () => {
           onApplyLayout={vi.fn()}
           onCreateChoiceConnection={vi.fn()}
           onCreateLinkedCut={vi.fn()}
+          onDeleteCuts={vi.fn()}
+          onOpenLoopStateSetting={vi.fn()}
           onConnectChoice={vi.fn()}
           onConnectStateFallback={vi.fn()}
           onConnectStateRoute={vi.fn()}
@@ -260,6 +262,46 @@ describe('BranchCanvas', () => {
     expect(onSelectCut).toHaveBeenCalledWith('cut-1');
   });
 
+  it('toggles graph cut multi-selection with left Shift and deletes selected cuts together', () => {
+    const onDeleteCuts = vi.fn();
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const firstCut = buildCut('cut-1', { isStart: true, title: 'First' });
+    const secondCut = buildCut('cut-2', { orderIndex: 1, positionX: 260, title: 'Second' });
+
+    render(
+      <div style={{ height: 700, width: 1200 }}>
+        <BranchCanvas
+          choices={[]}
+          cuts={[firstCut, secondCut]}
+          layoutMode="custom"
+          onApplyLayout={vi.fn()}
+          onCreateChoiceConnection={vi.fn()}
+          onCreateLinkedCut={vi.fn()}
+          onDeleteCuts={onDeleteCuts}
+          onOpenLoopStateSetting={vi.fn()}
+          onConnectChoice={vi.fn()}
+          onConnectStateFallback={vi.fn()}
+          onConnectStateRoute={vi.fn()}
+          onMoveCut={vi.fn()}
+          onSelectChoice={vi.fn()}
+          onSelectCut={vi.fn()}
+          selected={{ type: 'none' }}
+        />
+      </div>
+    );
+
+    fireEvent.keyDown(window, { code: 'ShiftLeft', key: 'Shift', location: 1 });
+    fireEvent.click(screen.getByTestId('graph-node-cut-1'));
+    fireEvent.click(screen.getByTestId('graph-node-cut-2'));
+    fireEvent.keyUp(window, { code: 'ShiftLeft', key: 'Shift', location: 1 });
+    fireEvent.click(screen.getByRole('button', { name: '선택 삭제 (2)' }));
+
+    expect(confirmSpy).toHaveBeenCalledWith('2개 컷을 삭제할까요?');
+    expect(onDeleteCuts).toHaveBeenCalledWith(['cut-1', 'cut-2']);
+
+    confirmSpy.mockRestore();
+  });
+
   it('shows one placeholder under the selected branch end and routes add clicks', () => {
     const onCreateLinkedCut = vi.fn();
     const startCut = buildCut('cut-1', { isStart: true, positionX: 0, positionY: 0 });
@@ -275,6 +317,8 @@ describe('BranchCanvas', () => {
           onApplyLayout={vi.fn()}
           onCreateChoiceConnection={vi.fn()}
           onCreateLinkedCut={onCreateLinkedCut}
+          onDeleteCuts={vi.fn()}
+          onOpenLoopStateSetting={vi.fn()}
           onConnectChoice={vi.fn()}
           onConnectStateFallback={vi.fn()}
           onConnectStateRoute={vi.fn()}
@@ -308,6 +352,8 @@ describe('BranchCanvas', () => {
           onApplyLayout={onApplyLayout}
           onCreateChoiceConnection={vi.fn()}
           onCreateLinkedCut={vi.fn()}
+          onDeleteCuts={vi.fn()}
+          onOpenLoopStateSetting={vi.fn()}
           onConnectChoice={vi.fn()}
           onConnectStateFallback={vi.fn()}
           onConnectStateRoute={vi.fn()}
@@ -388,6 +434,7 @@ describe('EpisodeEditorShell graph mode', () => {
         onDeleteCut={vi.fn()}
         onDragEnd={vi.fn()}
         onMoveCut={vi.fn()}
+        onOpenLoopStateSetting={vi.fn()}
         onOpenScriptEditor={vi.fn()}
         onPreviewSelectChoice={vi.fn()}
         onPreviewSelectCut={onPreviewSelectCut}
@@ -487,6 +534,7 @@ describe('EpisodeEditorShell graph mode', () => {
         onDeleteCut={vi.fn()}
         onDragEnd={vi.fn()}
         onMoveCut={vi.fn()}
+        onOpenLoopStateSetting={vi.fn()}
         onOpenScriptEditor={vi.fn()}
         onPublish={vi.fn()}
         onSaveOrder={vi.fn()}

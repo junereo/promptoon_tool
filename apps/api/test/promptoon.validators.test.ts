@@ -82,6 +82,210 @@ function buildDraft(overrides?: Partial<EpisodeDraftResponse>): EpisodeDraftResp
   };
 }
 
+function buildExitLoopDraft(): EpisodeDraftResponse {
+  const baseDraft = buildDraft();
+  const [baseStartCut, baseEndingCut] = baseDraft.cuts;
+  const loopStage1 = {
+    ...baseStartCut,
+    id: '10000000-0000-4000-8000-000000000001',
+    kind: 'loopStage' as const,
+    title: 'Loop Stage 1',
+    isStart: true,
+    loopMetadata: {
+      kind: 'exitLoop' as const,
+      groupId: 'test-loop',
+      groupLabel: 'Test Loop',
+      role: 'stageBase' as const,
+      stageIndex: 1,
+      stageCount: 2,
+      selectedVariantCutId: '10000000-0000-4000-8000-000000000002',
+      variantCutIds: ['10000000-0000-4000-8000-000000000002'],
+      resetStateOnEnter: true,
+      resetStateKeyPrefix: 'exitLoop.test-loop.',
+      exitLevelRequired: 5
+    }
+  };
+  const loopVariant1 = {
+    ...baseStartCut,
+    id: '10000000-0000-4000-8000-000000000002',
+    kind: 'loopVariant' as const,
+    title: 'Loop Stage 1 Variant',
+    isStart: false,
+    loopMetadata: {
+      kind: 'exitLoop' as const,
+      groupId: 'test-loop',
+      groupLabel: 'Test Loop',
+      role: 'stageVariant' as const,
+      stageIndex: 1,
+      stageCount: 2,
+      truth: 'real_anomaly' as const,
+      expectedChoice: 'back' as const,
+      baseCutId: loopStage1.id
+    }
+  };
+  const loopSpacer = {
+    ...baseStartCut,
+    id: '10000000-0000-4000-8000-000000000003',
+    kind: 'loopSpacer' as const,
+    title: 'Loop Spacer',
+    isStart: false,
+    loopMetadata: {
+      kind: 'exitLoop' as const,
+      groupId: 'test-loop',
+      groupLabel: 'Test Loop',
+      role: 'spacer' as const,
+      stageIndex: 1,
+      stageCount: 2
+    }
+  };
+  const loopStage2 = {
+    ...baseStartCut,
+    id: '10000000-0000-4000-8000-000000000004',
+    kind: 'loopStage' as const,
+    title: 'Loop Stage 2',
+    isStart: false,
+    loopMetadata: {
+      kind: 'exitLoop' as const,
+      groupId: 'test-loop',
+      groupLabel: 'Test Loop',
+      role: 'stageBase' as const,
+      stageIndex: 2,
+      stageCount: 2,
+      selectedVariantCutId: '10000000-0000-4000-8000-000000000005',
+      variantCutIds: ['10000000-0000-4000-8000-000000000005'],
+      exitLevelRequired: 5
+    }
+  };
+  const loopVariant2 = {
+    ...baseStartCut,
+    id: '10000000-0000-4000-8000-000000000005',
+    kind: 'loopVariant' as const,
+    title: 'Loop Stage 2 Variant',
+    isStart: false,
+    loopMetadata: {
+      kind: 'exitLoop' as const,
+      groupId: 'test-loop',
+      groupLabel: 'Test Loop',
+      role: 'stageVariant' as const,
+      stageIndex: 2,
+      stageCount: 2,
+      truth: 'fake_suspicion' as const,
+      expectedChoice: 'forward' as const,
+      baseCutId: loopStage2.id
+    }
+  };
+  const resultRouter = {
+    ...baseStartCut,
+    id: '10000000-0000-4000-8000-000000000006',
+    kind: 'stateRouter' as const,
+    title: 'Loop Result Router',
+    isStart: false,
+    stateRoutes: [
+      {
+        id: 'loop-result-exit',
+        conditions: [
+          {
+            stateKey: 'exitLoop.test-loop.route',
+            equals: 'exit'
+          }
+        ],
+        nextCutId: '10000000-0000-4000-8000-000000000007'
+      }
+    ],
+    stateFallbackCutId: loopStage1.id,
+    loopMetadata: {
+      kind: 'exitLoop' as const,
+      groupId: 'test-loop',
+      groupLabel: 'Test Loop',
+      role: 'resultRouter' as const,
+      stageCount: 2,
+      exitLevelRequired: 5
+    }
+  };
+  const continuationCut = {
+    ...baseStartCut,
+    id: '10000000-0000-4000-8000-000000000007',
+    kind: 'scene' as const,
+    title: 'Loop Continuation',
+    isStart: false
+  };
+  const endingCut = {
+    ...baseEndingCut,
+    id: '10000000-0000-4000-8000-000000000008',
+    title: 'Loop Ending'
+  };
+
+  return {
+    ...baseDraft,
+    episode: {
+      ...baseDraft.episode,
+      startCutId: loopStage1.id
+    },
+    cuts: [loopStage1, loopVariant1, loopSpacer, loopStage2, loopVariant2, resultRouter, continuationCut, endingCut],
+    choices: [
+      {
+        id: '20000000-0000-4000-8000-000000000001',
+        cutId: loopStage1.id,
+        label: '계속',
+        orderIndex: 0,
+        nextCutId: loopSpacer.id,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      },
+      {
+        id: '20000000-0000-4000-8000-000000000002',
+        cutId: loopSpacer.id,
+        label: '계속',
+        orderIndex: 0,
+        nextCutId: loopStage2.id,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      },
+      {
+        id: '20000000-0000-4000-8000-000000000003',
+        cutId: loopStage2.id,
+        label: '나아간다',
+        orderIndex: 0,
+        nextCutId: resultRouter.id,
+        stateWrites: [
+          {
+            key: 'exitLoop.test-loop.decision',
+            operation: 'exitLoopDecision',
+            value: 'forward'
+          }
+        ],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      },
+      {
+        id: '20000000-0000-4000-8000-000000000004',
+        cutId: loopStage2.id,
+        label: '돌아간다',
+        orderIndex: 1,
+        nextCutId: resultRouter.id,
+        stateWrites: [
+          {
+            key: 'exitLoop.test-loop.decision',
+            operation: 'exitLoopDecision',
+            value: 'back'
+          }
+        ],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      },
+      {
+        id: '20000000-0000-4000-8000-000000000005',
+        cutId: continuationCut.id,
+        label: '계속',
+        orderIndex: 0,
+        nextCutId: endingCut.id,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }
+    ]
+  };
+}
+
 describe('validateEpisodeGraph', () => {
   it('accepts a valid simple graph', () => {
     const result = validateEpisodeGraph(buildDraft());
@@ -361,5 +565,71 @@ describe('validateEpisodeGraph', () => {
     const result = validateEpisodeGraph(draft);
     expect(result.isValid).toBe(false);
     expect(result.errors.some((issue) => issue.code === 'dead_path')).toBe(true);
+  });
+
+  it('accepts a valid Exit Loop cut graph and treats loop variants as referenced render cuts', () => {
+    const result = validateEpisodeGraph(buildExitLoopDraft());
+
+    expect(result.isValid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it('rejects Exit Loop groups missing the first-stage state prefix metadata', () => {
+    const draft = buildExitLoopDraft();
+    const result = validateEpisodeGraph({
+      ...draft,
+      cuts: draft.cuts.map((cut) =>
+        cut.id === '10000000-0000-4000-8000-000000000001'
+          ? {
+              ...cut,
+              loopMetadata: cut.loopMetadata
+                ? {
+                    ...cut.loopMetadata,
+                    resetStateKeyPrefix: undefined
+                  }
+                : cut.loopMetadata
+            }
+          : cut
+      )
+    });
+
+    expect(result.isValid).toBe(false);
+    expect(result.errors.some((issue) => issue.code === 'missing_loop_entry_reset')).toBe(true);
+  });
+
+  it('rejects Exit Loop decision choices without managed decision writes', () => {
+    const draft = buildExitLoopDraft();
+    const result = validateEpisodeGraph({
+      ...draft,
+      choices: draft.choices.map((choice) =>
+        choice.id === '20000000-0000-4000-8000-000000000003'
+          ? { ...choice, stateWrites: [] }
+          : choice.id === '20000000-0000-4000-8000-000000000004'
+            ? {
+                ...choice,
+                stateWrites: [
+                  {
+                    key: 'exitLoop.test-loop.decision',
+                    value: 'back'
+                  }
+                ]
+              }
+            : choice
+      )
+    });
+
+    expect(result.isValid).toBe(false);
+    expect(result.errors.some((issue) => issue.code === 'invalid_loop_state_mapping')).toBe(true);
+  });
+
+  it('rejects Exit Loop stages with missing selected variant cuts', () => {
+    const draft = buildExitLoopDraft();
+    const result = validateEpisodeGraph({
+      ...draft,
+      cuts: draft.cuts.filter((cut) => cut.id !== '10000000-0000-4000-8000-000000000002')
+    });
+
+    expect(result.isValid).toBe(false);
+    expect(result.errors.some((issue) => issue.code === 'invalid_loop_variant_target')).toBe(true);
   });
 });

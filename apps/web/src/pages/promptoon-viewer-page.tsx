@@ -1,5 +1,5 @@
 import type { PublishManifest } from '@promptoon/shared';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { usePublishedEpisode } from '../features/viewer/hooks/use-published-episode';
@@ -9,8 +9,11 @@ import { getCutEffectDurationMs } from '../shared/lib/cut-effects';
 import { isPromptoonEndingCut } from '../shared/lib/promptoon-ending';
 import {
   applyChoiceStateWrites,
+  clearPromptoonViewerStateByPrefix,
   clearPromptoonViewerState,
+  initializeExitLoopStateForCut,
   readPromptoonViewerState,
+  resolveManifestLoopRenderableCut,
   resolveManifestStateRouterTargetCut,
   resolveManifestStateVariantCut,
   writePromptoonViewerState,
@@ -83,7 +86,7 @@ function preloadConnectedAssets(
       }
 
       const routedCut = resolveManifestStateRouterTargetCut(targetCut, viewerState, cutsById);
-      return resolveManifestStateVariantCut(routedCut, viewerState, cutsById).assetUrl;
+      return resolveManifestLoopRenderableCut(resolveManifestStateVariantCut(routedCut, viewerState, cutsById), cutsById, viewerState).assetUrl;
     })
     .filter((assetUrl): assetUrl is string => Boolean(assetUrl));
 
@@ -117,10 +120,17 @@ function buildViewerPathSteps(
     steps.push({
       cut: currentCut,
       renderCut: currentCut,
-      visibleChoices: currentCut.kind === 'scene' ? [] : sortedChoices
+      visibleChoices:
+        currentCut.kind === 'scene' ||
+        currentCut.kind === 'loopSpacer' ||
+        (currentCut.kind === 'loopStage' && sortedChoices.filter((choice) => choice.nextCutId && cutsById.has(choice.nextCutId)).length === 1)
+          ? []
+          : sortedChoices
     });
 
-    if (isPromptoonEndingCut(currentCut) || currentCut.kind !== 'scene') {
+    const canAutoAdvanceLoopStage =
+      currentCut.kind === 'loopStage' && sortedChoices.filter((choice) => choice.nextCutId && cutsById.has(choice.nextCutId)).length === 1;
+    if (isPromptoonEndingCut(currentCut) || (currentCut.kind !== 'scene' && currentCut.kind !== 'loopSpacer' && !canAutoAdvanceLoopStage)) {
       break;
     }
 
@@ -143,7 +153,7 @@ function resolveViewerPathSteps(
 ): ViewerPathStep[] {
   return pathSteps.map((step) => ({
     ...step,
-    renderCut: resolveManifestStateVariantCut(step.cut, viewerState, cutsById)
+    renderCut: resolveManifestLoopRenderableCut(resolveManifestStateVariantCut(step.cut, viewerState, cutsById), cutsById, viewerState)
   }));
 }
 
@@ -168,6 +178,7 @@ export function PromptoonViewerPage() {
   const [userName, setUserName] = useState('');
   const [viewerState, setViewerState] = useState<PromptoonViewerState>({});
   const [pendingChoice, setPendingChoice] = useState<{ cutId: string; choiceId: string; reactionText: string | null } | null>(null);
+  const lastLoopResetCutIdRef = useRef<string | null>(null);
   const [autoPathExpansion, setAutoPathExpansion] = useState<{ isExpanded: boolean; pathStartCutId: string | null }>({
     isExpanded: true,
     pathStartCutId: null
@@ -246,6 +257,49 @@ export function PromptoonViewerPage() {
   useEffect(() => {
     preloadConnectedAssets(terminalCut, cutsById, viewerState);
   }, [cutsById, terminalCut, viewerState]);
+
+  useEffect(() => {
+    if (!activeCut) {
+      return;
+    }
+
+    setViewerState((current) => {
+      const nextViewerState = initializeExitLoopStateForCut(current, activeCut, cutsById);
+      if (nextViewerState === current) {
+        return current;
+      }
+
+      writePromptoonViewerState(publishId, nextViewerState);
+      return nextViewerState;
+    });
+  }, [activeCut, cutsById, publishId]);
+
+  useEffect(() => {
+    const resetPrefix =
+      activeCut?.loopMetadata?.kind === 'exitLoop' && activeCut.loopMetadata.resetStateOnEnter
+        ? activeCut.loopMetadata.resetStateKeyPrefix
+        : null;
+
+    if (!activeCut || !resetPrefix) {
+      lastLoopResetCutIdRef.current = null;
+      return;
+    }
+
+    if (lastLoopResetCutIdRef.current === activeCut.id) {
+      return;
+    }
+
+    lastLoopResetCutIdRef.current = activeCut.id;
+    setViewerState((current) => {
+      const nextViewerState = clearPromptoonViewerStateByPrefix(current, resetPrefix);
+      if (nextViewerState === current) {
+        return current;
+      }
+
+      writePromptoonViewerState(publishId, nextViewerState);
+      return nextViewerState;
+    });
+  }, [activeCut?.id, activeCut?.loopMetadata, publishId]);
 
   useEffect(() => {
     if (!activeCut || activeCut.kind !== 'stateRouter') {

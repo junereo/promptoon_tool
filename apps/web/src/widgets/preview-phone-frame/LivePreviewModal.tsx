@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 
 import {
   applyChoiceStateWrites,
+  resolveManifestLoopRenderableCut,
   resolveManifestStateRouterTargetCut,
   resolveManifestStateVariantCut,
   type PromptoonViewerState
@@ -91,6 +92,7 @@ function toViewerCut(cut: Cut, choices: Choice[]): ViewerCut {
     isEnding: cut.isEnding,
     isStart: cut.isStart,
     kind: cut.kind,
+    loopMetadata: cut.loopMetadata ?? null,
     marginBottomToken: cut.marginBottomToken,
     orderIndex: cut.orderIndex,
     positionX: cut.positionX,
@@ -164,14 +166,15 @@ export function LivePreviewModal({
     nextCut ? toViewerCut(nextCut, nextChoices) : null
   ]
     .filter((cut): cut is ViewerCut => Boolean(cut))
-    .map((cut) => ({
-      baseCut: resolveManifestStateRouterTargetCut(cut, previewState, viewerCutsById),
-      renderCut: resolveManifestStateVariantCut(
-        resolveManifestStateRouterTargetCut(cut, previewState, viewerCutsById),
-        previewState,
-        viewerCutsById
-      )
-    }));
+    .map((cut) => {
+      const baseCut = resolveManifestStateRouterTargetCut(cut, previewState, viewerCutsById);
+      const stateVariantCut = resolveManifestStateVariantCut(baseCut, previewState, viewerCutsById);
+
+      return {
+        baseCut,
+        renderCut: resolveManifestLoopRenderableCut(stateVariantCut, viewerCutsById, previewState)
+      };
+    });
   const scalePercent = Math.round(deviceScale * 100);
 
   useEffect(() => {
@@ -360,7 +363,12 @@ export function LivePreviewModal({
                             setPreviewState((current) => applyChoiceStateWrites(current, choice))
                           }
                           onUserNameChange={setUserName}
-                          showChoices={viewerCutEntry.baseCut.kind !== 'scene' && !isPromptoonEndingCut(viewerCutEntry.baseCut)}
+                          showChoices={
+                            viewerCutEntry.baseCut.kind !== 'scene' &&
+                            viewerCutEntry.baseCut.kind !== 'loopSpacer' &&
+                            !(viewerCutEntry.baseCut.kind === 'loopStage' && viewerCutEntry.baseCut.choices.filter((choice) => choice.nextCutId).length === 1) &&
+                            !isPromptoonEndingCut(viewerCutEntry.baseCut)
+                          }
                           showEndingActions={false}
                           userName={userName}
                           visibleChoices={getSortedChoices(viewerCutEntry.baseCut.choices)}

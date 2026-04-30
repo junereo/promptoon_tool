@@ -65,6 +65,7 @@ describe('CutListPanel', () => {
         choices={[]}
         cuts={cuts}
         onCreateCut={onCreateCut}
+        onOpenLoopStateSetting={vi.fn()}
         onDeleteCut={onDeleteCut}
         onDragEnd={onDragEnd}
         onSelectCut={onSelectCut}
@@ -99,6 +100,7 @@ describe('CutListPanel', () => {
         choices={[]}
         cuts={[buildCut('cut-1', { title: 'Intro' })]}
         onCreateCut={vi.fn()}
+        onOpenLoopStateSetting={vi.fn()}
         onDeleteCut={onDeleteCut}
         onDragEnd={vi.fn()}
         onSelectCut={vi.fn()}
@@ -127,6 +129,7 @@ describe('CutListPanel', () => {
         choices={[]}
         cuts={cuts}
         onCreateCut={vi.fn()}
+        onOpenLoopStateSetting={vi.fn()}
         onDeleteCut={vi.fn()}
         onDragEnd={vi.fn()}
         onSelectCut={vi.fn()}
@@ -139,6 +142,7 @@ describe('CutListPanel', () => {
         choices={[]}
         cuts={cuts}
         onCreateCut={vi.fn()}
+        onOpenLoopStateSetting={vi.fn()}
         onDeleteCut={vi.fn()}
         onDragEnd={vi.fn()}
         onSelectCut={vi.fn()}
@@ -168,6 +172,7 @@ describe('CutListPanel', () => {
         choices={choices}
         cuts={[start, child, grandchild]}
         onCreateCut={vi.fn()}
+        onOpenLoopStateSetting={vi.fn()}
         onDeleteCut={vi.fn()}
         onDragEnd={vi.fn()}
         onSelectCut={vi.fn()}
@@ -178,7 +183,9 @@ describe('CutListPanel', () => {
     expect(screen.getAllByText('1').length).toBeGreaterThanOrEqual(3);
     expect(screen.queryByText('1.1')).toBeNull();
     expect(screen.queryByText('1.1.1')).toBeNull();
-    expect((document.querySelector('[data-cut-id="cut-grandchild"]') as HTMLElement | null)?.style.marginLeft).toBe('6px');
+    const grandchildElement = document.querySelector('[data-cut-id="cut-grandchild"]') as HTMLElement | null;
+    expect(grandchildElement?.style.marginLeft).toBe('');
+    expect(grandchildElement?.style.paddingLeft).toBe('20px');
 
     fireEvent.click(screen.getByRole('button', { name: 'Collapse group 1' }));
 
@@ -202,6 +209,7 @@ describe('CutListPanel', () => {
         choices={choices}
         cuts={[start, inserted, child]}
         onCreateCut={vi.fn()}
+        onOpenLoopStateSetting={vi.fn()}
         onDeleteCut={vi.fn()}
         onDragEnd={vi.fn()}
         onSelectCut={vi.fn()}
@@ -235,6 +243,7 @@ describe('CutListPanel', () => {
         choices={choices}
         cuts={[start, mainA, mainB, mainC, branchA, branchB]}
         onCreateCut={vi.fn()}
+        onOpenLoopStateSetting={vi.fn()}
         onDeleteCut={vi.fn()}
         onDragEnd={vi.fn()}
         onSelectCut={onSelectCut}
@@ -266,6 +275,7 @@ describe('CutListPanel', () => {
         choices={choices}
         cuts={[intro, decision, aftermath]}
         onCreateCut={vi.fn()}
+        onOpenLoopStateSetting={vi.fn()}
         onDeleteCut={vi.fn()}
         onDragEnd={vi.fn()}
         onSelectCut={vi.fn()}
@@ -294,6 +304,7 @@ describe('CutListPanel', () => {
       onCreateCut: vi.fn(),
       onDeleteCut: vi.fn(),
       onDragEnd: vi.fn(),
+      onOpenLoopStateSetting: vi.fn(),
       onSelectCut: vi.fn(),
       selectedCutId: null
     };
@@ -323,6 +334,7 @@ describe('CutListPanel', () => {
       onCreateCut: vi.fn(),
       onDeleteCut: vi.fn(),
       onDragEnd: vi.fn(),
+      onOpenLoopStateSetting: vi.fn(),
       onSelectCut: vi.fn(),
       selectedCutId: null
     };
@@ -354,6 +366,7 @@ describe('CutListPanel', () => {
         choices={choices}
         cuts={[start, middle, ending]}
         onCreateCut={vi.fn()}
+        onOpenLoopStateSetting={vi.fn()}
         onDeleteCut={onDeleteCut}
         onDragEnd={vi.fn()}
         onSelectCut={vi.fn()}

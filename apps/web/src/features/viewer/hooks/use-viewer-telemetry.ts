@@ -103,7 +103,12 @@ export function useViewerTelemetry({
         });
       }
 
-      if (cut.kind !== 'scene' && cut.choices.length > 0 && !choiceShownAtByCutIdRef.current.has(cut.id)) {
+      if (
+        cut.kind !== 'scene' &&
+        cut.kind !== 'loopSpacer' &&
+        cut.choices.length > 0 &&
+        !choiceShownAtByCutIdRef.current.has(cut.id)
+      ) {
         choiceShownAtByCutIdRef.current.set(cut.id, now);
       }
     }

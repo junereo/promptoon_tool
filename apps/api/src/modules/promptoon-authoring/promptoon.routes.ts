@@ -9,6 +9,7 @@ import {
   analyticsQuerySchema,
   createChoiceSchema,
   createCutSchema,
+  createLoopStateSettingSchema,
   deleteCutSchema,
   createEpisodeSchema,
   createProjectSchema,
@@ -157,6 +158,13 @@ export function createPromptoonRouter(): Router {
     const body = createCutSchema.parse(request.body);
     response.status(201).json(
       await service.createCut(getParam(request.params.episodeId, 'episodeId'), body, getRequiredAuthUser(request).sub)
+    );
+  }));
+
+  protectedRouter.post('/episodes/:episodeId/loop-state-setting', asyncHandler(async (request, response) => {
+    const body = createLoopStateSettingSchema.parse(request.body);
+    response.status(201).json(
+      await service.createLoopStateSetting(getParam(request.params.episodeId, 'episodeId'), body, getRequiredAuthUser(request).sub)
     );
   }));
 

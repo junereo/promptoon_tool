@@ -13,7 +13,7 @@ import {
   type NodeTypes,
   type NodeMouseHandler
 } from '@xyflow/react';
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { AddCutPlaceholderNode } from './AddCutPlaceholderNode';
 import { CutNode } from './CutNode';
@@ -41,12 +41,19 @@ function buildFlowNodes(
   cuts: Cut[],
   choices: Choice[],
   selected: EditorSelection,
+  multiSelectedCutIds: Set<string>,
   onCreateLinkedCut: (sourceCutId: string, position: { x: number; y: number }) => void
 ): BranchFlowNode[] {
-  const cutNodes = mapCutsToFlowNodes(cuts, choices, selected);
+  const cutNodes = mapCutsToFlowNodes(cuts, choices, selected, multiSelectedCutIds);
   const branchEndCut = getSelectedBranchEndCut(cuts, choices, selected);
 
-  if (!branchEndCut || isPromptoonEndingCut(branchEndCut) || branchEndCut.kind === 'stateRouter') {
+  if (
+    !branchEndCut ||
+    isPromptoonEndingCut(branchEndCut) ||
+    branchEndCut.kind === 'stateRouter' ||
+    branchEndCut.kind === 'loopVariant' ||
+    branchEndCut.kind === 'loopSpacer'
+  ) {
     return cutNodes;
   }
 
@@ -84,6 +91,8 @@ function BranchCanvasInner({
   choices,
   onCreateChoiceConnection,
   onCreateLinkedCut,
+  onDeleteCuts,
+  onOpenLoopStateSetting,
   cuts,
   layoutMode,
   onConnectChoice,
@@ -99,6 +108,8 @@ function BranchCanvasInner({
   choices: Choice[];
   onCreateChoiceConnection: (cutId: string, targetCutId: string) => void;
   onCreateLinkedCut: (cutId: string, position: { x: number; y: number }) => void;
+  onDeleteCuts: (cutIds: string[]) => void | Promise<void>;
+  onOpenLoopStateSetting: (anchorCutId?: string) => void;
   cuts: Cut[];
   layoutMode: GraphLayoutMode;
   onConnectChoice: (choiceId: string, targetCutId: string) => void;
@@ -112,15 +123,49 @@ function BranchCanvasInner({
   selected: EditorSelection;
 }) {
   const { fitView } = useReactFlow();
-  const [nodes, setNodes, onNodesChange] = useNodesState<BranchFlowNode>(buildFlowNodes(cuts, choices, selected, onCreateLinkedCut));
+  const [multiSelectedCutIds, setMultiSelectedCutIds] = useState<Set<string>>(() => new Set());
+  const [nodes, setNodes, onNodesChange] = useNodesState<BranchFlowNode>(
+    buildFlowNodes(cuts, choices, selected, multiSelectedCutIds, onCreateLinkedCut)
+  );
   const edges = mapChoicesToFlowEdges(choices, selected, cuts);
   const autoFitCutIds = useMemo(() => cuts.map((cut) => cut.id), [cuts]);
+  const selectedCutId = selected.type === 'cut' ? selected.id : undefined;
+  const multiSelectedCutCount = multiSelectedCutIds.size;
+  const leftShiftPressedRef = useRef(false);
   const previousAutoFitCutIdsRef = useRef<string[] | null>(null);
   const canvasFrameRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    setNodes(buildFlowNodes(cuts, choices, selected, onCreateLinkedCut));
-  }, [choices, cuts, onCreateLinkedCut, selected, setNodes]);
+    setNodes(buildFlowNodes(cuts, choices, selected, multiSelectedCutIds, onCreateLinkedCut));
+  }, [choices, cuts, multiSelectedCutIds, onCreateLinkedCut, selected, setNodes]);
+
+  useEffect(() => {
+    const cutIds = new Set(cuts.map((cut) => cut.id));
+    setMultiSelectedCutIds((current) => {
+      const next = new Set([...current].filter((cutId) => cutIds.has(cutId)));
+      return next.size === current.size ? current : next;
+    });
+  }, [cuts]);
+
+  const deleteMultiSelectedCuts = useCallback(async () => {
+    if (multiSelectedCutIds.size === 0) {
+      return;
+    }
+
+    const orderedCutIds = cuts.map((cut) => cut.id).filter((cutId) => multiSelectedCutIds.has(cutId));
+    if (orderedCutIds.length === 0) {
+      setMultiSelectedCutIds(new Set());
+      return;
+    }
+
+    const confirmed = typeof window === 'undefined' ? true : window.confirm(`${orderedCutIds.length}개 컷을 삭제할까요?`);
+    if (!confirmed) {
+      return;
+    }
+
+    setMultiSelectedCutIds(new Set());
+    await onDeleteCuts(orderedCutIds);
+  }, [cuts, multiSelectedCutIds, onDeleteCuts]);
 
   useEffect(() => {
     function isEditableTarget(target: EventTarget | null) {
@@ -132,7 +177,21 @@ function BranchCanvasInner({
     }
 
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key !== 'Delete' || selected.type !== 'choice' || isEditableTarget(event.target)) {
+      if (event.key === 'Shift' && (event.code === 'ShiftLeft' || event.location === KeyboardEvent.DOM_KEY_LOCATION_LEFT)) {
+        leftShiftPressedRef.current = true;
+      }
+
+      if (event.key !== 'Delete' || isEditableTarget(event.target)) {
+        return;
+      }
+
+      if (multiSelectedCutIds.size > 0) {
+        event.preventDefault();
+        void deleteMultiSelectedCuts();
+        return;
+      }
+
+      if (selected.type !== 'choice') {
         return;
       }
 
@@ -140,9 +199,25 @@ function BranchCanvasInner({
       onDeleteChoice(selected.id);
     }
 
+    function handleKeyUp(event: KeyboardEvent) {
+      if (event.key === 'Shift' && (event.code === 'ShiftLeft' || event.location === KeyboardEvent.DOM_KEY_LOCATION_LEFT)) {
+        leftShiftPressedRef.current = false;
+      }
+    }
+
+    function handleBlur() {
+      leftShiftPressedRef.current = false;
+    }
+
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onDeleteChoice, selected]);
+    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleBlur);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', handleBlur);
+    };
+  }, [deleteMultiSelectedCuts, multiSelectedCutIds.size, onDeleteChoice, selected]);
 
   useEffect(() => {
     const previousCutIds = previousAutoFitCutIdsRef.current;
@@ -194,11 +269,28 @@ function BranchCanvasInner({
     onConnectStateFallback(sourceHandle.cutId, connection.target);
   }
 
-  const handleNodeClick: NodeMouseHandler<BranchFlowNode> = (_event, node) => {
+  const handleNodeClick: NodeMouseHandler<BranchFlowNode> = (event, node) => {
     if (node.type !== 'cutNode') {
       return;
     }
 
+    if (leftShiftPressedRef.current || event.shiftKey) {
+      setMultiSelectedCutIds((current) => {
+        const next = new Set(current);
+        if (next.has(node.id)) {
+          next.delete(node.id);
+        } else {
+          next.add(node.id);
+        }
+
+        return next;
+      });
+      onSelectCut(node.id);
+      canvasFrameRef.current?.focus();
+      return;
+    }
+
+    setMultiSelectedCutIds(new Set());
     onSelectCut(node.id);
     canvasFrameRef.current?.focus();
   };
@@ -245,6 +337,24 @@ function BranchCanvasInner({
           <p className="font-display text-lg font-semibold text-zinc-50">Branch Graph</p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-1.5">
+          {multiSelectedCutCount > 0 ? (
+            <button
+              className="rounded-full border border-red-400/40 bg-red-500/10 px-2.5 py-1.5 text-xs font-medium text-red-100 transition hover:border-red-300/70 hover:bg-red-500/20"
+              onClick={() => {
+                void deleteMultiSelectedCuts();
+              }}
+              type="button"
+            >
+              선택 삭제 ({multiSelectedCutCount})
+            </button>
+          ) : null}
+          <button
+            className="rounded-full border border-lime-500/35 bg-lime-500/10 px-2.5 py-1.5 text-xs font-medium text-lime-100 transition hover:border-lime-400/60 hover:bg-lime-500/15"
+            onClick={() => onOpenLoopStateSetting(selectedCutId)}
+            type="button"
+          >
+            LoopStateSetting
+          </button>
           <div className="inline-flex rounded-full border border-editor-border bg-black/20 p-1">
             {renderLayoutButton('custom', 'Custom')}
             {renderLayoutButton('vertical', 'Vertical')}
@@ -309,6 +419,8 @@ export function BranchCanvas(props: {
   choices: Choice[];
   onCreateChoiceConnection: (cutId: string, targetCutId: string) => void;
   onCreateLinkedCut: (cutId: string, position: { x: number; y: number }) => void;
+  onDeleteCuts: (cutIds: string[]) => void | Promise<void>;
+  onOpenLoopStateSetting: (anchorCutId?: string) => void;
   cuts: Cut[];
   layoutMode: GraphLayoutMode;
   onConnectChoice: (choiceId: string, targetCutId: string) => void;

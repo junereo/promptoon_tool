@@ -7,6 +7,8 @@ import type {
   Choice,
   CreateChoiceRequest,
   CreateCutRequest,
+  CreateLoopStateSettingRequest,
+  CreateLoopStateSettingResponse,
   Cut,
   DeleteCutRequest,
   EpisodeDraftResponse,
@@ -78,6 +80,14 @@ export const promptoonService = {
 
   async validateEpisode(episodeId: string): Promise<ValidateEpisodeResponse> {
     const { data } = await apiClient.post(`/episodes/${episodeId}/validate`);
+    return data;
+  },
+
+  async createLoopStateSetting(
+    episodeId: string,
+    payload: CreateLoopStateSettingRequest
+  ): Promise<CreateLoopStateSettingResponse> {
+    const { data } = await apiClient.post(`/episodes/${episodeId}/loop-state-setting`, payload);
     return data;
   },
 

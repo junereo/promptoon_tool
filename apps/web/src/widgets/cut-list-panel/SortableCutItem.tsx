@@ -10,18 +10,27 @@ export function SortableCutItem({
   rank,
   selected,
   onCreateAfter,
+  onCreateLoopVariant,
+  createAfterDisabled = false,
+  dragDisabled = false,
   onDelete,
   onSelect
 }: {
   cut: Cut;
+  createAfterDisabled?: boolean;
+  dragDisabled?: boolean;
   indentLevel?: number;
   rank: string;
   selected: boolean;
   onCreateAfter: () => void;
+  onCreateLoopVariant?: () => void;
   onDelete: () => void;
   onSelect: () => void;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: cut.id });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: cut.id,
+    disabled: dragDisabled
+  });
 
   return (
     <div
@@ -36,9 +45,12 @@ export function SortableCutItem({
     >
       <CutItem
         cut={cut}
+        createAfterDisabled={createAfterDisabled}
+        dragDisabled={dragDisabled}
         dragHandleProps={{ ...attributes, ...listeners }}
         indentLevel={indentLevel}
         onCreateAfter={onCreateAfter}
+        onCreateLoopVariant={onCreateLoopVariant}
         onDelete={onDelete}
         onSelect={onSelect}
         rank={rank}

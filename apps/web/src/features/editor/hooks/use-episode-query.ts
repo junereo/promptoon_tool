@@ -3,6 +3,8 @@ import type {
   Choice,
   CreateChoiceRequest,
   CreateCutRequest,
+  CreateLoopStateSettingRequest,
+  CreateLoopStateSettingResponse,
   Cut,
   DeleteCutRequest,
   EpisodeDraftResponse,
@@ -143,6 +145,18 @@ export function useCreateCut(episodeId: string) {
   return useMutation({
     mutationFn: (payload: CreateCutRequest) => promptoonService.createCut(episodeId, payload),
     onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: promptoonKeys.episodeDraft(episodeId) });
+    }
+  });
+}
+
+export function useCreateLoopStateSetting(episodeId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation<CreateLoopStateSettingResponse, Error, CreateLoopStateSettingRequest>({
+    mutationFn: (payload) => promptoonService.createLoopStateSetting(episodeId, payload),
+    onSuccess: async (response) => {
+      queryClient.setQueryData<EpisodeDraftResponse | undefined>(promptoonKeys.episodeDraft(episodeId), response);
       await queryClient.invalidateQueries({ queryKey: promptoonKeys.episodeDraft(episodeId) });
     }
   });

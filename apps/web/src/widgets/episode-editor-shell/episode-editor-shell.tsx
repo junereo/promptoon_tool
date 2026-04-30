@@ -17,6 +17,7 @@ import {
 
 import { CutListPanel, type CutListDragPayload } from '../cut-list-panel/CutListPanel';
 import { getChoicesForCut } from '../../entities/promptoon/selectors';
+import { resolveLoopRenderableCut } from '../../shared/lib/promptoon-state-variants';
 import { InspectorPanel } from '../inspector-panel/InspectorPanel';
 import { BranchCanvas } from '../branch-canvas/BranchCanvas';
 import type { GraphLayoutMode } from '../branch-canvas/graph-layout';
@@ -106,6 +107,8 @@ export function EpisodeEditorShell({
   onSelectCut,
   onSelectChoice,
   onCreateCut,
+  onCreateLoopVariant,
+  onOpenLoopStateSetting,
   onPreviewSelectChoice,
   onPreviewSelectCut,
   onUpdateCut,
@@ -127,7 +130,7 @@ export function EpisodeEditorShell({
   onValidate,
   onPublish,
   onOpenScriptEditor,
-  onToggleViewMode
+  onToggleViewMode,
 }: {
   activeTab: 'editor' | 'analytics';
   episodeStatus: 'draft' | 'published';
@@ -157,6 +160,8 @@ export function EpisodeEditorShell({
   onPreviewSelectCut: (cutId: string) => void;
   onPreviewSelectChoice: (choiceId: string) => void;
   onCreateCut: (anchorCutId?: string) => void;
+  onCreateLoopVariant: (stageCutId: string) => void;
+  onOpenLoopStateSetting: (anchorCutId?: string) => void;
   onUpdateCut: (cutId: string, patch: PatchCutRequest) => void;
   onCommitCut: (cutId: string, patch: PatchCutRequest) => Promise<void>;
   onUploadAsset: (file: File) => Promise<string>;
@@ -269,12 +274,16 @@ export function EpisodeEditorShell({
   };
   const previousPreview = getPreviousPreview(orderedCuts, choices, previewCut);
   const previousPreviewCut = previousPreview?.cut ?? null;
+  const cutsById = new Map(orderedCuts.map((cut) => [cut.id, cut]));
+  const previousPreviewRenderCut = previousPreviewCut ? resolveLoopRenderableCut(previousPreviewCut, cutsById) : null;
   const previousPreviewChoices = previousPreviewCut ? getChoicesForCut(choices, previousPreviewCut.id) : [];
   const previousPreviewSelectedChoiceId =
     previousPreview?.selectedChoiceId && previousPreviewChoices.some((choice) => choice.id === previousPreview.selectedChoiceId)
       ? previousPreview.selectedChoiceId
       : null;
   const nextPreviewCut = getNextPreviewCut(orderedCuts, previewCut, previewChoices, previewSelectedChoiceId);
+  const previewRenderCut = previewCut ? resolveLoopRenderableCut(previewCut, cutsById) : null;
+  const nextPreviewRenderCut = nextPreviewCut ? resolveLoopRenderableCut(nextPreviewCut, cutsById) : null;
   const nextPreviewChoices = nextPreviewCut ? getChoicesForCut(choices, nextPreviewCut.id) : [];
   const currentPreviewSelectedChoiceId = previewChoices.some((choice) => choice.id === previewSelectedChoiceId)
     ? previewSelectedChoiceId
@@ -286,6 +295,12 @@ export function EpisodeEditorShell({
   function handlePreviewNavigateCut(cutId: string) {
     onPreviewSelectCut(cutId);
     onSelectCut(cutId);
+  }
+
+  async function handleDeleteGraphCuts(cutIds: string[]) {
+    for (const cutId of cutIds) {
+      await onDeleteCut(cutId);
+    }
   }
 
   return (
@@ -333,6 +348,8 @@ export function EpisodeEditorShell({
               onApplyLayout={onApplyGraphLayout}
               onCreateChoiceConnection={onCreateChoiceConnection}
               onCreateLinkedCut={onCreateLinkedCut}
+              onDeleteCuts={handleDeleteGraphCuts}
+              onOpenLoopStateSetting={onOpenLoopStateSetting}
               onConnectChoice={onConnectChoice}
               onConnectStateFallback={onConnectStateFallback}
               onConnectStateRoute={onConnectStateRoute}
@@ -365,7 +382,7 @@ export function EpisodeEditorShell({
               graphPreview={
                 <PreviewPlayer
                   choices={previewChoices}
-                  cut={previewCut}
+                  cut={previewRenderCut}
                   framed={false}
                   nextCutId={nextPreviewCut?.id ?? null}
                   onNavigateCut={handlePreviewNavigateCut}
@@ -397,6 +414,8 @@ export function EpisodeEditorShell({
             choices={choices}
             cuts={orderedCuts}
             onCreateCut={onCreateCut}
+            onCreateLoopVariant={onCreateLoopVariant}
+            onOpenLoopStateSetting={onOpenLoopStateSetting}
             onDeleteCut={onDeleteCut}
             onDragEnd={onDragEnd}
             onSelectCut={onSelectCut}
@@ -409,7 +428,7 @@ export function EpisodeEditorShell({
             <div className="h-full min-h-0 min-w-0 overflow-hidden">
               <PreviewPlayer
                 choices={previousPreviewChoices}
-                cut={previousPreviewCut}
+                cut={previousPreviewRenderCut}
                 framed={false}
                 onSelectChoice={onPreviewSelectChoice}
                 onSelectCut={onPreviewSelectCut}
@@ -420,7 +439,7 @@ export function EpisodeEditorShell({
             <div className="h-full min-h-0 min-w-0 overflow-hidden border-x border-editor-border">
               <PreviewPlayer
                 choices={previewChoices}
-                cut={previewCut}
+                cut={previewRenderCut}
                 framed={false}
                 nextCutId={nextPreviewCut?.id ?? null}
                 onNavigateCut={handlePreviewNavigateCut}
@@ -434,7 +453,7 @@ export function EpisodeEditorShell({
             <div className="h-full min-h-0 min-w-0 overflow-hidden">
               <PreviewPlayer
                 choices={nextPreviewChoices}
-                cut={nextPreviewCut}
+                cut={nextPreviewRenderCut}
                 framed={false}
                 onSelectChoice={onPreviewSelectChoice}
                 onSelectCut={onPreviewSelectCut}
@@ -443,22 +462,24 @@ export function EpisodeEditorShell({
               />
             </div>
           </div>
-          <InspectorPanel
-            cuts={orderedCuts}
-            choices={choices}
-            onCreateChoice={onCreateChoice}
-            onCommitCut={onCommitCut}
-            onDeleteChoice={onDeleteChoice}
-            onDeleteCut={onDeleteCut}
-            onSelectChoice={onSelectChoice}
-            onUpdateChoice={onUpdateChoice}
-            onUpdateCut={onUpdateCut}
-            onUploadAsset={onUploadAsset}
-            pendingAutosaveCount={pendingAutosaveCount}
-            selectedChoice={selectedChoice}
-            selectedCut={selectedCut}
-            viewMode={viewMode}
-          />
+          <div className="flex min-h-0 flex-col gap-3 overflow-hidden">
+            <InspectorPanel
+              cuts={orderedCuts}
+              choices={choices}
+              onCreateChoice={onCreateChoice}
+              onCommitCut={onCommitCut}
+              onDeleteChoice={onDeleteChoice}
+              onDeleteCut={onDeleteCut}
+              onSelectChoice={onSelectChoice}
+              onUpdateChoice={onUpdateChoice}
+              onUpdateCut={onUpdateCut}
+              onUploadAsset={onUploadAsset}
+              pendingAutosaveCount={pendingAutosaveCount}
+              selectedChoice={selectedChoice}
+              selectedCut={selectedCut}
+              viewMode={viewMode}
+            />
+          </div>
         </section>
       )}
       <LivePreviewModal

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ExitLoopEpisodeMetadata } from '@promptoon/shared';
 import { MAX_CUT_STATE_ROUTE_CONDITIONS } from '@promptoon/shared';
 
 const uuidSchema = z.string().uuid();
@@ -16,11 +17,48 @@ const edgeFadeColorSchema = z.enum(['black', 'white']);
 const dialogAnchorYSchema = z.enum(['top', 'upper', 'center', 'lower', 'bottom']);
 const bindingKeySchema = z.enum(['userName']);
 const resultCardThemeSchema = z.enum(['blue', 'gold', 'violet', 'red']);
+const episodeModeSchema = z.enum(['standard', 'exit_loop']);
+const exitLoopMetadataSchema: z.ZodType<ExitLoopEpisodeMetadata> = z
+  .object({
+    enabled: z.boolean().optional(),
+    updatedAt: z.string().optional()
+  })
+  .catchall(z.unknown());
+const cutKindSchema = z.enum([
+  'scene',
+  'choice',
+  'ending',
+  'transition',
+  'stateRouter',
+  'resultCard',
+  'loopStage',
+  'loopVariant',
+  'loopSpacer'
+]);
+const loopTruthSchema = z.enum(['real_anomaly', 'fake_suspicion']);
+const loopChoiceIdSchema = z.enum(['forward', 'back']);
 const stateKeySchema = z.string().trim().min(1).max(64).regex(/^[A-Za-z0-9_.-]+$/);
 const stateValueSchema = z.string().trim().min(1).max(128);
+const loopMetadataSchema = z.object({
+  kind: z.literal('exitLoop'),
+  groupId: stateKeySchema,
+  groupLabel: z.string().trim().min(1).max(120).optional(),
+  role: z.enum(['stageBase', 'stageVariant', 'spacer', 'resultRouter']),
+  stageIndex: z.number().int().min(1).max(99).optional(),
+  stageCount: z.number().int().min(1).max(99).optional(),
+  truth: loopTruthSchema.optional(),
+  expectedChoice: loopChoiceIdSchema.optional(),
+  baseCutId: uuidSchema.nullable().optional(),
+  selectedVariantCutId: uuidSchema.nullable().optional(),
+  variantCutIds: z.array(uuidSchema).max(20).optional(),
+  exitLevelRequired: z.number().int().min(1).max(99).optional(),
+  resetStateOnEnter: z.boolean().optional(),
+  resetStateKeyPrefix: stateKeySchema.optional()
+});
 const choiceStateWriteSchema = z.object({
   key: stateKeySchema,
-  value: stateValueSchema
+  value: stateValueSchema,
+  operation: z.enum(['set', 'exitLoopDecision']).optional()
 });
 const cutStateVariantSchema = z.object({
   id: z.string().trim().min(1).max(128),
@@ -136,18 +174,22 @@ export const createProjectSchema = z.object({
 export const createEpisodeSchema = z.object({
   title: z.string().trim().min(1),
   episodeNo: z.number().int().positive(),
-  coverImageUrl: z.string().trim().nullable().optional()
+  coverImageUrl: z.string().trim().nullable().optional(),
+  mode: episodeModeSchema.optional(),
+  exitLoopMetadata: exitLoopMetadataSchema.nullable().optional()
 });
 
 export const patchEpisodeSchema = z.object({
   title: z.string().trim().min(1).optional(),
-  coverImageUrl: z.string().trim().nullable().optional()
+  coverImageUrl: z.string().trim().nullable().optional(),
+  mode: episodeModeSchema.optional(),
+  exitLoopMetadata: exitLoopMetadataSchema.nullable().optional()
 }).refine((value) => Object.keys(value).length > 0, {
   message: 'At least one episode field is required.'
 });
 
 export const createCutSchema = z.object({
-  kind: z.enum(['scene', 'choice', 'ending', 'transition', 'stateRouter', 'resultCard']),
+  kind: cutKindSchema,
   title: z.string().trim().min(1),
   body: z.string().optional(),
   contentBlocks: z.array(contentBlockSchema).optional(),
@@ -169,6 +211,7 @@ export const createCutSchema = z.object({
   stateVariants: z.array(cutStateVariantSchema).max(20).optional(),
   stateRoutes: z.array(cutStateRouteSchema).max(20).optional(),
   stateFallbackCutId: uuidSchema.nullable().optional(),
+  loopMetadata: loopMetadataSchema.nullable().optional(),
   orderIndex: z.number().int().min(0).optional(),
   positionX: z.number().finite().optional(),
   positionY: z.number().finite().optional(),
@@ -194,6 +237,34 @@ export const createChoiceSchema = z.object({
 
 export const patchChoiceSchema = createChoiceSchema.partial().refine((value) => Object.keys(value).length > 0, {
   message: 'At least one choice field is required.'
+});
+
+const loopStateSettingVariantSchema = z.object({
+  title: z.string().trim().min(1).max(120).optional(),
+  assetUrl: z.string().trim().nullable().optional(),
+  truth: loopTruthSchema
+});
+
+const loopStateSettingStageSchema = z.object({
+  title: z.string().trim().min(1).max(120).optional(),
+  baseAssetUrl: z.string().trim().nullable().optional(),
+  variantTitle: z.string().trim().min(1).max(120).optional(),
+  variantAssetUrl: z.string().trim().nullable().optional(),
+  variants: z.array(loopStateSettingVariantSchema).max(20).optional(),
+  spacerTitle: z.string().trim().min(1).max(120).optional(),
+  spacerAssetUrl: z.string().trim().nullable().optional(),
+  truth: loopTruthSchema.optional()
+});
+
+export const createLoopStateSettingSchema = z.object({
+  groupName: z.string().trim().min(1).max(80),
+  exitLevelRequired: z.number().int().min(1).max(99).optional(),
+  attachAfterCutId: uuidSchema.nullable().optional(),
+  continuationCutId: uuidSchema.nullable().optional(),
+  retryCutId: uuidSchema.nullable().optional(),
+  successCutId: uuidSchema.nullable().optional(),
+  failureCutId: uuidSchema.nullable().optional(),
+  stages: z.array(loopStateSettingStageSchema).min(1).max(12)
 });
 
 export const reorderEpisodeCutsSchema = z.object({

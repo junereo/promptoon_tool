@@ -470,6 +470,7 @@ export function CutEditorForm({
   const displayAssetUrl = localAssetPreviewUrl ?? formState.assetUrl;
   const isStateRouter = formState.kind === 'stateRouter';
   const isResultCard = formState.kind === 'resultCard';
+  const isLoopManagedCut = cut.loopMetadata?.kind === 'exitLoop';
   const resultCardBlock =
     getResultCardBlock({
       id: cut.id,
@@ -1232,6 +1233,41 @@ export function CutEditorForm({
             />
           </div>
 
+          {isLoopManagedCut ? (
+            <div className="rounded-xl border border-lime-500/20 bg-lime-500/5 px-3 py-2 text-xs leading-5 text-lime-100/85">
+              <div>
+                {cut.loopMetadata?.groupLabel ?? cut.loopMetadata?.groupId}
+                {' '}
+                ·
+                {' '}
+                {cut.loopMetadata?.role}
+                {cut.loopMetadata?.stageIndex ? ` · Stage ${cut.loopMetadata.stageIndex}` : ''}
+              </div>
+              {cut.loopMetadata?.role === 'stageVariant' ? (
+                <label className="mt-2 grid gap-1 text-[11px] text-lime-100/75">
+                  Variant truth
+                  <select
+                    className={inputClassName()}
+                    onChange={(event) => {
+                      const truth = event.target.value as NonNullable<NonNullable<Cut['loopMetadata']>['truth']>;
+                      void onCommitPatch(cut.id, {
+                        loopMetadata: {
+                          ...cut.loopMetadata!,
+                          expectedChoice: truth === 'real_anomaly' ? 'back' : 'forward',
+                          truth
+                        }
+                      });
+                    }}
+                    value={cut.loopMetadata.truth ?? 'real_anomaly'}
+                  >
+                    <option value="real_anomaly">진짜 이상</option>
+                    <option value="fake_suspicion">페이크</option>
+                  </select>
+                </label>
+              ) : null}
+            </div>
+          ) : null}
+
           {!isStateRouter && !isResultCard && !contentBlocksPortalEnabled ? contentBlocksEditor : null}
 
           {!isStateRouter && !isResultCard && !dialoguePositionPortalTarget ? dialoguePositionEditor : null}
@@ -1247,6 +1283,7 @@ export function CutEditorForm({
                 <select
                   aria-label="Kind"
                   className={inputClassName()}
+                  disabled={isLoopManagedCut}
                   onChange={(event) => {
                     const kind = event.target.value as Cut['kind'];
                     setFormState((current) => ({
@@ -1269,6 +1306,19 @@ export function CutEditorForm({
                   <option value="choice">선택</option>
                   <option value="transition">전환</option>
                   <option value="stateRouter">상태 분기</option>
+                  {isLoopManagedCut ? (
+                    <>
+                      <option value="loopStage">루프 스테이지</option>
+                      <option value="loopVariant">루프 파생</option>
+                      <option value="loopSpacer">루프 공백</option>
+                    </>
+                  ) : (
+                    <>
+                      <option disabled value="loopStage">루프 스테이지 - LoopStateSetting에서 생성</option>
+                      <option disabled value="loopVariant">루프 파생 - 루프 그룹 전용</option>
+                      <option disabled value="loopSpacer">루프 공백 - 루프 그룹 전용</option>
+                    </>
+                  )}
                   <option value="resultCard">결과 카드</option>
                   <option value="ending">엔딩</option>
                 </select>

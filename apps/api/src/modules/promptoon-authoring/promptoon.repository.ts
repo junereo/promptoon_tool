@@ -13,6 +13,8 @@ import type {
   CutStateVariant,
   Episode,
   EpisodeDraftResponse,
+  ExitLoopEpisodeMetadata,
+  PromptoonEpisodeMode,
   Project,
   ProjectWithEpisodes,
   Publish,
@@ -57,6 +59,8 @@ interface EpisodeRow {
   episode_no: number;
   cover_image_url: string | null;
   start_cut_id: string | null;
+  mode: PromptoonEpisodeMode;
+  exit_loop_metadata: ExitLoopEpisodeMetadata | null;
   status: 'draft' | 'published';
   created_at: Date;
   updated_at: Date;
@@ -73,6 +77,7 @@ interface CutRow {
   state_variants: CutStateVariant[] | null;
   state_routes: CutStateRoute[] | null;
   state_fallback_cut_id: string | null;
+  loop_metadata: Cut['loopMetadata'] | null;
   dialog_anchor_x: Cut['dialogAnchorX'];
   dialog_anchor_y: Cut['dialogAnchorY'];
   dialog_offset_x: number;
@@ -200,6 +205,8 @@ function mapEpisode(row: EpisodeRow): Episode {
     episodeNo: row.episode_no,
     coverImageUrl: row.cover_image_url,
     startCutId: row.start_cut_id,
+    mode: row.mode,
+    exitLoopMetadata: row.exit_loop_metadata,
     status: row.status,
     createdAt: toIsoString(row.created_at),
     updatedAt: toIsoString(row.updated_at)
@@ -232,6 +239,7 @@ function mapCut(row: CutRow): Cut {
     stateVariants: Array.isArray(row.state_variants) ? row.state_variants : [],
     stateRoutes: Array.isArray(row.state_routes) ? row.state_routes : [],
     stateFallbackCutId: row.state_fallback_cut_id,
+    loopMetadata: row.loop_metadata ?? null,
     positionX: row.position_x,
     positionY: row.position_y,
     orderIndex: row.order_index,
@@ -323,6 +331,8 @@ export async function listProjectsWithEpisodes(db: DbExecutor, ownerId?: string)
              'episodeNo', episode.episode_no,
              'coverImageUrl', episode.cover_image_url,
              'startCutId', episode.start_cut_id,
+             'mode', episode.mode,
+             'exitLoopMetadata', episode.exit_loop_metadata,
              'status', episode.status,
              'createdAt', episode.created_at,
              'updatedAt', episode.updated_at
@@ -463,13 +473,28 @@ export async function getProjectOwnerId(db: DbExecutor, projectId: string): Prom
 
 export async function createEpisode(
   db: DbExecutor,
-  input: { projectId: string; title: string; episodeNo: number; coverImageUrl?: string | null }
+  input: {
+    projectId: string;
+    title: string;
+    episodeNo: number;
+    coverImageUrl?: string | null;
+    mode?: PromptoonEpisodeMode;
+    exitLoopMetadata?: ExitLoopEpisodeMetadata | null;
+  }
 ): Promise<Episode> {
   const result = await db.query<EpisodeRow>(
-    `INSERT INTO promptoon_episode (id, project_id, title, episode_no, cover_image_url)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO promptoon_episode (id, project_id, title, episode_no, cover_image_url, mode, exit_loop_metadata)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      RETURNING *`,
-    [randomUUID(), input.projectId, input.title, input.episodeNo, input.coverImageUrl ?? null]
+    [
+      randomUUID(),
+      input.projectId,
+      input.title,
+      input.episodeNo,
+      input.coverImageUrl ?? null,
+      input.mode ?? 'standard',
+      input.exitLoopMetadata ? JSON.stringify(input.exitLoopMetadata) : null
+    ]
   );
 
   return mapEpisode(result.rows[0]);
@@ -486,6 +511,8 @@ export async function updateEpisode(
   patch: Partial<{
     title: string;
     coverImageUrl: string | null;
+    mode: PromptoonEpisodeMode;
+    exitLoopMetadata: ExitLoopEpisodeMetadata | null;
   }>
 ): Promise<Episode | null> {
   const existing = await getEpisodeById(db, episodeId);
@@ -496,14 +523,25 @@ export async function updateEpisode(
   const nextCoverImageUrl = Object.prototype.hasOwnProperty.call(patch, 'coverImageUrl')
     ? patch.coverImageUrl ?? null
     : existing.coverImageUrl;
+  const nextExitLoopMetadata = Object.prototype.hasOwnProperty.call(patch, 'exitLoopMetadata')
+    ? patch.exitLoopMetadata ?? null
+    : existing.exitLoopMetadata;
   const result = await db.query<EpisodeRow>(
     `UPDATE promptoon_episode
      SET title = $1,
          cover_image_url = $2,
+         mode = $3,
+         exit_loop_metadata = $4,
          updated_at = NOW()
-     WHERE id = $3
+     WHERE id = $5
      RETURNING *`,
-    [patch.title ?? existing.title, nextCoverImageUrl, episodeId]
+    [
+      patch.title ?? existing.title,
+      nextCoverImageUrl,
+      patch.mode ?? existing.mode,
+      nextExitLoopMetadata ? JSON.stringify(nextExitLoopMetadata) : null,
+      episodeId
+    ]
   );
 
   return result.rows[0] ? mapEpisode(result.rows[0]) : null;
@@ -603,6 +641,7 @@ export async function createCut(
     stateVariants?: CutStateVariant[];
     stateRoutes?: CutStateRoute[];
     stateFallbackCutId?: string | null;
+    loopMetadata?: Cut['loopMetadata'] | null;
     dialogAnchorX?: Cut['dialogAnchorX'];
     dialogAnchorY?: Cut['dialogAnchorY'];
     dialogOffsetX?: number;
@@ -634,9 +673,9 @@ export async function createCut(
 
   const result = await db.query<CutRow>(
     `INSERT INTO promptoon_cut (
-      id, episode_id, kind, title, body, content_blocks, content_view_mode, state_variants, state_routes, state_fallback_cut_id, dialog_anchor_x, dialog_anchor_y, dialog_offset_x, dialog_offset_y, dialog_text_align,
+      id, episode_id, kind, title, body, content_blocks, content_view_mode, state_variants, state_routes, state_fallback_cut_id, loop_metadata, dialog_anchor_x, dialog_anchor_y, dialog_offset_x, dialog_offset_y, dialog_text_align,
       start_effect, end_effect, start_effect_duration_ms, end_effect_duration_ms, asset_url, edge_fade, edge_fade_intensity, edge_fade_color, margin_bottom_token, position_x, position_y, order_index, is_start, is_ending
-     ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8::jsonb, $9::jsonb, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
+     ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8::jsonb, $9::jsonb, $10, $11::jsonb, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30)
      RETURNING *`,
     [
       randomUUID(),
@@ -649,6 +688,7 @@ export async function createCut(
       JSON.stringify(input.stateVariants ?? []),
       JSON.stringify(input.stateRoutes ?? []),
       input.stateFallbackCutId ?? null,
+      input.loopMetadata ? JSON.stringify(input.loopMetadata) : null,
       input.dialogAnchorX ?? 'left',
       input.dialogAnchorY ?? 'bottom',
       input.dialogOffsetX ?? 0,
@@ -695,6 +735,7 @@ export async function updateCut(
     stateVariants: CutStateVariant[];
     stateRoutes: CutStateRoute[];
     stateFallbackCutId: string | null;
+    loopMetadata: Cut['loopMetadata'] | null;
     dialogAnchorX: Cut['dialogAnchorX'];
     dialogAnchorY: Cut['dialogAnchorY'];
     dialogOffsetX: number;
@@ -725,6 +766,9 @@ export async function updateCut(
   const nextStateFallbackCutId = Object.prototype.hasOwnProperty.call(patch, 'stateFallbackCutId')
     ? patch.stateFallbackCutId ?? null
     : existing.stateFallbackCutId ?? null;
+  const nextLoopMetadata = Object.prototype.hasOwnProperty.call(patch, 'loopMetadata')
+    ? patch.loopMetadata ?? null
+    : existing.loopMetadata ?? null;
   const nextIsEnding =
     patch.isEnding !== undefined
       ? patch.isEnding
@@ -741,27 +785,28 @@ export async function updateCut(
          state_variants = $6::jsonb,
          state_routes = $7::jsonb,
          state_fallback_cut_id = $8,
-         dialog_anchor_x = $9,
-         dialog_anchor_y = $10,
-         dialog_offset_x = $11,
-         dialog_offset_y = $12,
-         dialog_text_align = $13,
-         start_effect = $14,
-         end_effect = $15,
-         start_effect_duration_ms = $16,
-         end_effect_duration_ms = $17,
-         asset_url = $18,
-         edge_fade = $19,
-         edge_fade_intensity = $20,
-         edge_fade_color = $21,
-         margin_bottom_token = $22,
-         position_x = $23,
-         position_y = $24,
-         order_index = $25,
-         is_start = $26,
-         is_ending = $27,
+         loop_metadata = $9::jsonb,
+         dialog_anchor_x = $10,
+         dialog_anchor_y = $11,
+         dialog_offset_x = $12,
+         dialog_offset_y = $13,
+         dialog_text_align = $14,
+         start_effect = $15,
+         end_effect = $16,
+         start_effect_duration_ms = $17,
+         end_effect_duration_ms = $18,
+         asset_url = $19,
+         edge_fade = $20,
+         edge_fade_intensity = $21,
+         edge_fade_color = $22,
+         margin_bottom_token = $23,
+         position_x = $24,
+         position_y = $25,
+         order_index = $26,
+         is_start = $27,
+         is_ending = $28,
          updated_at = NOW()
-     WHERE id = $28
+     WHERE id = $29
      RETURNING *`,
     [
       patch.kind ?? existing.kind,
@@ -772,6 +817,7 @@ export async function updateCut(
       JSON.stringify(patch.stateVariants ?? existing.stateVariants),
       JSON.stringify(patch.stateRoutes ?? existing.stateRoutes),
       nextStateFallbackCutId,
+      nextLoopMetadata ? JSON.stringify(nextLoopMetadata) : null,
       patch.dialogAnchorX ?? existing.dialogAnchorX,
       patch.dialogAnchorY ?? existing.dialogAnchorY,
       patch.dialogOffsetX ?? existing.dialogOffsetX,

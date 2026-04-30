@@ -10,6 +10,8 @@ import type {
   CutContentBlock,
   CreateChoiceRequest,
   CreateCutRequest,
+  CreateLoopStateSettingRequest,
+  CreateLoopStateSettingResponse,
   CutStateVariant,
   CutStateRoute,
   DeleteCutRequest,
@@ -53,8 +55,11 @@ import {
   getCutStateRouteConditions,
   getNormalizedCutContentBlocks
 } from '@promptoon/shared';
-import { readFile } from 'node:fs/promises';
-import { mkdir, writeFile } from 'node:fs/promises';
+import {
+  mkdir,
+  readFile,
+  writeFile
+} from 'node:fs/promises';
 import path from 'node:path';
 import type { PoolClient } from 'pg';
 import sharp from 'sharp';
@@ -120,6 +125,7 @@ function normalizeManifest(manifest: PublishManifest): PublishManifest {
         stateVariants: cut.stateVariants ?? [],
         stateRoutes: cut.stateRoutes ?? [],
         stateFallbackCutId: cut.stateFallbackCutId ?? null,
+        loopMetadata: cut.loopMetadata ?? null,
         startEffect: cut.startEffect ?? 'none',
         endEffect: cut.endEffect ?? 'none',
         startEffectDurationMs: normalizeCutEffectDurationMs(cut.startEffectDurationMs),
@@ -235,7 +241,8 @@ function normalizeChoiceStateWrites(stateWrites: ChoiceStateWrite[] | undefined)
 
   return stateWrites.map((stateWrite) => ({
     key: stateWrite.key.trim(),
-    value: stateWrite.value.trim()
+    value: stateWrite.value.trim(),
+    operation: stateWrite.operation ?? 'set'
   }));
 }
 
@@ -271,6 +278,61 @@ function normalizeCutStateRoutes(stateRoutes: CutStateRoute[] | undefined): CutS
       label: stateRoute.label?.trim() || undefined
     };
   });
+}
+
+function normalizeCutLoopMetadata(loopMetadata: Cut['loopMetadata'] | undefined): Cut['loopMetadata'] | undefined {
+  if (loopMetadata === undefined) {
+    return undefined;
+  }
+
+  if (!loopMetadata) {
+    return null;
+  }
+
+  return {
+    kind: 'exitLoop',
+    groupId: loopMetadata.groupId.trim(),
+    groupLabel: loopMetadata.groupLabel?.trim() || undefined,
+    role: loopMetadata.role,
+    stageIndex: loopMetadata.stageIndex,
+    stageCount: loopMetadata.stageCount,
+    truth: loopMetadata.truth,
+    expectedChoice: loopMetadata.expectedChoice,
+    baseCutId: loopMetadata.baseCutId ?? null,
+    selectedVariantCutId: loopMetadata.selectedVariantCutId ?? null,
+    variantCutIds: loopMetadata.variantCutIds?.filter((cutId, index, cutIds) => cutIds.indexOf(cutId) === index),
+    exitLevelRequired: loopMetadata.exitLevelRequired,
+    resetStateOnEnter: loopMetadata.resetStateOnEnter,
+    resetStateKeyPrefix: loopMetadata.resetStateKeyPrefix?.trim() || undefined
+  };
+}
+
+function assertLoopCutKindMatchesMetadata(kind: Cut['kind'], loopMetadata: Cut['loopMetadata'] | null | undefined): void {
+  const expectedRoleByKind: Partial<Record<Cut['kind'], NonNullable<Cut['loopMetadata']>['role']>> = {
+    loopStage: 'stageBase',
+    loopVariant: 'stageVariant',
+    loopSpacer: 'spacer',
+    stateRouter: 'resultRouter'
+  };
+  const expectedRole = expectedRoleByKind[kind];
+
+  if (kind === 'loopStage' || kind === 'loopVariant' || kind === 'loopSpacer') {
+    if (!loopMetadata || loopMetadata.kind !== 'exitLoop') {
+      throw new HttpError(400, 'Loop cut kinds must be created through LoopStateSetting.');
+    }
+  }
+
+  if (!loopMetadata) {
+    return;
+  }
+
+  if (loopMetadata.kind !== 'exitLoop') {
+    throw new HttpError(400, 'Invalid loop metadata.');
+  }
+
+  if (!expectedRole || loopMetadata.role !== expectedRole) {
+    throw new HttpError(400, 'Loop metadata role does not match the cut kind.');
+  }
 }
 
 async function ensureStateVariantTargetsInEpisode(input: {
@@ -324,6 +386,38 @@ async function ensureStateRouterTargetsInEpisode(input: {
   }
 }
 
+async function ensureLoopMetadataTargetsInEpisode(input: {
+  episodeId: string;
+  sourceCutId?: string;
+  loopMetadata?: Cut['loopMetadata'] | null;
+}): Promise<void> {
+  if (!input.loopMetadata) {
+    return;
+  }
+
+  const targetIds = [
+    input.loopMetadata.baseCutId ?? null,
+    input.loopMetadata.selectedVariantCutId ?? null,
+    ...(input.loopMetadata.variantCutIds ?? [])
+  ].filter((targetId): targetId is string => Boolean(targetId));
+  if (targetIds.length === 0) {
+    return;
+  }
+
+  const draft = assertExists(await repository.getEpisodeDraft(db, input.episodeId), 'Episode not found.');
+  const cutIds = new Set(draft.cuts.map((cut) => cut.id));
+
+  for (const targetId of targetIds) {
+    if (targetId === input.sourceCutId) {
+      throw new HttpError(400, 'Loop metadata target cannot be the source cut.');
+    }
+
+    if (!cutIds.has(targetId)) {
+      throw new HttpError(400, 'Loop metadata target must reference a cut in the same episode.');
+    }
+  }
+}
+
 function buildManifest(draft: EpisodeDraftResponse, project: Project): PublishManifest {
   const choicesByCutId = new Map<string, Choice[]>();
   for (const choice of draft.choices) {
@@ -346,7 +440,9 @@ function buildManifest(draft: EpisodeDraftResponse, project: Project): PublishMa
       episodeNo: draft.episode.episodeNo,
       coverImageUrl: draft.episode.coverImageUrl,
       status: draft.episode.status,
-      startCutId: draft.episode.startCutId
+      startCutId: draft.episode.startCutId,
+      mode: draft.episode.mode,
+      exitLoopMetadata: draft.episode.exitLoopMetadata
     },
     cuts: draft.cuts.map((cut) => ({
       contentBlocks: getNormalizedCutContentBlocks(cut),
@@ -377,6 +473,7 @@ function buildManifest(draft: EpisodeDraftResponse, project: Project): PublishMa
       stateVariants: cut.stateVariants ?? [],
       stateRoutes: cut.stateRoutes ?? [],
       stateFallbackCutId: cut.stateFallbackCutId ?? null,
+      loopMetadata: cut.loopMetadata ?? null,
       choices: (choicesByCutId.get(cut.id) ?? []).map((choice) => ({
         id: choice.id,
         label: choice.label,
@@ -949,7 +1046,9 @@ export async function createEpisode(projectId: string, request: CreateEpisodeReq
       projectId,
       title: request.title,
       episodeNo: request.episodeNo,
-      coverImageUrl: request.coverImageUrl
+      coverImageUrl: request.coverImageUrl,
+      mode: request.mode,
+      exitLoopMetadata: request.exitLoopMetadata
     });
   } catch (error) {
     throw mapDatabaseError(error);
@@ -971,10 +1070,345 @@ export async function getEpisodeDraft(episodeId: string, userId: string): Promis
   return assertExists(await repository.getEpisodeDraft(db, episodeId), 'Episode not found.');
 }
 
+function sanitizeLoopGroupId(groupName: string): string {
+  const normalized = groupName
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 36);
+  const base = normalized || 'exit-loop';
+  const suffix = randomUUID().replaceAll('-', '').slice(0, 8);
+
+  return `${base}-${suffix}`;
+}
+
+function getLoopExpectedChoice(truth: CreateLoopStateSettingRequest['stages'][number]['truth']): 'forward' | 'back' {
+  return truth === 'real_anomaly' ? 'back' : 'forward';
+}
+
+function getLoopStatePrefix(groupId: string): string {
+  return `exitLoop.${groupId}.`;
+}
+
+function getLoopRouteStateKey(groupId: string): string {
+  return `${getLoopStatePrefix(groupId)}route`;
+}
+
+function getLoopDecisionStateKey(groupId: string): string {
+  return `${getLoopStatePrefix(groupId)}decision`;
+}
+
+function getLoopDecisionStateWrites(groupId: string, choiceId: 'forward' | 'back'): ChoiceStateWrite[] {
+  return [
+    {
+      key: getLoopDecisionStateKey(groupId),
+      operation: 'exitLoopDecision',
+      value: choiceId
+    }
+  ];
+}
+
+function getLoopStageTitle(groupName: string, stageIndex: number, title: string | undefined): string {
+  return title?.trim() || `${groupName} Stage ${String(stageIndex).padStart(2, '0')}`;
+}
+
+function getLoopVariantTitle(groupName: string, stageIndex: number, title: string | undefined): string {
+  return title?.trim() || `${groupName} Stage ${String(stageIndex).padStart(2, '0')} Variant`;
+}
+
+function getLoopSpacerTitle(groupName: string, stageIndex: number, title: string | undefined): string {
+  return title?.trim() || `${groupName} Spacer ${String(stageIndex).padStart(2, '0')}`;
+}
+
+function getLoopDecisionTitle(groupName: string): string {
+  return `${groupName} Decision`;
+}
+
+async function ensureOptionalLoopStateTargetInEpisode(input: {
+  cutId: string | null | undefined;
+  cutIds: Set<string>;
+  label: string;
+}): Promise<void> {
+  if (!input.cutId) {
+    return;
+  }
+
+  if (!input.cutIds.has(input.cutId)) {
+    throw new HttpError(400, `${input.label} must reference a cut in the same episode.`);
+  }
+}
+
+export async function createLoopStateSetting(
+  episodeId: string,
+  request: CreateLoopStateSettingRequest,
+  userId: string
+): Promise<CreateLoopStateSettingResponse> {
+  await ensureEpisodeOwnedByUser(episodeId, userId);
+  const draft = assertExists(await repository.getEpisodeDraft(db, episodeId), 'Episode not found.');
+  const cutIds = new Set(draft.cuts.map((cut) => cut.id));
+  const continuationCutId = request.continuationCutId ?? request.successCutId ?? null;
+  const retryCutId = request.retryCutId ?? request.failureCutId ?? null;
+
+  await ensureOptionalLoopStateTargetInEpisode({
+    cutId: request.attachAfterCutId,
+    cutIds,
+    label: 'Attach cut'
+  });
+  await ensureOptionalLoopStateTargetInEpisode({
+    cutId: continuationCutId,
+    cutIds,
+    label: 'Continuation cut'
+  });
+  await ensureOptionalLoopStateTargetInEpisode({
+    cutId: retryCutId,
+    cutIds,
+    label: 'Retry cut'
+  });
+
+  const groupName = request.groupName.trim();
+  const groupId = sanitizeLoopGroupId(groupName);
+  const statePrefix = getLoopStatePrefix(groupId);
+  const stageCount = request.stages.length;
+  const exitLevelRequired = request.exitLevelRequired ?? 5;
+  const startOrderIndex = draft.cuts.length;
+  let loopStateSettingResponse: CreateLoopStateSettingResponse | null = null;
+
+  await withTransaction(async (client) => {
+    const stageCuts: Cut[] = [];
+    const spacerCuts: Cut[] = [];
+
+    for (const [stageOffset, stage] of request.stages.entries()) {
+      const stageIndex = stageOffset + 1;
+      const stageOrderIndex = startOrderIndex + stageOffset * 24;
+      const stageLoopMetadata: NonNullable<Cut['loopMetadata']> = {
+        kind: 'exitLoop',
+        groupId,
+        groupLabel: groupName,
+        role: 'stageBase',
+        stageIndex,
+        stageCount,
+        selectedVariantCutId: null,
+        variantCutIds: [],
+        exitLevelRequired,
+        resetStateOnEnter: false,
+        resetStateKeyPrefix: stageIndex === 1 ? statePrefix : undefined
+      };
+      const stageCut = await repository.createCut(client, {
+        episodeId,
+        kind: 'loopStage',
+        title: getLoopStageTitle(groupName, stageIndex, stage.title),
+        body: '',
+        assetUrl: stage.baseAssetUrl ?? null,
+        loopMetadata: stageLoopMetadata,
+        orderIndex: stageOrderIndex,
+        positionX: stageOffset * 260,
+        positionY: 220
+      });
+      const variantInputs =
+        stage.variants && stage.variants.length > 0
+          ? stage.variants
+          : stage.truth
+            ? [
+                {
+                  assetUrl: stage.variantAssetUrl ?? stage.baseAssetUrl ?? null,
+                  title: stage.variantTitle,
+                  truth: stage.truth
+                }
+              ]
+            : [];
+      const variantCutIds: string[] = [];
+
+      for (const [variantOffset, variantInput] of variantInputs.entries()) {
+        const truth = variantInput.truth;
+        const expectedChoice = getLoopExpectedChoice(truth);
+        const variantCut = await repository.createCut(client, {
+          episodeId,
+          kind: 'loopVariant',
+          title: getLoopVariantTitle(groupName, stageIndex, variantInput.title),
+          body: '',
+          assetUrl: variantInput.assetUrl ?? stage.baseAssetUrl ?? null,
+          loopMetadata: {
+            kind: 'exitLoop',
+            groupId,
+            groupLabel: groupName,
+            role: 'stageVariant',
+            stageIndex,
+            stageCount,
+            truth,
+            expectedChoice,
+            baseCutId: stageCut.id,
+            exitLevelRequired
+          },
+          orderIndex: stageOrderIndex + 1 + variantOffset,
+          positionX: stageOffset * 260,
+          positionY: 430 + variantOffset * 92
+        });
+        variantCutIds.push(variantCut.id);
+      }
+
+      const updatedStageCut = assertExists(
+        await repository.updateCut(client, stageCut.id, {
+          loopMetadata: {
+            ...stageLoopMetadata,
+            selectedVariantCutId: null,
+            variantCutIds
+          }
+        }),
+        'Loop stage cut not found.'
+      );
+      stageCuts.push(updatedStageCut);
+
+      if (stageIndex < stageCount) {
+        spacerCuts.push(
+          await repository.createCut(client, {
+            episodeId,
+            kind: 'loopSpacer',
+            title: getLoopSpacerTitle(groupName, stageIndex, stage.spacerTitle),
+            body: '',
+            assetUrl: stage.spacerAssetUrl ?? null,
+            loopMetadata: {
+              kind: 'exitLoop',
+              groupId,
+              groupLabel: groupName,
+              role: 'spacer',
+              stageIndex,
+              stageCount
+            },
+            orderIndex: stageOrderIndex + 20,
+            positionX: stageOffset * 260 + 130,
+            positionY: 220
+          })
+        );
+      }
+    }
+
+    const firstStageCut = stageCuts[0];
+    if (!firstStageCut) {
+      throw new HttpError(400, 'LoopStateSetting requires at least one stage.');
+    }
+
+    const retryCut = retryCutId
+      ? assertExists(await repository.getCutById(client, retryCutId), 'Retry cut not found.')
+      : firstStageCut;
+    const continuationCut = continuationCutId
+      ? assertExists(await repository.getCutById(client, continuationCutId), 'Continuation cut not found.')
+      : await repository.createCut(client, {
+          episodeId,
+          kind: 'scene',
+          title: `${groupName} Next`,
+          body: '루프 바깥으로 진행합니다.',
+          isEnding: false,
+          orderIndex: startOrderIndex + stageCount * 24 + 1,
+          positionX: stageCount * 260,
+          positionY: 430
+        });
+    const resultRouterCut = await repository.createCut(client, {
+      episodeId,
+      kind: 'stateRouter',
+      title: `${groupName} Result Router`,
+      body: '',
+      stateRoutes: [
+        {
+          id: 'loop-result-exit',
+          conditions: [
+            {
+              stateKey: getLoopRouteStateKey(groupId),
+              equals: 'exit'
+            }
+          ],
+          nextCutId: continuationCut.id,
+          label: 'Exit'
+        }
+      ],
+      stateFallbackCutId: retryCut.id,
+      loopMetadata: {
+        kind: 'exitLoop',
+        groupId,
+        groupLabel: groupName,
+        role: 'resultRouter',
+        stageCount,
+        exitLevelRequired
+      },
+      orderIndex: startOrderIndex + stageCount * 24,
+      positionX: stageCount * 260,
+      positionY: 220
+    });
+
+    for (const [stageOffset, stageCut] of stageCuts.entries()) {
+      const isLastStage = stageOffset === stageCuts.length - 1;
+      if (isLastStage) {
+        await repository.createChoice(client, {
+          cutId: stageCut.id,
+          label: '나아간다',
+          nextCutId: resultRouterCut.id,
+          orderIndex: 0,
+          stateWrites: getLoopDecisionStateWrites(groupId, 'forward')
+        });
+        await repository.createChoice(client, {
+          cutId: stageCut.id,
+          label: '돌아간다',
+          nextCutId: resultRouterCut.id,
+          orderIndex: 1,
+          stateWrites: getLoopDecisionStateWrites(groupId, 'back')
+        });
+      } else {
+        const nextCutId = spacerCuts[stageOffset]?.id ?? resultRouterCut.id;
+        await repository.createChoice(client, {
+          cutId: stageCut.id,
+          label: '계속',
+          nextCutId,
+          orderIndex: 0
+        });
+      }
+
+      const nextStageCut = stageCuts[stageOffset + 1] ?? null;
+      const spacerCut = spacerCuts[stageOffset] ?? null;
+      if (spacerCut && nextStageCut) {
+        await repository.createChoice(client, {
+          cutId: spacerCut.id,
+          label: '계속',
+          nextCutId: nextStageCut.id,
+          orderIndex: 0
+        });
+      }
+    }
+
+    if (request.attachAfterCutId) {
+      await repository.createChoice(client, {
+        cutId: request.attachAfterCutId,
+        label: groupName,
+        nextCutId: firstStageCut.id
+      });
+    }
+
+    const nextDraft = assertExists(await repository.getEpisodeDraft(client, episodeId), 'Episode not found.');
+    loopStateSettingResponse = {
+      ...nextDraft,
+      groupId,
+      firstStageCutId: firstStageCut.id,
+      resultRouterCutId: resultRouterCut.id,
+      continuationCutId: continuationCut.id,
+      retryCutId: retryCut.id,
+      successCutId: continuationCut.id,
+      failureCutId: retryCut.id
+    };
+  });
+
+  if (!loopStateSettingResponse) {
+    throw new HttpError(500, 'LoopStateSetting was not created.');
+  }
+
+  return loopStateSettingResponse;
+}
+
 export async function createCut(episodeId: string, request: CreateCutRequest, userId: string): Promise<Cut> {
   await ensureEpisodeOwnedByUser(episodeId, userId);
   const stateVariants = normalizeCutStateVariants(request.stateVariants);
   const stateRoutes = normalizeCutStateRoutes(request.stateRoutes);
+  const loopMetadata = normalizeCutLoopMetadata(request.loopMetadata);
+  assertLoopCutKindMatchesMetadata(request.kind, loopMetadata);
   await ensureStateVariantTargetsInEpisode({
     episodeId,
     stateVariants
@@ -984,13 +1418,18 @@ export async function createCut(episodeId: string, request: CreateCutRequest, us
     stateRoutes,
     stateFallbackCutId: request.stateFallbackCutId
   });
+  await ensureLoopMetadataTargetsInEpisode({
+    episodeId,
+    loopMetadata
+  });
 
   try {
     return await repository.createCut(db, {
       episodeId,
       ...request,
       stateVariants,
-      stateRoutes
+      stateRoutes,
+      loopMetadata
     });
   } catch (error) {
     throw mapDatabaseError(error);
@@ -1002,6 +1441,10 @@ export async function updateCut(cutId: string, request: PatchCutRequest, userId:
   const cut = assertExists(await repository.getCutById(db, cutId), 'Cut not found.');
   const stateVariants = normalizeCutStateVariants(request.stateVariants);
   const stateRoutes = normalizeCutStateRoutes(request.stateRoutes);
+  const loopMetadata = normalizeCutLoopMetadata(request.loopMetadata);
+  const nextKind = request.kind ?? cut.kind;
+  const nextLoopMetadata = loopMetadata === undefined ? cut.loopMetadata ?? null : loopMetadata;
+  assertLoopCutKindMatchesMetadata(nextKind, nextLoopMetadata);
   await ensureStateVariantTargetsInEpisode({
     episodeId: cut.episodeId,
     sourceCutId: cutId,
@@ -1013,9 +1456,19 @@ export async function updateCut(cutId: string, request: PatchCutRequest, userId:
     stateRoutes,
     stateFallbackCutId: request.stateFallbackCutId
   });
+  await ensureLoopMetadataTargetsInEpisode({
+    episodeId: cut.episodeId,
+    sourceCutId: cutId,
+    loopMetadata
+  });
 
   try {
-    return assertExists(await repository.updateCut(db, cutId, { ...request, stateVariants, stateRoutes }), 'Cut not found.');
+    const patch: PatchCutRequest = { ...request, stateVariants, stateRoutes };
+    if (loopMetadata !== undefined) {
+      patch.loopMetadata = loopMetadata;
+    }
+
+    return assertExists(await repository.updateCut(db, cutId, patch), 'Cut not found.');
   } catch (error) {
     throw mapDatabaseError(error);
   }

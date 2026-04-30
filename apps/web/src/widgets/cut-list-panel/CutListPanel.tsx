@@ -158,11 +158,29 @@ function buildChoiceSections(group: Pick<CutBranchGroup, 'key' | 'nodes'>): CutC
   return sections;
 }
 
+function getCutItemIndentLevel(node: CutHierarchyNode): number {
+  if (
+    (node.cut.kind === 'loopVariant' || node.cut.kind === 'loopSpacer') &&
+    node.parentCutId &&
+    node.cut.loopMetadata?.kind === 'exitLoop'
+  ) {
+    return 2;
+  }
+
+  return 1;
+}
+
+function canCreateAfterCut(cut: Cut): boolean {
+  return cut.kind !== 'loopVariant' && cut.kind !== 'loopSpacer';
+}
+
 export function CutListPanel({
   choices,
   cuts,
   selectedCutId,
   onCreateCut,
+  onCreateLoopVariant,
+  onOpenLoopStateSetting,
   onDeleteCut,
   onDragEnd,
   onSelectCut
@@ -171,6 +189,8 @@ export function CutListPanel({
   cuts: Cut[];
   selectedCutId: string | null;
   onCreateCut: (anchorCutId?: string) => void;
+  onCreateLoopVariant: (stageCutId: string) => void;
+  onOpenLoopStateSetting: (anchorCutId?: string) => void;
   onDeleteCut: (cutId: string, payload?: DeleteCutRequest) => Promise<void> | void;
   onDragEnd: (payload: CutListDragPayload) => void;
   onSelectCut: (cutId: string) => void;
@@ -287,13 +307,22 @@ export function CutListPanel({
             <p className="font-display text-lg font-semibold text-zinc-50">Cut List</p>
             <p className="text-xs text-zinc-400">Drag to reorder. Select, delete, and build the episode flow.</p>
           </div>
-          <button
-            className="rounded-full bg-editor-accent px-3 py-1.5 text-sm font-medium text-white transition hover:bg-editor-accentSoft"
-            onClick={() => onCreateCut()}
-            type="button"
-          >
-            + Cut
-          </button>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button
+              className="rounded-full border border-lime-500/35 bg-lime-500/10 px-3 py-1.5 text-sm font-medium text-lime-100 transition hover:border-lime-400/60 hover:bg-lime-500/15"
+              onClick={() => onOpenLoopStateSetting(selectedCutId ?? undefined)}
+              type="button"
+            >
+              LoopStateSetting
+            </button>
+            <button
+              className="rounded-full bg-editor-accent px-3 py-1.5 text-sm font-medium text-white transition hover:bg-editor-accentSoft"
+              onClick={() => onCreateCut()}
+              type="button"
+            >
+              + Cut
+            </button>
+          </div>
         </div>
 
         <div className="mt-2 rounded-xl border border-editor-border bg-black/10 px-3 py-1.5 text-xs uppercase tracking-[0.2em] text-zinc-500">
@@ -360,8 +389,14 @@ export function CutListPanel({
                                 </div>
                                 <CutItem
                                   cut={group.contextNode.cut}
+                                  createAfterDisabled={!canCreateAfterCut(group.contextNode.cut)}
                                   dragDisabled
                                   onCreateAfter={() => onCreateCut(group.contextNode!.cut.id)}
+                                  onCreateLoopVariant={
+                                    group.contextNode.cut.loopMetadata?.role === 'stageBase'
+                                      ? () => onCreateLoopVariant(group.contextNode!.cut.id)
+                                      : undefined
+                                  }
                                   onDelete={() => openDeleteModal(group.contextNode!.cut)}
                                   onSelect={() => onSelectCut(group.contextNode!.cut.id)}
                                   rank={getCompressedRank(group.contextNode.rank)}
@@ -409,8 +444,13 @@ export function CutListPanel({
                                         <SortableCutItem
                                           key={node.cut.id}
                                           cut={node.cut}
-                                          indentLevel={1}
+                                          createAfterDisabled={!canCreateAfterCut(node.cut)}
+                                          dragDisabled={!canCreateAfterCut(node.cut)}
+                                          indentLevel={getCutItemIndentLevel(node)}
                                           onCreateAfter={() => onCreateCut(node.cut.id)}
+                                          onCreateLoopVariant={
+                                            node.cut.loopMetadata?.role === 'stageBase' ? () => onCreateLoopVariant(node.cut.id) : undefined
+                                          }
                                           onDelete={() => openDeleteModal(node.cut)}
                                           onSelect={() => onSelectCut(node.cut.id)}
                                           rank={getCompressedRank(node.rank)}

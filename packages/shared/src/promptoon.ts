@@ -1,4 +1,13 @@
-export type PromptoonCutKind = 'scene' | 'choice' | 'ending' | 'transition' | 'stateRouter' | 'resultCard';
+export type PromptoonCutKind =
+  | 'scene'
+  | 'choice'
+  | 'ending'
+  | 'transition'
+  | 'stateRouter'
+  | 'resultCard'
+  | 'loopStage'
+  | 'loopVariant'
+  | 'loopSpacer';
 export type PromptoonCutEffect =
   | 'none'
   | 'fade'
@@ -44,6 +53,7 @@ export type PromptoonResultCardTheme = 'blue' | 'gold' | 'violet' | 'red';
 
 export type PromptoonProjectStatus = 'draft' | 'published';
 export type PromptoonEpisodeStatus = 'draft' | 'published';
+export type PromptoonEpisodeMode = 'standard' | 'exit_loop';
 export type PromptoonPublishStatus = 'published';
 export type TelemetryEventType = 'cut_view' | 'cut_leave' | 'choice_click' | 'ending_reach' | 'ending_share' | 'feed_impression' | 'feed_choice_click';
 
@@ -158,14 +168,23 @@ export interface Episode {
   episodeNo: number;
   coverImageUrl: string | null;
   startCutId: string | null;
+  mode: PromptoonEpisodeMode;
+  exitLoopMetadata: ExitLoopEpisodeMetadata | null;
   status: PromptoonEpisodeStatus;
   createdAt: string;
   updatedAt: string;
 }
 
+export interface ExitLoopEpisodeMetadata {
+  enabled?: boolean;
+  updatedAt?: string;
+  [key: string]: unknown;
+}
+
 export interface ChoiceStateWrite {
   key: string;
   value: string;
+  operation?: 'set' | 'exitLoopDecision';
 }
 
 export interface CutStateVariant {
@@ -190,6 +209,27 @@ export interface CutStateRoute {
   conditions?: CutStateCondition[];
   nextCutId: string;
   label?: string;
+}
+
+export type PromptoonLoopCutRole = 'stageBase' | 'stageVariant' | 'spacer' | 'resultRouter';
+export type PromptoonLoopStageTruth = 'real_anomaly' | 'fake_suspicion';
+export type PromptoonLoopChoiceId = 'forward' | 'back';
+
+export interface PromptoonLoopMetadata {
+  kind: 'exitLoop';
+  groupId: string;
+  groupLabel?: string;
+  role: PromptoonLoopCutRole;
+  stageIndex?: number;
+  stageCount?: number;
+  truth?: PromptoonLoopStageTruth;
+  expectedChoice?: PromptoonLoopChoiceId;
+  baseCutId?: string | null;
+  selectedVariantCutId?: string | null;
+  variantCutIds?: string[];
+  exitLevelRequired?: number;
+  resetStateOnEnter?: boolean;
+  resetStateKeyPrefix?: string;
 }
 
 export function getCutStateRouteConditions(
@@ -251,6 +291,7 @@ export interface Cut {
   stateVariants?: CutStateVariant[];
   stateRoutes?: CutStateRoute[];
   stateFallbackCutId?: string | null;
+  loopMetadata?: PromptoonLoopMetadata | null;
   positionX: number;
   positionY: number;
   orderIndex: number;
@@ -342,6 +383,12 @@ export type ValidationIssueCode =
   | 'invalid_state_router_condition'
   | 'missing_state_router_route'
   | 'missing_state_router_fallback'
+  | 'invalid_loop_metadata'
+  | 'invalid_loop_variant_target'
+  | 'invalid_loop_stage_choices'
+  | 'invalid_loop_state_mapping'
+  | 'missing_loop_entry_reset'
+  | 'invalid_loop_result_router'
   | 'unreachable_cut'
   | 'dead_path'
   | 'missing_episode_cover';
@@ -372,11 +419,15 @@ export interface CreateEpisodeRequest {
   title: string;
   episodeNo: number;
   coverImageUrl?: string | null;
+  mode?: PromptoonEpisodeMode;
+  exitLoopMetadata?: ExitLoopEpisodeMetadata | null;
 }
 
 export interface PatchEpisodeRequest {
   title?: string;
   coverImageUrl?: string | null;
+  mode?: PromptoonEpisodeMode;
+  exitLoopMetadata?: ExitLoopEpisodeMetadata | null;
 }
 
 export interface CreateCutRequest {
@@ -402,6 +453,7 @@ export interface CreateCutRequest {
   stateVariants?: CutStateVariant[];
   stateRoutes?: CutStateRoute[];
   stateFallbackCutId?: string | null;
+  loopMetadata?: PromptoonLoopMetadata | null;
   orderIndex?: number;
   positionX?: number;
   positionY?: number;
@@ -432,6 +484,7 @@ export interface PatchCutRequest {
   stateVariants?: CutStateVariant[];
   stateRoutes?: CutStateRoute[];
   stateFallbackCutId?: string | null;
+  loopMetadata?: PromptoonLoopMetadata | null;
   orderIndex?: number;
   positionX?: number;
   positionY?: number;
@@ -457,6 +510,48 @@ export interface PatchChoiceRequest {
   nextCutId?: string | null;
   afterSelectReactionText?: string;
   stateWrites?: ChoiceStateWrite[];
+}
+
+export interface CreateLoopStateSettingStageInput {
+  title?: string;
+  baseAssetUrl?: string | null;
+  variantTitle?: string;
+  variantAssetUrl?: string | null;
+  variants?: CreateLoopStateSettingVariantInput[];
+  spacerTitle?: string;
+  spacerAssetUrl?: string | null;
+  truth?: PromptoonLoopStageTruth;
+}
+
+export interface CreateLoopStateSettingVariantInput {
+  title?: string;
+  assetUrl?: string | null;
+  truth: PromptoonLoopStageTruth;
+}
+
+export interface CreateLoopStateSettingRequest {
+  groupName: string;
+  exitLevelRequired?: number;
+  attachAfterCutId?: string | null;
+  continuationCutId?: string | null;
+  retryCutId?: string | null;
+  /** @deprecated Use continuationCutId. */
+  successCutId?: string | null;
+  /** @deprecated Use retryCutId. */
+  failureCutId?: string | null;
+  stages: CreateLoopStateSettingStageInput[];
+}
+
+export interface CreateLoopStateSettingResponse extends EpisodeDraftResponse {
+  groupId: string;
+  firstStageCutId: string;
+  resultRouterCutId: string;
+  continuationCutId: string;
+  retryCutId: string;
+  /** @deprecated Use continuationCutId. */
+  successCutId: string;
+  /** @deprecated Use retryCutId. */
+  failureCutId: string;
 }
 
 export interface ReorderEpisodeCutsRequest {
@@ -627,7 +722,10 @@ export interface FeedResponse {
 
 export interface PublishManifest {
   project: Pick<Project, 'id' | 'title' | 'description' | 'thumbnailUrl' | 'status'>;
-  episode: Pick<Episode, 'id' | 'title' | 'episodeNo' | 'coverImageUrl' | 'status' | 'startCutId'>;
+  episode: Pick<
+    Episode,
+    'id' | 'title' | 'episodeNo' | 'coverImageUrl' | 'status' | 'startCutId' | 'mode' | 'exitLoopMetadata'
+  >;
   cuts: Array<{
     id: string;
     kind: PromptoonCutKind;
@@ -652,6 +750,7 @@ export interface PublishManifest {
     stateVariants?: CutStateVariant[];
     stateRoutes?: CutStateRoute[];
     stateFallbackCutId?: string | null;
+    loopMetadata?: PromptoonLoopMetadata | null;
     positionX: number;
     positionY: number;
     orderIndex: number;

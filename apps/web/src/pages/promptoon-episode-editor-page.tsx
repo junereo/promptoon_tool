@@ -6,6 +6,7 @@ import type {
   Cut,
   CreateChoiceRequest,
   CreateCutRequest,
+  CreateLoopStateSettingRequest,
   DeleteCutRequest,
   PatchChoiceRequest,
   PatchCutRequest,
@@ -30,6 +31,7 @@ import { useCutAutosave } from '../features/editor/hooks/use-cut-autosave';
 import {
   useCreateChoice,
   useCreateCut,
+  useCreateLoopStateSetting,
   useDeleteChoice,
   useDeleteCut,
   useEpisodeDraft,
@@ -44,6 +46,7 @@ import {
   useUpdateCut,
   useValidateEpisode
 } from '../features/editor/hooks/use-episode-query';
+import { LoopStateSettingModal } from '../features/exit-loop-cut-graph/ui/LoopStateSettingModal';
 import { useEditorStore } from '../features/editor/store/use-editor-store';
 import { AnalyticsDashboard } from '../widgets/analytics-dashboard/AnalyticsDashboard';
 import { EpisodeEditorShell } from '../widgets/episode-editor-shell/episode-editor-shell';
@@ -130,6 +133,7 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
   const analyticsQuery = useEpisodeAnalytics(episodeId, analyticsViewGranularity, analyticsViewRange);
   const resetEpisodeAnalytics = useResetEpisodeAnalytics(episodeId);
   const createCut = useCreateCut(episodeId);
+  const createLoopStateSetting = useCreateLoopStateSetting(episodeId);
   const deleteCut = useDeleteCut(episodeId);
   const createChoice = useCreateChoice(episodeId);
   const deleteChoice = useDeleteChoice(episodeId);
@@ -171,6 +175,8 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
   const [previewSelectedChoiceId, setPreviewSelectedChoiceId] = useState<string | null>(null);
   const [graphLayoutMode, setGraphLayoutMode] = useState<GraphLayoutMode>('custom');
   const [graphPositionDraft, setGraphPositionDraft] = useState<Record<string, { x: number; y: number }>>({});
+  const [isLoopStateSettingOpen, setIsLoopStateSettingOpen] = useState(false);
+  const [loopStateSettingInitialAnchorCutId, setLoopStateSettingInitialAnchorCutId] = useState<string | null>(null);
 
   function handleTabChange(tab: 'editor' | 'analytics') {
     if (tab === activeTab) {
@@ -201,6 +207,8 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
     setPreviewSelectedChoiceId(null);
     setGraphLayoutMode('custom');
     setGraphPositionDraft({});
+    setIsLoopStateSettingOpen(false);
+    setLoopStateSettingInitialAnchorCutId(null);
   }, [episodeId, resetForEpisode]);
 
   useEffect(() => {
@@ -304,6 +312,11 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
 
   async function handleCreateCut(anchorCutId?: string) {
     const branchEndCut = draftQuery.data && anchorCutId ? getBranchEndCut(graphCuts, draftQuery.data.choices, anchorCutId) : null;
+    if (branchEndCut?.kind === 'loopVariant' || branchEndCut?.kind === 'loopSpacer') {
+      setToolbarNotice('루프 파생/공백 컷은 LoopStateSetting 그룹 안에서만 관리됩니다');
+      return;
+    }
+
     const createPosition = draftQuery.data && anchorCutId
       ? getLinkedCreatePosition(graphCuts, draftQuery.data.choices, anchorCutId)
       : getGlobalCreatePosition(graphCuts);
@@ -344,6 +357,58 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
     setSelected({ type: 'cut', id: cut.id });
   }
 
+  async function handleCreateLoopVariant(stageCutId: string) {
+    const stageCut = orderedCuts.find((cut) => cut.id === stageCutId) ?? null;
+    if (
+      !stageCut ||
+      stageCut.kind !== 'loopStage' ||
+      stageCut.loopMetadata?.kind !== 'exitLoop' ||
+      stageCut.loopMetadata.role !== 'stageBase' ||
+      !stageCut.loopMetadata.stageIndex ||
+      !stageCut.loopMetadata.stageCount
+    ) {
+      setToolbarNotice('루프 파생 컷은 루프 스테이지 아래에서만 추가할 수 있습니다');
+      return;
+    }
+
+    const existingVariantCount = stageCut.loopMetadata.variantCutIds?.length ?? 0;
+    const truth = existingVariantCount % 2 === 0 ? 'real_anomaly' : 'fake_suspicion';
+    const variantCut = await createCut.mutateAsync({
+      assetUrl: stageCut.assetUrl,
+      body: '',
+      kind: 'loopVariant',
+      loopMetadata: {
+        kind: 'exitLoop',
+        groupId: stageCut.loopMetadata.groupId,
+        groupLabel: stageCut.loopMetadata.groupLabel,
+        role: 'stageVariant',
+        stageIndex: stageCut.loopMetadata.stageIndex,
+        stageCount: stageCut.loopMetadata.stageCount,
+        truth,
+        expectedChoice: truth === 'real_anomaly' ? 'back' : 'forward',
+        baseCutId: stageCut.id,
+        exitLevelRequired: stageCut.loopMetadata.exitLevelRequired
+      },
+      positionX: stageCut.positionX,
+      positionY: stageCut.positionY + 210 + existingVariantCount * 92,
+      title: `${stageCut.title} Variant ${existingVariantCount + 1}`
+    });
+
+    const variantCutIds = [...(stageCut.loopMetadata.variantCutIds ?? []), variantCut.id];
+    await updateCut.mutateAsync({
+      cutId: stageCut.id,
+      payload: {
+        loopMetadata: {
+          ...stageCut.loopMetadata,
+          selectedVariantCutId: null,
+          variantCutIds
+        }
+      }
+    });
+    setSelected({ type: 'cut', id: variantCut.id });
+    setToolbarNotice('루프 스테이지에 파생 컷을 추가했습니다');
+  }
+
   async function handleDeleteCut(cutId: string, payload?: DeleteCutRequest) {
     const deletedIndex = orderedCuts.findIndex((cut) => cut.id === cutId);
     const nextCut =
@@ -360,6 +425,12 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
   }
 
   async function handleCreateChoice(cutId: string) {
+    const sourceCut = orderedCuts.find((cut) => cut.id === cutId) ?? null;
+    if (sourceCut?.kind === 'loopVariant' || sourceCut?.kind === 'loopSpacer') {
+      setToolbarNotice('루프 파생/공백 컷의 선택지는 LoopStateSetting 그룹에서 관리됩니다');
+      return;
+    }
+
     const existingChoices = draftQuery.data ? getChoicesForCut(draftQuery.data.choices, cutId) : [];
     const payload: CreateChoiceRequest = {
       label: `Choice ${existingChoices.length + 1}`
@@ -393,6 +464,24 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
   async function handleUploadAsset(file: File) {
     const response = await uploadAsset.mutateAsync({ projectId, file });
     return response.assetUrl;
+  }
+
+  function handleOpenLoopStateSetting(anchorCutId?: string) {
+    const anchorCut = anchorCutId ? orderedCuts.find((cut) => cut.id === anchorCutId) ?? null : null;
+    const selectedAnchorCut =
+      selectedCut && selectedCut.kind !== 'loopVariant' && selectedCut.kind !== 'loopSpacer' ? selectedCut : null;
+    setLoopStateSettingInitialAnchorCutId(
+      anchorCut && anchorCut.kind !== 'loopVariant' && anchorCut.kind !== 'loopSpacer' ? anchorCut.id : selectedAnchorCut?.id ?? null
+    );
+    setIsLoopStateSettingOpen(true);
+  }
+
+  async function handleCreateLoopStateSetting(payload: CreateLoopStateSettingRequest) {
+    const response = await createLoopStateSetting.mutateAsync(payload);
+    hydrateFromDraft(response);
+    replaceLocalCutOrder(getServerCutOrder(response.cuts));
+    setSelected({ type: 'cut', id: response.firstStageCutId });
+    setToolbarNotice('LoopStateSetting으로 루프 컷 그룹을 생성했습니다');
   }
 
   async function handleCommitCut(cutId: string, patch: PatchCutRequest) {
@@ -548,7 +637,13 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
     }
 
     const branchEndCut = getBranchEndCut(graphCuts, draftQuery.data.choices, cutId) ?? graphCuts.find((cut) => cut.id === cutId) ?? null;
-    if (!branchEndCut || isPromptoonEndingCut(branchEndCut) || branchEndCut.kind === 'stateRouter') {
+    if (
+      !branchEndCut ||
+      isPromptoonEndingCut(branchEndCut) ||
+      branchEndCut.kind === 'stateRouter' ||
+      branchEndCut.kind === 'loopVariant' ||
+      branchEndCut.kind === 'loopSpacer'
+    ) {
       setToolbarNotice('연결할 수 있는 마지막 컷을 선택해 주세요');
       return;
     }
@@ -828,7 +923,9 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
         onCommitCut={handleCommitCut}
         onCreateChoice={handleCreateChoice}
         onCreateCut={handleCreateCut}
+        onCreateLoopVariant={handleCreateLoopVariant}
         onCreateLinkedCut={handleCreateLinkedCut}
+        onOpenLoopStateSetting={handleOpenLoopStateSetting}
         onDeleteChoice={handleDeleteChoice}
         onDeleteCut={handleDeleteCut}
         onDragEnd={handleDragEnd}
@@ -859,6 +956,21 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
         selectedCut={selectedCut}
         toolbarNotice={toolbarNotice}
         viewMode={viewMode}
+      />
+      <LoopStateSettingModal
+        cuts={orderedCuts}
+        initialAttachAfterCutId={loopStateSettingInitialAnchorCutId}
+        isCreating={createLoopStateSetting.isPending}
+        isOpen={isLoopStateSettingOpen}
+        onClose={() => {
+          if (createLoopStateSetting.isPending) {
+            return;
+          }
+
+          setIsLoopStateSettingOpen(false);
+        }}
+        onCreateLoopState={handleCreateLoopStateSetting}
+        onUploadAsset={handleUploadAsset}
       />
       <ScriptEditorModal
         cuts={orderedCuts}
