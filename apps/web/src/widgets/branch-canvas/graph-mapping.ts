@@ -1,6 +1,9 @@
 import type { Choice, Cut, EditorSelection } from '@promptoon/shared';
 import type { Connection, Edge, Node } from '@xyflow/react';
 
+import { getCutGroupFrameNodeId, getCutGroupFrames } from './graph-groups';
+import type { GraphLayoutMode } from './graph-layout';
+
 export interface CutNodeData {
   [key: string]: unknown;
   cut: Cut;
@@ -17,9 +20,21 @@ export interface AddCutPlaceholderNodeData {
   onCreate: (sourceCutId: string, position: { x: number; y: number }) => void;
 }
 
+export interface CutGroupNodeData {
+  [key: string]: unknown;
+  groupId: string;
+  label: string;
+  cutIds: string[];
+  width: number;
+  height: number;
+  layoutMode: GraphLayoutMode;
+  onApplyLocalLayout: (groupId: string, mode: GraphLayoutMode) => void;
+}
+
 export type CutFlowNode = Node<CutNodeData, 'cutNode'>;
 export type AddCutPlaceholderFlowNode = Node<AddCutPlaceholderNodeData, 'addCutPlaceholderNode'>;
-export type BranchFlowNode = CutFlowNode | AddCutPlaceholderFlowNode;
+export type CutGroupFlowNode = Node<CutGroupNodeData, 'cutGroupNode'>;
+export type BranchFlowNode = CutFlowNode | AddCutPlaceholderFlowNode | CutGroupFlowNode;
 
 const DEFAULT_EDGE_STROKE = '#555';
 const SELECTED_EDGE_STROKE = '#7A3040';
@@ -158,6 +173,34 @@ export function mapCutsToFlowNodes(
       zIndex: selected || multiSelectedCutIds.has(cut.id) ? 1000 : 0
     };
   });
+}
+
+export function mapCutGroupsToFlowNodes(
+  cuts: Cut[],
+  localLayoutModes: Record<string, GraphLayoutMode>,
+  onApplyLocalLayout: (groupId: string, mode: GraphLayoutMode) => void
+): CutGroupFlowNode[] {
+  return getCutGroupFrames(cuts).map((frame) => ({
+    id: getCutGroupFrameNodeId(frame.groupId),
+    type: 'cutGroupNode',
+    position: frame.position,
+    data: {
+      groupId: frame.groupId,
+      label: frame.label,
+      cutIds: frame.cutIds,
+      width: frame.width,
+      height: frame.height,
+      layoutMode: localLayoutModes[frame.groupId] ?? 'custom',
+      onApplyLocalLayout
+    },
+    draggable: true,
+    selectable: false,
+    zIndex: -100,
+    style: {
+      width: frame.width,
+      height: frame.height
+    }
+  }));
 }
 
 function getIncomingEdgeCounts(choices: Choice[], cuts: Cut[]): Map<string, number> {

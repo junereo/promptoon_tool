@@ -15,9 +15,11 @@ import {
   getStateRouteSourceHandleId,
   isValidGraphConnection,
   mapChoicesToFlowEdges,
+  mapCutGroupsToFlowNodes,
   mapCutsToFlowNodes
 } from '../src/widgets/branch-canvas/graph-mapping';
 import {
+  computeLocalGroupLayout,
   computeHorizontalLayout,
   computeVerticalLayout,
   getBranchEndCut,
@@ -26,6 +28,7 @@ import {
   GRAPH_NODE_VERTICAL_GAP
 } from '../src/widgets/branch-canvas/graph-layout';
 import { BranchCanvas, shouldAutoFitGraph } from '../src/widgets/branch-canvas/BranchCanvas';
+import { getCutGroupFrames, GRAPH_CUT_NODE_WIDTH } from '../src/widgets/branch-canvas/graph-groups';
 import { EpisodeEditorShell } from '../src/widgets/episode-editor-shell/episode-editor-shell';
 
 afterEach(() => {
@@ -111,6 +114,168 @@ describe('branch graph mapping', () => {
     expect(nodes[0]?.zIndex).toBe(1000);
     expect(nodes[0]?.data.choicesForCut).toHaveLength(1);
     expect(nodes[1]?.position).toEqual({ x: 240, y: 100 });
+  });
+
+  it('maps exit loop cut groups to graph frame nodes', () => {
+    const stageCut = buildCut('stage-1', {
+      kind: 'loopStage',
+      positionX: 100,
+      positionY: 120,
+      loopMetadata: {
+        kind: 'exitLoop',
+        groupId: 'loop-a',
+        groupLabel: 'Loop A',
+        role: 'stageBase',
+        variantCutIds: ['variant-1']
+      }
+    });
+    const variantCut = buildCut('variant-1', {
+      kind: 'loopVariant',
+      positionX: 380,
+      positionY: 140,
+      loopMetadata: {
+        kind: 'exitLoop',
+        groupId: 'loop-a',
+        groupLabel: 'Loop A',
+        role: 'stageVariant',
+        baseCutId: stageCut.id,
+        truth: 'real_anomaly'
+      }
+    });
+
+    const groupNodes = mapCutGroupsToFlowNodes([stageCut, variantCut], {}, vi.fn());
+
+    expect(groupNodes).toHaveLength(1);
+    expect(groupNodes[0]?.id).toBe('cut-group:loop-a');
+    expect(groupNodes[0]?.data.label).toBe('Loop A');
+    expect(groupNodes[0]?.data.cutIds).toEqual([stageCut.id, variantCut.id]);
+    expect(groupNodes[0]?.position.x).toBeLessThan(stageCut.positionX);
+  });
+
+  it('keeps loop group members together during global layout and supports local layout', () => {
+    const stageCut = buildCut('stage-1', {
+      kind: 'loopStage',
+      isStart: true,
+      positionX: 100,
+      positionY: 100,
+      loopMetadata: {
+        kind: 'exitLoop',
+        groupId: 'loop-a',
+        groupLabel: 'Loop A',
+        role: 'stageBase',
+        variantCutIds: ['variant-1']
+      }
+    });
+    const variantCut = buildCut('variant-1', {
+      kind: 'loopVariant',
+      positionX: 400,
+      positionY: 130,
+      orderIndex: 1,
+      loopMetadata: {
+        kind: 'exitLoop',
+        groupId: 'loop-a',
+        groupLabel: 'Loop A',
+        role: 'stageVariant',
+        baseCutId: stageCut.id,
+        truth: 'fake_suspicion'
+      }
+    });
+    const spacerCut = buildCut('spacer-1', {
+      kind: 'loopSpacer',
+      positionX: 100,
+      positionY: 380,
+      orderIndex: 2,
+      loopMetadata: {
+        kind: 'exitLoop',
+        groupId: 'loop-a',
+        groupLabel: 'Loop A',
+        role: 'spacer'
+      }
+    });
+    const nextCut = buildCut('next-1', { positionX: 900, positionY: 900, orderIndex: 3 });
+    const choices = [buildChoice('choice-1', stageCut.id, { nextCutId: spacerCut.id }), buildChoice('choice-2', spacerCut.id, { nextCutId: nextCut.id })];
+
+    const verticalLayout = computeVerticalLayout([stageCut, variantCut, spacerCut, nextCut], choices);
+    expect(verticalLayout[variantCut.id]!.x - verticalLayout[stageCut.id]!.x).toBe(variantCut.positionX - stageCut.positionX);
+    expect(verticalLayout[spacerCut.id]!.y - verticalLayout[stageCut.id]!.y).toBe(spacerCut.positionY - stageCut.positionY);
+    expect(verticalLayout[nextCut.id]!.y).toBeGreaterThan(verticalLayout[stageCut.id]!.y);
+    const [verticalGroupFrame] = getCutGroupFrames(
+      [stageCut, variantCut, spacerCut].map((cut) => ({
+        ...cut,
+        positionX: verticalLayout[cut.id]!.x,
+        positionY: verticalLayout[cut.id]!.y
+      }))
+    );
+    expect(verticalLayout[nextCut.id]!.x).toBe(verticalLayout[spacerCut.id]!.x);
+    expect(verticalLayout[nextCut.id]!.y).toBeGreaterThanOrEqual(
+      verticalGroupFrame!.position.y + verticalGroupFrame!.height + GRAPH_NODE_VERTICAL_GAP
+    );
+
+    const horizontalLayout = computeHorizontalLayout([stageCut, variantCut, spacerCut, nextCut], choices);
+    const [horizontalGroupFrame] = getCutGroupFrames(
+      [stageCut, variantCut, spacerCut].map((cut) => ({
+        ...cut,
+        positionX: horizontalLayout[cut.id]!.x,
+        positionY: horizontalLayout[cut.id]!.y
+      }))
+    );
+    expect(horizontalLayout[nextCut.id]!.x).toBeGreaterThanOrEqual(
+      horizontalGroupFrame!.position.x + horizontalGroupFrame!.width + GRAPH_NODE_HORIZONTAL_GAP
+    );
+    expect(horizontalLayout[nextCut.id]!.y).toBe(horizontalLayout[spacerCut.id]!.y);
+
+    const localLayout = computeLocalGroupLayout([stageCut, variantCut, spacerCut, nextCut], choices, 'loop-a', 'vertical');
+    expect(Object.keys(localLayout).sort()).toEqual([spacerCut.id, stageCut.id, variantCut.id].sort());
+    expect(Math.min(...Object.values(localLayout).map((position) => position.x))).toBe(stageCut.positionX);
+    expect(Math.min(...Object.values(localLayout).map((position) => position.y))).toBe(stageCut.positionY);
+  });
+
+  it('places global cuts before loop groups and keeps group frames clear of global cuts', () => {
+    const globalCut = buildCut('global-1', {
+      isStart: true,
+      positionX: 800,
+      positionY: 800,
+      orderIndex: 10
+    });
+    const stageCut = buildCut('stage-1', {
+      kind: 'loopStage',
+      positionX: 0,
+      positionY: 0,
+      orderIndex: 0,
+      loopMetadata: {
+        kind: 'exitLoop',
+        groupId: 'loop-a',
+        groupLabel: 'Loop A',
+        role: 'stageBase',
+        variantCutIds: ['variant-1']
+      }
+    });
+    const variantCut = buildCut('variant-1', {
+      kind: 'loopVariant',
+      positionX: 320,
+      positionY: 0,
+      orderIndex: 1,
+      loopMetadata: {
+        kind: 'exitLoop',
+        groupId: 'loop-a',
+        groupLabel: 'Loop A',
+        role: 'stageVariant',
+        baseCutId: stageCut.id,
+        truth: 'real_anomaly'
+      }
+    });
+
+    const verticalLayout = computeVerticalLayout([stageCut, variantCut, globalCut], []);
+    const positionedCuts = [stageCut, variantCut, globalCut].map((cut) => ({
+      ...cut,
+      positionX: verticalLayout[cut.id]!.x,
+      positionY: verticalLayout[cut.id]!.y
+    }));
+    const [groupFrame] = getCutGroupFrames(positionedCuts);
+
+    expect(groupFrame).toBeDefined();
+    expect(verticalLayout[globalCut.id]!.x).toBe(0);
+    expect(groupFrame!.position.x).toBeGreaterThanOrEqual(verticalLayout[globalCut.id]!.x + GRAPH_CUT_NODE_WIDTH);
   });
 
   it('maps only connected choices to graph edges and highlights selected choice', () => {
@@ -372,6 +537,65 @@ describe('BranchCanvas', () => {
     expect(onApplyLayout).toHaveBeenNthCalledWith(1, 'vertical');
     expect(onApplyLayout).toHaveBeenNthCalledWith(2, 'horizontal');
     expect(onApplyLayout).toHaveBeenNthCalledWith(3, 'custom');
+  });
+
+  it('renders exit loop graph groups and applies local layout actions', () => {
+    const onMoveCut = vi.fn();
+    const stageCut = buildCut('stage-1', {
+      kind: 'loopStage',
+      isStart: true,
+      positionX: 100,
+      positionY: 100,
+      loopMetadata: {
+        kind: 'exitLoop',
+        groupId: 'loop-a',
+        groupLabel: 'Loop A',
+        role: 'stageBase',
+        variantCutIds: ['variant-1']
+      }
+    });
+    const variantCut = buildCut('variant-1', {
+      kind: 'loopVariant',
+      positionX: 360,
+      positionY: 100,
+      orderIndex: 1,
+      loopMetadata: {
+        kind: 'exitLoop',
+        groupId: 'loop-a',
+        groupLabel: 'Loop A',
+        role: 'stageVariant',
+        baseCutId: stageCut.id,
+        truth: 'real_anomaly'
+      }
+    });
+
+    render(
+      <div style={{ height: 700, width: 1200 }}>
+        <BranchCanvas
+          choices={[]}
+          cuts={[stageCut, variantCut]}
+          layoutMode="custom"
+          onApplyLayout={vi.fn()}
+          onCreateChoiceConnection={vi.fn()}
+          onCreateLinkedCut={vi.fn()}
+          onDeleteCuts={vi.fn()}
+          onOpenLoopStateSetting={vi.fn()}
+          onConnectChoice={vi.fn()}
+          onConnectStateFallback={vi.fn()}
+          onConnectStateRoute={vi.fn()}
+          onMoveCut={onMoveCut}
+          onSelectChoice={vi.fn()}
+          onSelectCut={vi.fn()}
+          selected={{ type: 'cut', id: stageCut.id }}
+        />
+      </div>
+    );
+
+    expect(screen.getByTestId('graph-group-loop-a')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('graph-group-loop-a-layout-vertical'));
+
+    expect(onMoveCut).toHaveBeenCalledWith(stageCut.id, expect.objectContaining({ x: stageCut.positionX, y: stageCut.positionY }));
+    expect(onMoveCut).toHaveBeenCalledWith(variantCut.id, expect.objectContaining({ x: stageCut.positionX, y: stageCut.positionY + GRAPH_NODE_VERTICAL_GAP }));
   });
 });
 

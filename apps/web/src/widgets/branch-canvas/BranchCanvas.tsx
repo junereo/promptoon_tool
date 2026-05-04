@@ -17,7 +17,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { AddCutPlaceholderNode } from './AddCutPlaceholderNode';
 import { CutNode } from './CutNode';
+import { GroupFrameNode } from './GroupFrameNode';
+import { getCutGroupFrameNodeId, getCutGroupFrames } from './graph-groups';
 import {
+  computeLocalGroupLayout,
   getLinkedCreatePosition,
   getSelectedBranchEndCut,
   type GraphLayoutMode
@@ -25,6 +28,7 @@ import {
 import {
   isValidGraphConnection,
   mapChoicesToFlowEdges,
+  mapCutGroupsToFlowNodes,
   mapCutsToFlowNodes,
   parseSourceHandle,
   type BranchFlowNode,
@@ -34,6 +38,7 @@ import { isPromptoonEndingCut } from '../../shared/lib/promptoon-ending';
 
 const nodeTypes = {
   cutNode: CutNode,
+  cutGroupNode: GroupFrameNode,
   addCutPlaceholderNode: AddCutPlaceholderNode
 } as NodeTypes;
 
@@ -42,8 +47,11 @@ function buildFlowNodes(
   choices: Choice[],
   selected: EditorSelection,
   multiSelectedCutIds: Set<string>,
+  localGroupLayoutModes: Record<string, GraphLayoutMode>,
+  onApplyLocalGroupLayout: (groupId: string, mode: GraphLayoutMode) => void,
   onCreateLinkedCut: (sourceCutId: string, position: { x: number; y: number }) => void
 ): BranchFlowNode[] {
+  const groupNodes = mapCutGroupsToFlowNodes(cuts, localGroupLayoutModes, onApplyLocalGroupLayout);
   const cutNodes = mapCutsToFlowNodes(cuts, choices, selected, multiSelectedCutIds);
   const branchEndCut = getSelectedBranchEndCut(cuts, choices, selected);
 
@@ -54,7 +62,7 @@ function buildFlowNodes(
     branchEndCut.kind === 'loopVariant' ||
     branchEndCut.kind === 'loopSpacer'
   ) {
-    return cutNodes;
+    return [...groupNodes, ...cutNodes];
   }
 
   const position = getLinkedCreatePosition(cuts, choices, branchEndCut.id);
@@ -72,7 +80,7 @@ function buildFlowNodes(
     zIndex: 500
   };
 
-  return [...cutNodes, placeholderNode];
+  return [...groupNodes, ...cutNodes, placeholderNode];
 }
 
 export function shouldAutoFitGraph(previousCutIds: string[] | null, currentCutIds: string[]) {
@@ -124,20 +132,51 @@ function BranchCanvasInner({
 }) {
   const { fitView } = useReactFlow();
   const [multiSelectedCutIds, setMultiSelectedCutIds] = useState<Set<string>>(() => new Set());
+  const [localGroupLayoutModes, setLocalGroupLayoutModes] = useState<Record<string, GraphLayoutMode>>({});
+  const handleApplyLocalGroupLayout = useCallback(
+    (groupId: string, mode: GraphLayoutMode) => {
+      setLocalGroupLayoutModes((current) => (current[groupId] === mode ? current : { ...current, [groupId]: mode }));
+
+      if (mode === 'custom') {
+        return;
+      }
+
+      const nextPositions = computeLocalGroupLayout(cuts, choices, groupId, mode);
+      for (const [cutId, position] of Object.entries(nextPositions)) {
+        onMoveCut(cutId, position);
+      }
+    },
+    [choices, cuts, onMoveCut]
+  );
   const [nodes, setNodes, onNodesChange] = useNodesState<BranchFlowNode>(
-    buildFlowNodes(cuts, choices, selected, multiSelectedCutIds, onCreateLinkedCut)
+    buildFlowNodes(cuts, choices, selected, multiSelectedCutIds, localGroupLayoutModes, handleApplyLocalGroupLayout, onCreateLinkedCut)
   );
   const edges = mapChoicesToFlowEdges(choices, selected, cuts);
   const autoFitCutIds = useMemo(() => cuts.map((cut) => cut.id), [cuts]);
   const selectedCutId = selected.type === 'cut' ? selected.id : undefined;
   const multiSelectedCutCount = multiSelectedCutIds.size;
+  const cutById = useMemo(() => new Map(cuts.map((cut) => [cut.id, cut])), [cuts]);
+  const groupFrameByNodeId = useMemo(
+    () => new Map(getCutGroupFrames(cuts).map((frame) => [getCutGroupFrameNodeId(frame.groupId), frame])),
+    [cuts]
+  );
   const leftShiftPressedRef = useRef(false);
   const previousAutoFitCutIdsRef = useRef<string[] | null>(null);
   const canvasFrameRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    setNodes(buildFlowNodes(cuts, choices, selected, multiSelectedCutIds, onCreateLinkedCut));
-  }, [choices, cuts, multiSelectedCutIds, onCreateLinkedCut, selected, setNodes]);
+    setNodes(
+      buildFlowNodes(
+        cuts,
+        choices,
+        selected,
+        multiSelectedCutIds,
+        localGroupLayoutModes,
+        handleApplyLocalGroupLayout,
+        onCreateLinkedCut
+      )
+    );
+  }, [choices, cuts, handleApplyLocalGroupLayout, localGroupLayoutModes, multiSelectedCutIds, onCreateLinkedCut, selected, setNodes]);
 
   useEffect(() => {
     const cutIds = new Set(cuts.map((cut) => cut.id));
@@ -308,6 +347,32 @@ function BranchCanvasInner({
   }
 
   function handleNodeDragStop(_event: React.MouseEvent, node: BranchFlowNode) {
+    if (node.type === 'cutGroupNode') {
+      const frame = groupFrameByNodeId.get(node.id);
+      if (!frame) {
+        return;
+      }
+
+      const deltaX = node.position.x - frame.position.x;
+      const deltaY = node.position.y - frame.position.y;
+      if (Math.abs(deltaX) < 0.5 && Math.abs(deltaY) < 0.5) {
+        return;
+      }
+
+      for (const cutId of frame.cutIds) {
+        const cut = cutById.get(cutId);
+        if (!cut) {
+          continue;
+        }
+
+        onMoveCut(cut.id, {
+          x: cut.positionX + deltaX,
+          y: cut.positionY + deltaY
+        });
+      }
+      return;
+    }
+
     if (node.type !== 'cutNode') {
       return;
     }
@@ -356,6 +421,7 @@ function BranchCanvasInner({
             LoopStateSetting
           </button>
           <div className="inline-flex rounded-full border border-editor-border bg-black/20 p-1">
+            <span className="px-2 py-1 text-xs font-medium uppercase tracking-[0.16em] text-zinc-500">Global</span>
             {renderLayoutButton('custom', 'Custom')}
             {renderLayoutButton('vertical', 'Vertical')}
             {renderLayoutButton('horizontal', 'Horizontal')}
