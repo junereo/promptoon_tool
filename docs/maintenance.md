@@ -93,12 +93,42 @@ pnpm build
 pnpm test
 
 # API만 실행
-pnpm --filter @promptoon/api test
+pnpm run test:api
 
 # Web만 실행
-pnpm --filter @promptoon/web test
+pnpm run test:web
 ```
 *API 통합 테스트는 `TEST_DATABASE_URL`이 명시적으로 설정되어 있어야만 동작합니다.*
+
+로컬 Docker Postgres에서 테스트 전용 DB/role을 재생성하려면 아래 순서로 실행합니다. 기본값은 기존 로컬 컨테이너 `promptoon_postgres`와 `postgresql://promptoon_test_user:promptoon_test_password@localhost:5436/promptoon_test`를 사용합니다.
+
+```bash
+pnpm run test:api:integration:setup
+TEST_DATABASE_URL='postgresql://promptoon_test_user:promptoon_test_password@localhost:5436/promptoon_test' pnpm run test:api:integration
+```
+
+다른 포트/계정으로 실행할 경우:
+
+```bash
+TEST_DATABASE_URL='postgresql://promptoon_test_user:promptoon_test_password@localhost:5435/promptoon_test' pnpm run test:api:integration:setup
+TEST_DATABASE_URL='postgresql://promptoon_test_user:promptoon_test_password@localhost:5435/promptoon_test' pnpm run test:api:integration
+```
+
+`test:api:integration:setup`은 `TEST_DATABASE_URL`의 database를 drop/create하므로 개발 DB와 같은 URL을 사용하면 안 됩니다.
+
+Product domain migration 이후 기존 publish 데이터가 public feed/channel projection에 보이지 않으면 Studio 인증 토큰으로 아래 endpoint를 호출해 복구할 수 있습니다.
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer <token>" \
+  http://127.0.0.1:4000/api/studio/projections/rebuild
+```
+
+이 작업은 `promptoon_publish.id`와 manifest를 유지하며 projection 테이블만 upsert합니다. draft/cut/choice 데이터는 변경하지 않습니다.
+
+Auth hardening 이후에는 JWT만으로는 인증되지 않고 `promptoon_session` row가 활성 상태여야 합니다. `POST /api/auth/logout`은 현재 session만 삭제하므로 같은 계정의 다른 로그인 session은 유지됩니다.
+
+Studio project 권한은 `promptoon_project_member` 기준입니다. 기존 프로젝트 owner는 `020_promptoon_auth_role_hardening.sql`에서 `owner` member row로 backfill됩니다.
 
 ## 5. 트러블슈팅
 

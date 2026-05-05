@@ -5,8 +5,12 @@ import type {
   AnalyticsViewRange,
   AnalyticsViewGranularity,
   AnalyticsViewPoint,
+  ChannelSubscriptionStateResponse,
+  ChannelHome,
+  CommentsMetaResponse,
   Choice,
   ChoiceStateWrite,
+  ContentInteractionStateListResponse,
   CutContentBlock,
   CreateChoiceRequest,
   CreateCutRequest,
@@ -28,16 +32,24 @@ import type {
   PatchChoiceRequest,
   PatchCutRequest,
   Project,
+  ProjectMemberListResponse,
+  ProjectRole,
   ProjectWithEpisodes,
+  PatchProjectMemberRequest,
   PromptoonBackupExport,
   Publish,
   PublishManifest,
   PublishRequest,
+  RebuildPublicProjectionsResponse,
+  RelatedShort,
   ReorderEpisodeCutsRequest,
   ReorderEpisodeCutsResponse,
   ResetEpisodeAnalyticsRequest,
+  TelemetryEventPayload,
   TelemetryEventRequest,
-  ValidateEpisodeResponse
+  UpsertProjectMemberRequest,
+  ValidateEpisodeResponse,
+  ViewerInteractionStateResponse
 } from '@promptoon/shared';
 import {
   createHash,
@@ -64,9 +76,10 @@ import path from 'node:path';
 import type { PoolClient } from 'pg';
 import sharp from 'sharp';
 
-import { db, withTransaction } from '../../db';
+import { db, withTransaction, type DbExecutor } from '../../db';
 import { HttpError } from '../../lib/http-error';
 import { resolveFromApiRoot, resolveFromWorkspaceRoot } from '../../lib/workspace-paths';
+import * as coreProjectionService from '../promptoon-core/projection.service';
 import * as repository from './promptoon.repository';
 import { validateEpisodeGraph } from './promptoon.validators';
 
@@ -86,10 +99,29 @@ interface SharePageMeta {
   shareUrl: string;
 }
 
+interface SharePageOptions {
+  sharePath?: string;
+}
+
 interface FeedCursorPayload {
   createdAt: string;
   publishId: string;
 }
+
+interface ProjectionChannelInput {
+  id: string;
+  slug: string;
+  display_name: string;
+}
+
+interface ProjectionSeriesInput {
+  id: string;
+}
+
+const PROJECT_READ_ROLES: ProjectRole[] = ['owner', 'producer', 'writer', 'viewer'];
+const PROJECT_WRITE_ROLES: ProjectRole[] = ['owner', 'producer', 'writer'];
+const PROJECT_PUBLISH_ROLES: ProjectRole[] = ['owner', 'producer'];
+const PROJECT_OWNER_ROLES: ProjectRole[] = ['owner'];
 
 function normalizeCutEffectDurationMs(value: number | undefined): number {
   return value ?? DEFAULT_CUT_EFFECT_DURATION_MS;
@@ -164,37 +196,89 @@ async function ensureEpisodeBelongsToProject(projectId: string, episodeId: strin
   return episode;
 }
 
-async function ensureProjectOwnedByUser(projectId: string, userId: string): Promise<void> {
+async function ensureProjectRole(projectId: string, userId: string, allowedRoles: ProjectRole[]): Promise<ProjectRole> {
   const ownerId = await repository.getProjectOwnerId(db, projectId);
   if (!ownerId) {
     throw new HttpError(404, 'Project not found.');
   }
 
-  if (ownerId !== userId) {
+  let role = await repository.getProjectMemberRole(db, {
+    projectId,
+    userId
+  });
+
+  if (!role && ownerId === userId) {
+    role = 'owner';
+    await repository.upsertProjectMember(db, {
+      projectId,
+      userId,
+      role
+    });
+  }
+
+  if (!role || !allowedRoles.includes(role)) {
     throw new HttpError(403, 'You do not have access to this project.');
+  }
+
+  return role;
+}
+
+async function ensureProjectOwnedByUser(projectId: string, userId: string): Promise<void> {
+  await ensureProjectRole(projectId, userId, PROJECT_OWNER_ROLES);
+}
+
+async function ensureProjectReadableByUser(projectId: string, userId: string): Promise<void> {
+  await ensureProjectRole(projectId, userId, PROJECT_READ_ROLES);
+}
+
+async function ensureProjectWritableByUser(projectId: string, userId: string): Promise<void> {
+  await ensureProjectRole(projectId, userId, PROJECT_WRITE_ROLES);
+}
+
+async function ensureProjectPublishableByUser(projectId: string, userId: string): Promise<void> {
+  await ensureProjectRole(projectId, userId, PROJECT_PUBLISH_ROLES);
+}
+
+async function ensureStudioAdmin(userId: string): Promise<void> {
+  const role = await repository.getStudioMemberRole(db, userId);
+  if (role !== 'studio_admin') {
+    throw new HttpError(403, 'Studio admin role is required.');
   }
 }
 
-async function ensureEpisodeOwnedByUser(episodeId: string, userId: string): Promise<void> {
-  const ownerId = await repository.getEpisodeOwnerId(db, episodeId);
-  if (!ownerId) {
+async function ensureEpisodeProjectRole(episodeId: string, userId: string, allowedRoles: ProjectRole[]): Promise<void> {
+  const projectId = await repository.getEpisodeProjectId(db, episodeId);
+  if (!projectId) {
     throw new HttpError(404, 'Episode not found.');
   }
 
-  if (ownerId !== userId) {
-    throw new HttpError(403, 'You do not have access to this episode.');
-  }
+  await ensureProjectRole(projectId, userId, allowedRoles);
 }
 
-async function ensureCutOwnedByUser(cutId: string, userId: string): Promise<void> {
-  const ownerId = await repository.getCutOwnerId(db, cutId);
-  if (!ownerId) {
+async function ensureCutProjectRole(cutId: string, userId: string, allowedRoles: ProjectRole[]): Promise<void> {
+  const projectId = await repository.getCutProjectId(db, cutId);
+  if (!projectId) {
     throw new HttpError(404, 'Cut not found.');
   }
 
-  if (ownerId !== userId) {
-    throw new HttpError(403, 'You do not have access to this cut.');
+  await ensureProjectRole(projectId, userId, allowedRoles);
+}
+
+async function ensureChoiceProjectRole(choiceId: string, userId: string, allowedRoles: ProjectRole[]): Promise<void> {
+  const projectId = await repository.getChoiceProjectId(db, choiceId);
+  if (!projectId) {
+    throw new HttpError(404, 'Choice not found.');
   }
+
+  await ensureProjectRole(projectId, userId, allowedRoles);
+}
+
+async function ensureEpisodeOwnedByUser(episodeId: string, userId: string): Promise<void> {
+  await ensureEpisodeProjectRole(episodeId, userId, PROJECT_WRITE_ROLES);
+}
+
+async function ensureCutOwnedByUser(cutId: string, userId: string): Promise<void> {
+  await ensureCutProjectRole(cutId, userId, PROJECT_WRITE_ROLES);
 }
 
 function getBackupTotals(projects: PromptoonBackupExport['projects']): PromptoonBackupExport['totals'] {
@@ -224,14 +308,7 @@ function getBackupTotals(projects: PromptoonBackupExport['projects']): Promptoon
 }
 
 async function ensureChoiceOwnedByUser(choiceId: string, userId: string): Promise<void> {
-  const ownerId = await repository.getChoiceOwnerId(db, choiceId);
-  if (!ownerId) {
-    throw new HttpError(404, 'Choice not found.');
-  }
-
-  if (ownerId !== userId) {
-    throw new HttpError(403, 'You do not have access to this choice.');
-  }
+  await ensureChoiceProjectRole(choiceId, userId, PROJECT_WRITE_ROLES);
 }
 
 function normalizeChoiceStateWrites(stateWrites: ChoiceStateWrite[] | undefined): ChoiceStateWrite[] | undefined {
@@ -674,7 +751,12 @@ function getShareImageUrl(publish: Publish, endingCutId: string | undefined, bas
   );
 }
 
-function buildSharePageMeta(publish: Publish, endingCutId: string | undefined, baseOrigin: string): SharePageMeta {
+function buildSharePageMeta(
+  publish: Publish,
+  endingCutId: string | undefined,
+  baseOrigin: string,
+  options: SharePageOptions = {}
+): SharePageMeta {
   const manifest = publish.manifest;
   const validEndingCut =
     endingCutId
@@ -682,7 +764,9 @@ function buildSharePageMeta(publish: Publish, endingCutId: string | undefined, b
       : null;
   const querySuffix = validEndingCut ? `?e=${encodeURIComponent(validEndingCut.id)}` : '';
   const redirectUrl = `${trimTrailingSlash(baseOrigin)}/v/${publish.id}${querySuffix}`;
-  const shareUrl = `${trimTrailingSlash(baseOrigin)}/api/promptoon/share/${publish.id}${querySuffix}`;
+  const sharePath = options.sharePath ?? `/api/promptoon/share/${publish.id}`;
+  const normalizedSharePath = sharePath.startsWith('/') ? sharePath : `/${sharePath}`;
+  const shareUrl = `${trimTrailingSlash(baseOrigin)}${normalizedSharePath}${querySuffix}`;
   const title = validEndingCut
     ? `${manifest.episode.title} - 나는 "${validEndingCut.title}" 엔딩을 봤어!`
     : `${manifest.episode.title} - 인터랙티브 웹툰`;
@@ -969,6 +1053,32 @@ function buildFeedItem(publish: Publish): FeedItem | null {
   };
 }
 
+function buildProjectedFeedItem(input: {
+  feedItem: FeedItem;
+  publish: Publish;
+  channel: ProjectionChannelInput;
+  series: ProjectionSeriesInput;
+}): FeedItem {
+  return {
+    ...input.feedItem,
+    id: input.publish.id,
+    type: 'promptoon',
+    channelId: input.channel.id,
+    channelSlug: input.channel.slug,
+    channelName: input.channel.display_name,
+    metrics: {
+      views: 0,
+      likes: 0,
+      comments: 0,
+      shares: 0
+    },
+    entry: {
+      kind: 'viewer',
+      href: `/v/${input.publish.id}`
+    }
+  };
+}
+
 function buildChoiceStats(
   draft: EpisodeDraftResponse,
   clickedStats: Map<string, AnalyticsChoiceStat[]>
@@ -987,12 +1097,17 @@ function buildChoiceStats(
     const merged = choices
       .slice()
       .sort((left, right) => left.orderIndex - right.orderIndex)
-      .map((choice) => ({
-        choiceId: choice.id,
-        label: choice.label,
-        count: clickedByChoiceId.get(choice.id)?.count ?? 0,
-        percentage: 0
-      }));
+      .map((choice) => {
+        const clickedStat = clickedByChoiceId.get(choice.id);
+
+        return {
+          choiceId: choice.id,
+          label: choice.label,
+          count: clickedStat?.count ?? 0,
+          percentage: 0,
+          ...(clickedStat?.avgHesitationMs === undefined ? {} : { avgHesitationMs: clickedStat.avgHesitationMs })
+        };
+      });
     const total = merged.reduce((sum, stat) => sum + stat.count, 0);
 
     result[cutId] = merged.map((stat) => ({
@@ -1031,15 +1146,98 @@ export async function exportUserBackup(userId: string): Promise<PromptoonBackupE
 }
 
 export async function createProject(request: CreateProjectRequest, userId: string): Promise<Project> {
-  return repository.createProject(db, {
-    title: request.title,
-    description: request.description,
-    createdBy: userId
+  return withTransaction(async (client) => {
+    const project = await repository.createProject(client, {
+      title: request.title,
+      description: request.description,
+      createdBy: userId
+    });
+    await repository.upsertProjectMember(client, {
+      projectId: project.id,
+      userId,
+      role: 'owner'
+    });
+    return project;
   });
 }
 
-export async function createEpisode(projectId: string, request: CreateEpisodeRequest, userId: string): Promise<Episode> {
+export async function listProjectMembers(projectId: string, userId: string): Promise<ProjectMemberListResponse> {
   await ensureProjectOwnedByUser(projectId, userId);
+
+  return {
+    members: await repository.listProjectMembers(db, projectId)
+  };
+}
+
+export async function addProjectMember(
+  projectId: string,
+  request: UpsertProjectMemberRequest,
+  userId: string
+): Promise<ProjectMemberListResponse> {
+  await ensureProjectOwnedByUser(projectId, userId);
+  const targetUserId = assertExists(await repository.getUserIdByLoginId(db, request.loginId), 'User not found.');
+
+  await repository.upsertProjectMember(db, {
+    projectId,
+    userId: targetUserId,
+    role: request.role
+  });
+
+  return listProjectMembers(projectId, userId);
+}
+
+export async function updateProjectMember(
+  projectId: string,
+  targetUserId: string,
+  request: PatchProjectMemberRequest,
+  userId: string
+): Promise<ProjectMemberListResponse> {
+  await ensureProjectOwnedByUser(projectId, userId);
+  const currentRole = await repository.getProjectMemberRole(db, {
+    projectId,
+    userId: targetUserId
+  });
+  if (!currentRole) {
+    throw new HttpError(404, 'Project member not found.');
+  }
+
+  if (currentRole === 'owner') {
+    throw new HttpError(400, 'Owner transfer is not supported.');
+  }
+
+  await repository.upsertProjectMember(db, {
+    projectId,
+    userId: targetUserId,
+    role: request.role
+  });
+
+  return listProjectMembers(projectId, userId);
+}
+
+export async function deleteProjectMember(projectId: string, targetUserId: string, userId: string): Promise<ProjectMemberListResponse> {
+  await ensureProjectOwnedByUser(projectId, userId);
+  const currentRole = await repository.getProjectMemberRole(db, {
+    projectId,
+    userId: targetUserId
+  });
+  if (!currentRole) {
+    throw new HttpError(404, 'Project member not found.');
+  }
+
+  if (currentRole === 'owner') {
+    throw new HttpError(400, 'Owner removal is not supported.');
+  }
+
+  await repository.deleteProjectMember(db, {
+    projectId,
+    userId: targetUserId
+  });
+
+  return listProjectMembers(projectId, userId);
+}
+
+export async function createEpisode(projectId: string, request: CreateEpisodeRequest, userId: string): Promise<Episode> {
+  await ensureProjectWritableByUser(projectId, userId);
 
   try {
     return await repository.createEpisode(db, {
@@ -1625,69 +1823,245 @@ export async function getPublishedEpisode(publishId: string): Promise<Publish> {
 }
 
 export async function getEpisodeFeed(input: { cursor?: string; limit: number }): Promise<FeedResponse> {
-  let cursor = input.cursor ? decodeFeedCursor(input.cursor) : undefined;
-  let lastConsumedPublish: Publish | null = null;
-  let hasMorePublishes = false;
-  const items: FeedItem[] = [];
-  const batchSize = Math.max(input.limit * 2, 10);
-
-  while (items.length < input.limit) {
-    const publishes = await repository.listLatestPublishesForFeed(db, {
-      cursor,
-      limit: batchSize
-    });
-
-    if (publishes.length === 0) {
-      hasMorePublishes = false;
-      break;
-    }
-
-    hasMorePublishes = publishes.length === batchSize;
-
-    for (let index = 0; index < publishes.length; index += 1) {
-      const publish = publishes[index];
-      const normalizedPublish = normalizePublish(publish);
-      lastConsumedPublish = publish;
-      cursor = {
-        createdAt: publish.createdAt,
-        publishId: publish.id
-      };
-
-      const item = buildFeedItem(normalizedPublish);
-      if (item) {
-        items.push(item);
-      }
-
-      if (items.length >= input.limit) {
-        hasMorePublishes = index < publishes.length - 1 || publishes.length === batchSize;
-        break;
-      }
-    }
-
-    if (!hasMorePublishes || !cursor) {
-      break;
-    }
-  }
+  const cursor = input.cursor ? decodeFeedCursor(input.cursor) : undefined;
+  const rows = await repository.listFeedItemProjections(db, {
+    cursor,
+    limit: input.limit + 1
+  });
+  const pageRows = rows.slice(0, input.limit);
+  const lastRow = pageRows[pageRows.length - 1] ?? null;
 
   return {
-    items: items.slice(0, input.limit),
-    nextCursor: items.length >= input.limit && hasMorePublishes && lastConsumedPublish
+    items: pageRows.map((row) => row.item),
+    nextCursor: rows.length > input.limit && lastRow
       ? encodeFeedCursor({
-          createdAt: lastConsumedPublish.createdAt,
-          publishId: lastConsumedPublish.id
+          createdAt: lastRow.publishedAt,
+          publishId: lastRow.id
         })
       : null
   };
 }
 
-export async function getLatestPublishedEpisode(episodeId: string, userId: string): Promise<Publish | null> {
+export async function getChannelHome(channelSlug: string): Promise<ChannelHome> {
+  const channel = assertExists(await repository.getChannelBySlug(db, channelSlug), 'Channel not found.');
+  const projected = await repository.getChannelHomeProjection(db, channel.id);
+  if (projected) {
+    return projected;
+  }
+
+  const rebuilt = assertExists(await repository.buildChannelHomeFromPublicTables(db, channel.id), 'Channel not found.');
+  await repository.upsertChannelHomeProjection(db, channel.id, rebuilt);
+  return rebuilt;
+}
+
+export async function getRelatedShorts(publishId: string): Promise<RelatedShort[]> {
+  assertExists(await repository.getPublishById(db, publishId), 'Published episode not found.');
+  return repository.listRelatedShortsForPublish(db, publishId);
+}
+
+export async function getCommentsMeta(publishId: string): Promise<CommentsMetaResponse> {
+  assertExists(await repository.getPublishById(db, publishId), 'Published episode not found.');
+  const meta = await repository.getCommentsMetaByPublishId(db, publishId);
+
+  return {
+    publishId,
+    commentCount: meta?.comment_count ?? 0,
+    latestCommentAt: meta?.latest_comment_at ? meta.latest_comment_at.toISOString() : null,
+    discussionUrl: meta?.discussion_url ?? null
+  };
+}
+
+function normalizeInteractionPublishIds(publishIds: string[]): string[] {
+  return Array.from(new Set(publishIds.map((publishId) => publishId.trim()).filter(Boolean))).slice(0, 100);
+}
+
+async function rebuildChannelProjectionForChannel(executor: DbExecutor, channelId: string | null | undefined): Promise<void> {
+  if (!channelId) {
+    return;
+  }
+
+  const home = await repository.buildChannelHomeFromPublicTables(executor, channelId);
+  if (home) {
+    await repository.upsertChannelHomeProjection(executor, channelId, home);
+  }
+}
+
+export async function getContentInteractionStates(
+  publishIds: string[],
+  userId: string
+): Promise<ContentInteractionStateListResponse> {
+  const normalizedPublishIds = normalizeInteractionPublishIds(publishIds);
+
+  return {
+    items: await repository.listContentInteractionStates(db, {
+      publishIds: normalizedPublishIds,
+      userId
+    })
+  };
+}
+
+export async function getViewerInteractionState(publishId: string, userId: string): Promise<ViewerInteractionStateResponse> {
+  return assertExists(
+    await repository.getViewerInteractionState(db, {
+      publishId,
+      userId
+    }),
+    'Published episode not found.'
+  );
+}
+
+export async function getChannelSubscriptionState(
+  channelId: string,
+  userId: string
+): Promise<ChannelSubscriptionStateResponse> {
+  return assertExists(
+    await repository.getChannelSubscriptionState(db, {
+      channelId,
+      userId
+    }),
+    'Channel not found.'
+  );
+}
+
+export async function likePublish(publishId: string, userId: string): Promise<void> {
+  const context = assertExists(await repository.getPublishProjectionContext(db, publishId), 'Published episode not found.');
+
+  await withTransaction(async (client) => {
+    await repository.upsertUserLike(client, publishId, userId);
+    const refreshedContext = await repository.refreshFeedItemLikeMetrics(client, publishId);
+    await rebuildChannelProjectionForChannel(client, refreshedContext?.channel_id ?? context.channel_id);
+    await repository.insertTelemetryEvent(client, {
+      eventName: 'feed_like',
+      userId,
+      projectId: context.project_id,
+      channelId: context.channel_id ?? undefined,
+      seriesId: context.series_id ?? undefined,
+      episodeId: context.episode_id,
+      publishId,
+      feedItemId: context.feed_item_id ?? undefined,
+      payload: {
+        action: 'like'
+      }
+    });
+  });
+}
+
+export async function unlikePublish(publishId: string, userId: string): Promise<void> {
+  const context = assertExists(await repository.getPublishProjectionContext(db, publishId), 'Published episode not found.');
+
+  await withTransaction(async (client) => {
+    await repository.deleteUserLike(client, publishId, userId);
+    const refreshedContext = await repository.refreshFeedItemLikeMetrics(client, publishId);
+    await rebuildChannelProjectionForChannel(client, refreshedContext?.channel_id ?? context.channel_id);
+    await repository.insertTelemetryEvent(client, {
+      eventName: 'feed_like',
+      userId,
+      projectId: context.project_id,
+      channelId: context.channel_id ?? undefined,
+      seriesId: context.series_id ?? undefined,
+      episodeId: context.episode_id,
+      publishId,
+      feedItemId: context.feed_item_id ?? undefined,
+      payload: {
+        action: 'unlike'
+      }
+    });
+  });
+}
+
+export async function bookmarkPublish(publishId: string, userId: string): Promise<void> {
+  const context = assertExists(await repository.getPublishProjectionContext(db, publishId), 'Published episode not found.');
+
+  await withTransaction(async (client) => {
+    await repository.upsertUserBookmark(client, publishId, userId);
+    await repository.insertTelemetryEvent(client, {
+      eventName: 'feed_bookmark',
+      userId,
+      projectId: context.project_id,
+      channelId: context.channel_id ?? undefined,
+      seriesId: context.series_id ?? undefined,
+      episodeId: context.episode_id,
+      publishId,
+      feedItemId: context.feed_item_id ?? undefined,
+      payload: {
+        action: 'bookmark'
+      }
+    });
+  });
+}
+
+export async function unbookmarkPublish(publishId: string, userId: string): Promise<void> {
+  const context = assertExists(await repository.getPublishProjectionContext(db, publishId), 'Published episode not found.');
+
+  await withTransaction(async (client) => {
+    await repository.deleteUserBookmark(client, publishId, userId);
+    await repository.insertTelemetryEvent(client, {
+      eventName: 'feed_bookmark',
+      userId,
+      projectId: context.project_id,
+      channelId: context.channel_id ?? undefined,
+      seriesId: context.series_id ?? undefined,
+      episodeId: context.episode_id,
+      publishId,
+      feedItemId: context.feed_item_id ?? undefined,
+      payload: {
+        action: 'unbookmark'
+      }
+    });
+  });
+}
+
+export async function ensureDiscussionForEpisode(episodeId: string, userId: string): Promise<void> {
   await ensureEpisodeOwnedByUser(episodeId, userId);
+  await repository.ensureEpisodeDiscussion(db, { episodeId });
+}
+
+export async function subscribeToChannel(channelId: string, userId: string): Promise<void> {
+  assertExists(await repository.getChannelSubscriptionState(db, { channelId, userId }), 'Channel not found.');
+
+  await withTransaction(async (client) => {
+    await repository.upsertUserSubscription(client, channelId, userId);
+    await rebuildChannelProjectionForChannel(client, channelId);
+    await repository.insertTelemetryEvent(client, {
+      eventName: 'channel_subscribe',
+      userId,
+      channelId,
+      payload: {
+        action: 'subscribe'
+      }
+    });
+  });
+}
+
+export async function unsubscribeFromChannel(channelId: string, userId: string): Promise<void> {
+  assertExists(await repository.getChannelSubscriptionState(db, { channelId, userId }), 'Channel not found.');
+
+  await withTransaction(async (client) => {
+    await repository.deleteUserSubscription(client, channelId, userId);
+    await rebuildChannelProjectionForChannel(client, channelId);
+    await repository.insertTelemetryEvent(client, {
+      eventName: 'channel_subscribe',
+      userId,
+      channelId,
+      payload: {
+        action: 'unsubscribe'
+      }
+    });
+  });
+}
+
+export async function trackTelemetryEvent(payload: TelemetryEventPayload): Promise<void> {
+  await repository.insertTelemetryEvent(db, payload);
+}
+
+export async function getLatestPublishedEpisode(episodeId: string, userId: string): Promise<Publish | null> {
+  await ensureEpisodeProjectRole(episodeId, userId, PROJECT_READ_ROLES);
   const publish = await repository.getLatestPublishByEpisodeId(db, episodeId);
   return publish ? normalizePublish(publish) : null;
 }
 
 export async function uploadAsset(projectId: string, file: Express.Multer.File, userId: string): Promise<AssetUploadResponse> {
-  await ensureProjectOwnedByUser(projectId, userId);
+  await ensureProjectWritableByUser(projectId, userId);
 
   if (!file.mimetype.startsWith('image/')) {
     throw new HttpError(400, 'Only image uploads are supported.');
@@ -1720,11 +2094,12 @@ export async function uploadAsset(projectId: string, file: Express.Multer.File, 
 export async function renderSharePage(
   publishId: string,
   endingCutId: string | undefined,
-  baseOrigin: string
+  baseOrigin: string,
+  options: SharePageOptions = {}
 ): Promise<string> {
   const publish = await getPublishedEpisode(publishId);
   const template = await getBaseShareTemplate();
-  const meta = buildSharePageMeta(publish, endingCutId, baseOrigin);
+  const meta = buildSharePageMeta(publish, endingCutId, baseOrigin, options);
 
   return injectShareTemplate(template, meta);
 }
@@ -1760,6 +2135,19 @@ export async function trackViewerEvent(request: TelemetryEventRequest): Promise<
     choiceId: request.choiceId,
     durationMs: request.durationMs
   });
+  await repository.insertTelemetryEvent(db, {
+    eventName: request.eventType,
+    anonymousId: request.anonymousId,
+    sessionId: request.sessionId,
+    projectId: publish.projectId,
+    episodeId: publish.episodeId,
+    publishId: publish.id,
+    payload: {
+      cutId: request.cutId,
+      choiceId: request.choiceId,
+      durationMs: request.durationMs
+    }
+  });
 }
 
 export async function getEpisodeAnalytics(
@@ -1768,7 +2156,7 @@ export async function getEpisodeAnalytics(
   viewsGranularity: AnalyticsViewGranularity = 'daily',
   viewsRange?: AnalyticsViewRange
 ): Promise<AnalyticsEpisodeResponse> {
-  await ensureEpisodeOwnedByUser(episodeId, userId);
+  await ensureEpisodeProjectRole(episodeId, userId, PROJECT_READ_ROLES);
   const draft = assertExists(await repository.getEpisodeDraft(db, episodeId), 'Episode not found.');
   const startCutId = getStartCutId(draft);
   const viewWindow = getAnalyticsViewWindow(viewsGranularity, viewsRange);
@@ -1841,7 +2229,7 @@ export async function resetEpisodeAnalytics(
   userId: string,
   request: ResetEpisodeAnalyticsRequest
 ): Promise<void> {
-  await ensureEpisodeOwnedByUser(episodeId, userId);
+  await ensureEpisodeProjectRole(episodeId, userId, PROJECT_PUBLISH_ROLES);
   const draft = request.scope === 'views' ? assertExists(await repository.getEpisodeDraft(db, episodeId), 'Episode not found.') : null;
 
   await repository.deleteViewerEventsForAnalyticsScope(db, {
@@ -1886,13 +2274,18 @@ export async function reorderEpisodeCuts(
 }
 
 export async function publishProject(projectId: string, request: PublishRequest, userId: string): Promise<Publish> {
-  await ensureProjectOwnedByUser(projectId, userId);
+  await ensureProjectPublishableByUser(projectId, userId);
   await ensureEpisodeBelongsToProject(projectId, request.episodeId);
 
   return withTransaction(async (client) => {
     await repository.lockEpisodeForPublish(client, request.episodeId);
 
     const project = assertExists(await repository.getProjectById(client, projectId), 'Project not found.');
+    const channel = await repository.ensureDefaultChannelForProject(client, project, userId);
+    const series = await repository.ensureDefaultSeriesForProject(client, {
+      project,
+      channelId: channel.id
+    });
     const { draft, validation } = await getValidatedDraft(request.episodeId, client);
     if (!validation.isValid) {
       throw new HttpError(409, 'Episode validation failed.', validation);
@@ -1916,24 +2309,50 @@ export async function publishProject(projectId: string, request: PublishRequest,
       }
     );
 
-    return repository.createPublish(client, {
+    const publish = await repository.createPublish(client, {
       projectId,
       episodeId: request.episodeId,
+      channelId: channel.id,
+      seriesId: series.id,
       versionNo,
       manifest,
       createdBy: userId
     });
+    await coreProjectionService.upsertPublishPublicProjections(client, {
+      publish,
+      channel,
+      series
+    });
+    await repository.insertTelemetryEvent(client, {
+      eventName: 'studio_publish',
+      userId,
+      projectId,
+      channelId: channel.id,
+      seriesId: series.id,
+      episodeId: request.episodeId,
+      publishId: publish.id,
+      payload: {
+        versionNo
+      }
+    });
+
+    return publish;
   });
 }
 
 export async function updatePublishedProject(projectId: string, request: PublishRequest, userId: string): Promise<Publish> {
-  await ensureProjectOwnedByUser(projectId, userId);
+  await ensureProjectPublishableByUser(projectId, userId);
   await ensureEpisodeBelongsToProject(projectId, request.episodeId);
 
   return withTransaction(async (client) => {
     await repository.lockEpisodeForPublish(client, request.episodeId);
 
     const project = assertExists(await repository.getProjectById(client, projectId), 'Project not found.');
+    const channel = await repository.ensureDefaultChannelForProject(client, project, userId);
+    const series = await repository.ensureDefaultSeriesForProject(client, {
+      project,
+      channelId: channel.id
+    });
     const existingPublish = assertExists(
       await repository.getLatestPublishByEpisodeId(client, request.episodeId),
       'Published episode not found.'
@@ -1960,24 +2379,35 @@ export async function updatePublishedProject(projectId: string, request: Publish
       }
     );
 
-    return assertExists(
+    const publish = assertExists(
       await repository.updateLatestPublishForEpisode(client, {
         projectId,
         episodeId: existingPublish.episodeId,
+        channelId: channel.id,
+        seriesId: series.id,
         manifest,
         createdBy: userId
       }),
       'Published episode not found.'
     );
+    await coreProjectionService.upsertPublishPublicProjections(client, {
+      publish,
+      channel,
+      series
+    });
+
+    return publish;
   });
 }
 
 export async function unpublishProject(projectId: string, request: PublishRequest, userId: string): Promise<void> {
-  await ensureProjectOwnedByUser(projectId, userId);
+  await ensureProjectPublishableByUser(projectId, userId);
   await ensureEpisodeBelongsToProject(projectId, request.episodeId);
 
   await withTransaction(async (client) => {
     await repository.lockEpisodeForPublish(client, request.episodeId);
+    const project = assertExists(await repository.getProjectById(client, projectId), 'Project not found.');
+    const channel = await repository.ensureDefaultChannelForProject(client, project, userId);
 
     await repository.deletePublishesForEpisode(client, projectId, request.episodeId);
     await repository.markEpisodeDraft(client, request.episodeId);
@@ -1986,7 +2416,14 @@ export async function unpublishProject(projectId: string, request: PublishReques
     if (!hasPublishedEpisodes) {
       await repository.markProjectDraft(client, projectId);
     }
+    await coreProjectionService.rebuildChannelProjectionForChannel(client, channel.id);
   });
+}
+
+export async function rebuildPublicProjections(userId: string): Promise<RebuildPublicProjectionsResponse> {
+  await ensureStudioAdmin(userId);
+
+  return withTransaction((client) => coreProjectionService.rebuildPublicProjections(client));
 }
 
 function mapDatabaseError(error: unknown): Error {

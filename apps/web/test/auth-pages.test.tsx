@@ -32,8 +32,10 @@ beforeEach(() => {
   useAuthStore.setState({
     token: null,
     user: null,
+    session: null,
     isAuthenticated: false,
-    hasHydrated: true
+    hasHydrated: true,
+    sessionStatus: 'idle'
   });
 });
 

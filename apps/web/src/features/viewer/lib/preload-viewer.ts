@@ -1,11 +1,11 @@
-import type { Publish, PublishManifest } from '@promptoon/shared';
+import type { ProductPublish, ProductPublishManifest } from '@promptoon/shared';
 
 import { queryClient } from '../../../app/query-client';
 import { promptoonKeys } from '../../../shared/api/query-keys';
-import { promptoonService } from '../../../shared/api/promptoon.service';
+import { viewerApi } from '../../../shared/api/viewer.api';
 
 type ViewerPageModule = typeof import('../../../pages/promptoon-viewer-page');
-type ViewerCut = PublishManifest['cuts'][number];
+type ViewerCut = ProductPublishManifest['cuts'][number];
 
 const preloadPromises = new Map<string, Promise<void>>();
 let viewerPageModulePromise: Promise<ViewerPageModule> | null = null;
@@ -18,7 +18,7 @@ export function preloadPromptoonViewerPage() {
   return viewerPageModulePromise;
 }
 
-function getStartCut(manifest: PublishManifest): ViewerCut | null {
+function getStartCut(manifest: ProductPublishManifest): ViewerCut | null {
   if (manifest.episode.startCutId) {
     const configuredStartCut = manifest.cuts.find((cut) => cut.id === manifest.episode.startCutId) ?? null;
     if (configuredStartCut) {
@@ -46,10 +46,10 @@ function preloadImage(assetUrl: string | null | undefined): Promise<void> {
   });
 }
 
-async function ensurePublishedEpisode(publishId: string): Promise<Publish> {
+async function ensurePublishedEpisode(publishId: string): Promise<ProductPublish> {
   return queryClient.ensureQueryData({
     queryKey: promptoonKeys.publishedEpisode(publishId),
-    queryFn: () => promptoonService.getPublishedEpisode(publishId)
+    queryFn: () => viewerApi.getPublishedEpisode(publishId)
   });
 }
 

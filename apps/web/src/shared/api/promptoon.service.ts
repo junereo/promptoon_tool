@@ -25,108 +25,90 @@ import type {
   ValidateEpisodeResponse
 } from '@promptoon/shared';
 
-import { apiClient, publicApiClient } from './client';
+import { feedApi } from './feed.api';
+import { studioApi } from './studio.api';
+import { telemetryApi } from './telemetry.api';
+import { viewerApi } from './viewer.api';
 
+/** @deprecated Use domain-specific API modules instead. */
 export const promptoonService = {
   async getEpisodeDraft(episodeId: string): Promise<EpisodeDraftResponse> {
-    const { data } = await apiClient.get(`/episodes/${episodeId}/draft`);
-    return data;
+    return studioApi.getEpisodeDraft(episodeId);
   },
 
   async createCut(episodeId: string, payload: CreateCutRequest): Promise<Cut> {
-    const { data } = await apiClient.post(`/episodes/${episodeId}/cuts`, payload);
-    return data;
+    return studioApi.createCut(episodeId, payload);
   },
 
   async patchCut(cutId: string, payload: PatchCutRequest): Promise<Cut> {
-    const { data } = await apiClient.patch(`/cuts/${cutId}`, payload);
-    return data;
+    return studioApi.patchCut(cutId, payload);
   },
 
   async uploadAsset(projectId: string, file: File): Promise<AssetUploadResponse> {
-    const formData = new FormData();
-    formData.append('file', file);
-    const { data } = await apiClient.post(`/projects/${projectId}/assets`, formData);
-    return data;
+    return studioApi.uploadAsset(projectId, file);
   },
 
   async deleteCut(cutId: string, payload?: DeleteCutRequest): Promise<void> {
-    await apiClient.delete(`/cuts/${cutId}`, payload ? { data: payload } : undefined);
+    await studioApi.deleteCut(cutId, payload);
   },
 
   async createChoice(cutId: string, payload: CreateChoiceRequest): Promise<Choice> {
-    const { data } = await apiClient.post(`/cuts/${cutId}/choices`, payload);
-    return data;
+    return studioApi.createChoice(cutId, payload);
   },
 
   async patchChoice(choiceId: string, payload: PatchChoiceRequest): Promise<Choice> {
-    const { data } = await apiClient.patch(`/choices/${choiceId}`, payload);
-    return data;
+    return studioApi.patchChoice(choiceId, payload);
   },
 
   async deleteChoice(choiceId: string): Promise<void> {
-    await apiClient.delete(`/choices/${choiceId}`);
+    await studioApi.deleteChoice(choiceId);
   },
 
   async reorderCuts(episodeId: string, payload: ReorderEpisodeCutsRequest): Promise<ReorderEpisodeCutsResponse> {
-    const { data } = await apiClient.patch(`/episodes/${episodeId}/cuts/reorder`, payload);
-    return data;
+    return studioApi.reorderCuts(episodeId, payload);
   },
 
   async patchCutLayout(episodeId: string, payload: PatchEpisodeCutLayoutRequest): Promise<PatchEpisodeCutLayoutResponse> {
-    const { data } = await apiClient.patch(`/episodes/${episodeId}/cuts/layout`, payload);
-    return data;
+    return studioApi.patchCutLayout(episodeId, payload);
   },
 
   async validateEpisode(episodeId: string): Promise<ValidateEpisodeResponse> {
-    const { data } = await apiClient.post(`/episodes/${episodeId}/validate`);
-    return data;
+    return studioApi.validateEpisode(episodeId);
   },
 
   async createLoopStateSetting(
     episodeId: string,
     payload: CreateLoopStateSettingRequest
   ): Promise<CreateLoopStateSettingResponse> {
-    const { data } = await apiClient.post(`/episodes/${episodeId}/loop-state-setting`, payload);
-    return data;
+    return studioApi.createLoopStateSetting(episodeId, payload);
   },
 
   async publishEpisode(projectId: string, episodeId: string): Promise<Publish> {
-    const { data } = await apiClient.post(`/projects/${projectId}/publish`, { episodeId });
-    return data;
+    return studioApi.publishProject(projectId, episodeId);
   },
 
   async updatePublishedEpisode(projectId: string, episodeId: string): Promise<Publish> {
-    const { data } = await apiClient.post(`/projects/${projectId}/publish/update`, { episodeId });
-    return data;
+    return studioApi.updatePublishedProject(projectId, episodeId);
   },
 
   async unpublishEpisode(projectId: string, episodeId: string): Promise<void> {
-    await apiClient.post(`/projects/${projectId}/unpublish`, { episodeId });
+    await studioApi.unpublishProject(projectId, episodeId);
   },
 
   async getPublishedEpisode(publishId: string): Promise<Publish> {
-    const { data } = await publicApiClient.get(`/episodes/published/${publishId}`);
-    return data;
+    return viewerApi.getPublishedEpisode(publishId);
   },
 
   async getFeed(cursor?: string, limit = 10): Promise<FeedResponse> {
-    const { data } = await publicApiClient.get('/episodes/feed', {
-      params: {
-        cursor,
-        limit
-      }
-    });
-    return data;
+    return feedApi.getMixedFeed({ cursor, limit });
   },
 
   async getLatestPublishedEpisode(episodeId: string): Promise<Publish | null> {
-    const { data } = await apiClient.get(`/episodes/${episodeId}/published/latest`);
-    return data;
+    return studioApi.getLatestPublishedEpisode(episodeId);
   },
 
   async trackViewerEvent(payload: TelemetryEventRequest): Promise<void> {
-    await publicApiClient.post('/telemetry/events', payload);
+    await telemetryApi.trackViewerEvent(payload);
   },
 
   async getEpisodeAnalytics(
@@ -134,18 +116,10 @@ export const promptoonService = {
     viewsGranularity: AnalyticsViewGranularity,
     viewsRange: AnalyticsViewRange = {}
   ): Promise<AnalyticsEpisodeResponse> {
-    const { data } = await apiClient.get(`/analytics/episodes/${episodeId}`, {
-      params: {
-        viewsGranularity,
-        viewsFrom: viewsRange.from,
-        viewsTo: viewsRange.to
-      }
-    });
-    return data;
+    return studioApi.getEpisodeAnalytics(episodeId, viewsGranularity, viewsRange);
   },
 
   async resetEpisodeAnalytics(episodeId: string, scope: AnalyticsResetScope): Promise<void> {
-    const payload: ResetEpisodeAnalyticsRequest = { scope };
-    await apiClient.post(`/analytics/episodes/${episodeId}/reset`, payload);
+    await studioApi.resetEpisodeAnalytics(episodeId, scope);
   }
 };

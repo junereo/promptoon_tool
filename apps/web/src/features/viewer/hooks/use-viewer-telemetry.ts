@@ -1,10 +1,10 @@
-import type { PublishManifest, TelemetryEventRequest } from '@promptoon/shared';
+import type { ProductPublishManifest, TelemetryEventRequest } from '@promptoon/shared';
 import { useEffect, useRef } from 'react';
 
 import { isPromptoonEndingCut } from '../../../shared/lib/promptoon-ending';
 import { createPromptoonSessionId, getPromptoonAnonymousId, sendPromptoonTelemetryEvent } from '../../../shared/lib/promptoon-telemetry';
 
-type ViewerCut = PublishManifest['cuts'][number];
+type ViewerCut = ProductPublishManifest['cuts'][number];
 type ViewerChoice = ViewerCut['choices'][number];
 
 function sendTelemetryEvent(payload: TelemetryEventRequest) {

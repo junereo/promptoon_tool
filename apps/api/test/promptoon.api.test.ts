@@ -139,18 +139,99 @@ maybeDescribe('promptoon api integration', () => {
     };
   }
 
+  async function createFeedReadyPublishedEpisodeFixture() {
+    const auth = await registerUser();
+    const project = await withAuth(request(app).post('/api/promptoon/projects'), auth.token).send({
+      title: 'Product Flow Project',
+      description: '공개 제품 흐름 검증용 프로젝트입니다.'
+    });
+    const episode = await withAuth(request(app).post(`/api/promptoon/projects/${project.body.id}/episodes`), auth.token).send({
+      title: 'Product Episode',
+      episodeNo: 1,
+      coverImageUrl: 'https://cdn.example.com/product-cover.jpg'
+    });
+    const startCut = await withAuth(request(app).post(`/api/promptoon/episodes/${episode.body.id}/cuts`), auth.token).send({
+      title: 'Feed Branch',
+      body: '두 갈래 중 하나를 고르세요.',
+      kind: 'choice',
+      isStart: true,
+      assetUrl: 'https://cdn.example.com/product-start.jpg'
+    });
+    const endingA = await withAuth(request(app).post(`/api/promptoon/episodes/${episode.body.id}/cuts`), auth.token).send({
+      title: 'Ending A',
+      kind: 'ending',
+      isEnding: true
+    });
+    const endingB = await withAuth(request(app).post(`/api/promptoon/episodes/${episode.body.id}/cuts`), auth.token).send({
+      title: 'Ending B',
+      kind: 'ending',
+      isEnding: true
+    });
+
+    await withAuth(request(app).post(`/api/promptoon/cuts/${startCut.body.id}/choices`), auth.token).send({
+      label: '왼쪽',
+      nextCutId: endingA.body.id
+    });
+    await withAuth(request(app).post(`/api/promptoon/cuts/${startCut.body.id}/choices`), auth.token).send({
+      label: '오른쪽',
+      nextCutId: endingB.body.id
+    });
+
+    const publish = await withAuth(request(app).post(`/api/promptoon/projects/${project.body.id}/publish`), auth.token).send({
+      episodeId: episode.body.id
+    });
+    const publishRow = await query<{ channel_id: string; series_id: string }>(
+      'SELECT channel_id::text AS channel_id, series_id::text AS series_id FROM promptoon_publish WHERE id = $1',
+      [publish.body.id]
+    );
+    const channelRow = await query<{ slug: string }>('SELECT slug FROM promptoon_channel WHERE id = $1', [
+      publishRow.rows[0].channel_id
+    ]);
+
+    return {
+      auth,
+      channelId: publishRow.rows[0].channel_id,
+      channelSlug: channelRow.rows[0].slug,
+      endingCut: endingA,
+      episode,
+      project,
+      publish,
+      seriesId: publishRow.rows[0].series_id,
+      startCut
+    };
+  }
+
   beforeAll(async () => {
     assertSafeTestDatabaseUrl();
     await runMigrations();
   });
 
   beforeEach(async () => {
+    await query('DELETE FROM promptoon_telemetry_event');
+    await query('DELETE FROM promptoon_feed_impression');
+    await query('DELETE FROM promptoon_user_like');
+    await query('DELETE FROM promptoon_user_bookmark');
+    await query('DELETE FROM promptoon_user_subscription');
+    await query('DELETE FROM promptoon_channel_home_projection');
+    await query('DELETE FROM promptoon_short_clip');
+    await query('DELETE FROM promptoon_feed_item');
+    await query('DELETE FROM promptoon_comment');
+    await query('DELETE FROM promptoon_discourse_thread_sync');
+    await query('DELETE FROM promptoon_episode_discussion');
     await query('DELETE FROM promptoon_viewer_event');
     await query('DELETE FROM promptoon_publish');
+    await query('DELETE FROM promptoon_asset_history');
+    await query('DELETE FROM promptoon_asset');
+    await query('DELETE FROM promptoon_series');
+    await query('DELETE FROM promptoon_channel');
     await query('DELETE FROM promptoon_choice');
     await query('DELETE FROM promptoon_cut');
     await query('DELETE FROM promptoon_episode');
     await query('DELETE FROM promptoon_project');
+    await query('DELETE FROM promptoon_project_member');
+    await query('DELETE FROM promptoon_studio_member');
+    await query('DELETE FROM promptoon_session');
+    await query('DELETE FROM promptoon_oauth_account');
     await query('DELETE FROM users');
   });
 
@@ -200,6 +281,68 @@ maybeDescribe('promptoon api integration', () => {
     expect(success.body.user.loginId).toBe(loginId);
     expect(success.body.token).toEqual(expect.any(String));
     expect(failure.status).toBe(401);
+  });
+
+  it('supports root auth me/logout routes, studio membership bootstrap, and oauth scaffold responses', async () => {
+    const loginId = `root-auth-${randomUUID()}`;
+    const register = await request(app)
+      .post('/api/auth/register')
+      .send({ loginId, password: PASSWORD });
+    const secondLogin = await request(app)
+      .post('/api/auth/login')
+      .send({ loginId, password: PASSWORD });
+
+    expect(register.status).toBe(201);
+    expect(secondLogin.status).toBe(200);
+
+    const me = await withAuth(request(app).get('/api/auth/me'), register.body.token);
+    expect(me.status).toBe(200);
+    expect(me.body.user.loginId).toBe(loginId);
+    expect(me.body.studioRole).toBe('studio_admin');
+    expect(me.body.session.id).toEqual(expect.any(String));
+
+    const member = await query<{ role: string }>('SELECT role FROM promptoon_studio_member WHERE user_id = $1', [
+      register.body.user.id
+    ]);
+    const sessionsBeforeLogout = await query<{ count: string }>('SELECT COUNT(*)::text AS count FROM promptoon_session WHERE user_id = $1', [
+      register.body.user.id
+    ]);
+    expect(member.rows[0].role).toBe('studio_admin');
+    expect(Number(sessionsBeforeLogout.rows[0].count)).toBeGreaterThan(0);
+
+    const logout = await withAuth(request(app).post('/api/auth/logout'), register.body.token);
+    expect(logout.status).toBe(204);
+
+    const sessionsAfterLogout = await query<{ count: string }>('SELECT COUNT(*)::text AS count FROM promptoon_session WHERE user_id = $1', [
+      register.body.user.id
+    ]);
+    expect(Number(sessionsAfterLogout.rows[0].count)).toBe(1);
+
+    const loggedOutMe = await withAuth(request(app).get('/api/auth/me'), register.body.token);
+    const secondSessionMe = await withAuth(request(app).get('/api/auth/me'), secondLogin.body.token);
+    expect(loggedOutMe.status).toBe(401);
+    expect(secondSessionMe.status).toBe(200);
+
+    const oauthStart = await request(app).get('/api/auth/google/start');
+    expect(oauthStart.status).toBe(501);
+    expect(oauthStart.body.error).toContain('Google OAuth is scaffolded');
+  });
+
+  it('rejects deleted and expired auth sessions', async () => {
+    const auth = await registerUser(`session-${randomUUID()}`);
+
+    await query('DELETE FROM promptoon_session WHERE user_id = $1', [auth.user.id]);
+    const deletedSession = await withAuth(request(app).get('/api/auth/me'), auth.token);
+    expect(deletedSession.status).toBe(401);
+
+    const login = await request(app)
+      .post('/api/auth/login')
+      .send({ loginId: auth.user.loginId, password: PASSWORD });
+    expect(login.status).toBe(200);
+
+    await query("UPDATE promptoon_session SET expires_at = NOW() - INTERVAL '1 minute' WHERE user_id = $1", [auth.user.id]);
+    const expiredSession = await withAuth(request(app).get('/api/auth/me'), login.body.token);
+    expect(expiredSession.status).toBe(401);
   });
 
   it('requires authentication for authoring routes', async () => {
@@ -651,7 +794,8 @@ maybeDescribe('promptoon api integration', () => {
     const project = await withAuth(request(app).post('/api/promptoon/projects'), auth.token).send({ title: 'Project A' });
     const episode = await withAuth(request(app).post(`/api/promptoon/projects/${project.body.id}/episodes`), auth.token).send({
       title: 'Episode 1',
-      episodeNo: 1
+      episodeNo: 1,
+      coverImageUrl: 'https://cdn.example.com/publish-cover.jpg'
     });
     const startCut = await withAuth(request(app).post(`/api/promptoon/episodes/${episode.body.id}/cuts`), auth.token).send({
       title: 'Start',
@@ -795,6 +939,1204 @@ maybeDescribe('promptoon api integration', () => {
     expect(response.body.manifest.episode.startCutId).toBe(fixture.startCut.body.id);
   });
 
+  it('keeps new domain routers compatible with legacy read routes', async () => {
+    const fixture = await createFeedReadyPublishedEpisodeFixture();
+
+    const legacyViewer = await request(app).get(`/api/promptoon/episodes/published/${fixture.publish.body.id}`);
+    const domainViewer = await request(app).get(`/api/viewer/publishes/${fixture.publish.body.id}`);
+    const legacyFeed = await request(app).get('/api/promptoon/episodes/feed?limit=5');
+    const domainFeed = await request(app).get('/api/feed/mixed?limit=5');
+    const legacyDraft = await withAuth(request(app).get(`/api/promptoon/episodes/${fixture.episode.body.id}/draft`), fixture.auth.token);
+    const studioDraft = await withAuth(request(app).get(`/api/studio/episodes/${fixture.episode.body.id}/draft`), fixture.auth.token);
+    const channelHome = await request(app).get(`/api/channels/${fixture.channelSlug}/home`);
+    const commentsMeta = await request(app).get(`/api/community/publishes/${fixture.publish.body.id}/comments-meta`);
+
+    expect(domainViewer.status).toBe(200);
+    expect(domainViewer.body.id).toBe(legacyViewer.body.id);
+    expect(domainViewer.body.manifest.episode.title).toBe(legacyViewer.body.manifest.episode.title);
+    expect(domainFeed.status).toBe(200);
+    expect(domainFeed.body.items.map((item: { publishId: string }) => item.publishId)).toEqual(
+      legacyFeed.body.items.map((item: { publishId: string }) => item.publishId)
+    );
+    expect(studioDraft.status).toBe(200);
+    expect(studioDraft.body.episode.id).toBe(legacyDraft.body.episode.id);
+    expect(channelHome.status).toBe(200);
+    expect(channelHome.body.profile.slug).toBe(fixture.channelSlug);
+    expect(commentsMeta.status).toBe(200);
+    expect(commentsMeta.body.commentCount).toBe(0);
+  });
+
+  it('serves Studio project management and Community embed product routes', async () => {
+    const fixture = await createFeedReadyPublishedEpisodeFixture();
+
+    const settings = await withAuth(request(app).patch(`/api/studio/projects/${fixture.project.body.id}`), fixture.auth.token).send({
+      title: 'Updated Product Flow Project',
+      thumbnailUrl: 'https://cdn.example.com/project-thumb.jpg'
+    });
+    const assets = await withAuth(request(app).get(`/api/studio/projects/${fixture.project.body.id}/assets`), fixture.auth.token);
+    const history = await withAuth(request(app).get(`/api/studio/projects/${fixture.project.body.id}/publishes`), fixture.auth.token);
+    const commentsMeta = await request(app).get(`/api/community/publishes/${fixture.publish.body.id}/comments-meta`);
+    const communityEmbed = await request(app).get(`/api/community/publishes/${fixture.publish.body.id}/embed`);
+
+    expect(settings.status).toBe(200);
+    expect(settings.body.title).toBe('Updated Product Flow Project');
+    expect(settings.body.thumbnailUrl).toBe('https://cdn.example.com/project-thumb.jpg');
+    expect(assets.status).toBe(200);
+    expect(assets.body.assets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ assetUrl: 'https://cdn.example.com/project-thumb.jpg', source: 'project_thumbnail' }),
+        expect.objectContaining({ assetUrl: 'https://cdn.example.com/product-cover.jpg', source: 'episode_cover' }),
+        expect.objectContaining({ assetUrl: 'https://cdn.example.com/product-start.jpg', source: 'cut_asset' })
+      ])
+    );
+    expect(history.status).toBe(200);
+    expect(history.body.publishes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          publishId: fixture.publish.body.id,
+          episodeId: fixture.episode.body.id,
+          episodeTitle: 'Product Episode',
+          versionNo: 1
+        })
+      ])
+    );
+    expect(commentsMeta.status).toBe(200);
+    expect(commentsMeta.body.embedUrl).toBe(`/community/publishes/${fixture.publish.body.id}`);
+    expect(commentsMeta.body.managementUrl).toBe(`/studio/community/publishes/${fixture.publish.body.id}`);
+    expect(communityEmbed.status).toBe(200);
+    expect(communityEmbed.body.provider).toBe('promptoon');
+    expect(communityEmbed.body.title).toBe('Product Episode 댓글');
+  });
+
+  it('supports Community comments, moderation, and Discourse thread sync', async () => {
+    const fixture = await createFeedReadyPublishedEpisodeFixture();
+
+    const unauthenticatedCreate = await request(app)
+      .post(`/api/community/publishes/${fixture.publish.body.id}/comments`)
+      .send({ body: '첫 댓글입니다.' });
+    const created = await withAuth(
+      request(app).post(`/api/community/publishes/${fixture.publish.body.id}/comments`),
+      fixture.auth.token
+    ).send({ body: '첫 댓글입니다.' });
+    const listed = await request(app).get(`/api/community/publishes/${fixture.publish.body.id}/comments`);
+    const metaAfterCreate = await request(app).get(`/api/community/publishes/${fixture.publish.body.id}/comments-meta`);
+    const updated = await withAuth(request(app).patch(`/api/community/comments/${created.body.id}`), fixture.auth.token).send({
+      body: '수정된 댓글입니다.'
+    });
+    const sync = await withAuth(
+      request(app).post(`/api/community/publishes/${fixture.publish.body.id}/discourse-sync`),
+      fixture.auth.token
+    ).send({
+      discourseTopicId: 'topic-123',
+      status: 'synced',
+      payload: { source: 'test' }
+    });
+    const embedAfterSync = await request(app).get(`/api/community/publishes/${fixture.publish.body.id}/embed`);
+    const hidden = await withAuth(
+      request(app).post(`/api/community/comments/${created.body.id}/moderation`),
+      fixture.auth.token
+    ).send({
+      status: 'hidden',
+      reason: 'spoiler'
+    });
+    const listedAfterModeration = await request(app).get(`/api/community/publishes/${fixture.publish.body.id}/comments`);
+    const metaAfterModeration = await request(app).get(`/api/community/publishes/${fixture.publish.body.id}/comments-meta`);
+
+    expect(unauthenticatedCreate.status).toBe(401);
+    expect(created.status).toBe(201);
+    expect(created.body.body).toBe('첫 댓글입니다.');
+    expect(listed.status).toBe(200);
+    expect(listed.body.comments).toEqual([expect.objectContaining({ id: created.body.id, body: '첫 댓글입니다.', status: 'visible' })]);
+    expect(metaAfterCreate.body.commentCount).toBe(1);
+    expect(updated.status).toBe(200);
+    expect(updated.body.body).toBe('수정된 댓글입니다.');
+    expect(sync.status).toBe(200);
+    expect(sync.body).toEqual(expect.objectContaining({ publishId: fixture.publish.body.id, status: 'synced', discourseTopicId: 'topic-123' }));
+    expect(embedAfterSync.body.provider).toBe('discourse');
+    expect(hidden.status).toBe(200);
+    expect(hidden.body.status).toBe('hidden');
+    expect(listedAfterModeration.body.comments).toEqual([]);
+    expect(metaAfterModeration.body.commentCount).toBe(0);
+  });
+
+  it('tracks Studio uploaded asset metadata, replacement, and delete history', async () => {
+    const auth = await registerUser();
+    const project = await withAuth(request(app).post('/api/studio/projects'), auth.token).send({
+      title: 'Asset History Project'
+    });
+    const upload = await withAuth(request(app).post(`/api/studio/projects/${project.body.id}/assets`), auth.token).attach(
+      'file',
+      TINY_PNG_IMAGE,
+      'cover.png'
+    );
+    const uploadRelativePath = (upload.body.assetUrl as string).replace(/^\/uploads\//, '');
+    const firstList = await withAuth(request(app).get(`/api/studio/projects/${project.body.id}/assets`), auth.token);
+    const uploadedAsset = firstList.body.assets.find((asset: { source: string }) => asset.source === 'upload');
+    const patched = await withAuth(
+      request(app).patch(`/api/studio/projects/${project.body.id}/assets/${uploadedAsset.assetId}`),
+      auth.token
+    ).send({
+      metadata: { label: '대표 이미지' }
+    });
+    const replaced = await withAuth(
+      request(app).post(`/api/studio/projects/${project.body.id}/assets/${uploadedAsset.assetId}/replace`),
+      auth.token
+    ).attach('file', TINY_PNG_IMAGE, 'replacement.png');
+    const deleted = await withAuth(
+      request(app).delete(`/api/studio/projects/${project.body.id}/assets/${uploadedAsset.assetId}`),
+      auth.token
+    );
+    const finalList = await withAuth(request(app).get(`/api/studio/projects/${project.body.id}/assets`), auth.token);
+    const finalAsset = finalList.body.assets.find((asset: { assetId?: string }) => asset.assetId === uploadedAsset.assetId);
+
+    expect(upload.status).toBe(201);
+    expect(await uploadFileExists(uploadRelativePath)).toBe(true);
+    expect(uploadedAsset).toEqual(
+      expect.objectContaining({
+        assetUrl: upload.body.assetUrl,
+        source: 'upload',
+        status: 'active',
+        currentVersion: 1
+      })
+    );
+    expect(uploadedAsset.history).toEqual([expect.objectContaining({ action: 'created' })]);
+    expect(patched.status).toBe(200);
+    expect(patched.body.metadata).toEqual({ label: '대표 이미지' });
+    expect(replaced.status).toBe(200);
+    expect(replaced.body.currentVersion).toBe(2);
+    expect(replaced.body.assetUrl).not.toBe(upload.body.assetUrl);
+    expect(deleted.status).toBe(204);
+    expect(finalAsset.status).toBe('deleted');
+    expect(finalAsset.history.map((item: { action: string }) => item.action)).toEqual(
+      expect.arrayContaining(['created', 'metadata_updated', 'replaced', 'deleted'])
+    );
+  });
+
+  it('compares publish versions and rolls back by creating a new published version', async () => {
+    const fixture = await createFeedReadyPublishedEpisodeFixture();
+
+    const cutPatch = await withAuth(request(app).patch(`/api/studio/cuts/${fixture.startCut.body.id}`), fixture.auth.token).send({
+      title: 'Feed Branch Revised'
+    });
+    const secondPublish = await withAuth(
+      request(app).post(`/api/studio/projects/${fixture.project.body.id}/publish`),
+      fixture.auth.token
+    ).send({
+      episodeId: fixture.episode.body.id
+    });
+    const diff = await withAuth(
+      request(app).get(`/api/studio/projects/${fixture.project.body.id}/publishes/${secondPublish.body.id}/diff`),
+      fixture.auth.token
+    );
+    const compare = await withAuth(
+      request(app).get(
+        `/api/studio/projects/${fixture.project.body.id}/publishes/${fixture.publish.body.id}/compare/${secondPublish.body.id}`
+      ),
+      fixture.auth.token
+    );
+    const rollback = await withAuth(
+      request(app).post(`/api/studio/projects/${fixture.project.body.id}/publishes/${fixture.publish.body.id}/rollback`),
+      fixture.auth.token
+    );
+    const history = await withAuth(request(app).get(`/api/studio/projects/${fixture.project.body.id}/publishes`), fixture.auth.token);
+
+    expect(cutPatch.status).toBe(200);
+    expect(secondPublish.status).toBe(201);
+    expect(secondPublish.body.versionNo).toBe(2);
+    expect(diff.status).toBe(200);
+    expect(diff.body.fromPublishId).toBe(secondPublish.body.id);
+    expect(diff.body.toPublishId).toBe(fixture.publish.body.id);
+    expect(diff.body.changedFields).toContain('cuts');
+    expect(compare.status).toBe(200);
+    expect(compare.body.fromPublishId).toBe(fixture.publish.body.id);
+    expect(compare.body.toPublishId).toBe(secondPublish.body.id);
+    expect(rollback.status).toBe(201);
+    expect(rollback.body.publish.versionNo).toBe(3);
+    expect(rollback.body.publish.manifest.cuts.find((cut: { id: string }) => cut.id === fixture.startCut.body.id).title).toBe('Feed Branch');
+    expect(rollback.body.diff.changedFields).toContain('cuts');
+    expect(history.body.publishes.map((publish: { versionNo: number }) => publish.versionNo)).toEqual(
+      expect.arrayContaining([1, 2, 3])
+    );
+  });
+
+  it('keeps Studio editor mutation routes compatible with legacy authoring routes', async () => {
+    const auth = await registerUser();
+    const project = await withAuth(request(app).post('/api/studio/projects'), auth.token).send({
+      title: 'Editor Compatibility Project',
+      description: 'Studio와 legacy 편집 route 호환성 검증용 프로젝트입니다.'
+    });
+    const episode = await withAuth(request(app).post(`/api/studio/projects/${project.body.id}/episodes`), auth.token).send({
+      title: 'Compatibility Episode',
+      episodeNo: 1
+    });
+
+    const legacyEpisodePatch = await withAuth(request(app).patch(`/api/promptoon/episodes/${episode.body.id}`), auth.token).send({
+      coverImageUrl: 'https://cdn.example.com/editor-compat-cover.jpg'
+    });
+    const studioEpisodePatch = await withAuth(request(app).patch(`/api/studio/episodes/${episode.body.id}`), auth.token).send({
+      title: 'Studio Revised Compatibility Episode'
+    });
+
+    const startCut = await withAuth(request(app).post(`/api/studio/episodes/${episode.body.id}/cuts`), auth.token).send({
+      title: 'Start',
+      kind: 'choice',
+      isStart: true,
+      positionX: 0,
+      positionY: 100
+    });
+    const middleCut = await withAuth(request(app).post(`/api/promptoon/episodes/${episode.body.id}/cuts`), auth.token).send({
+      title: 'Middle',
+      kind: 'scene',
+      positionX: 220,
+      positionY: 100
+    });
+    const tempCut = await withAuth(request(app).post(`/api/promptoon/episodes/${episode.body.id}/cuts`), auth.token).send({
+      title: 'Temporary',
+      kind: 'scene',
+      positionX: 440,
+      positionY: 100
+    });
+    const endingCut = await withAuth(request(app).post(`/api/studio/episodes/${episode.body.id}/cuts`), auth.token).send({
+      title: 'Ending',
+      kind: 'ending',
+      isEnding: true,
+      positionX: 660,
+      positionY: 100
+    });
+
+    const legacyChoice = await withAuth(request(app).post(`/api/promptoon/cuts/${startCut.body.id}/choices`), auth.token).send({
+      label: 'Legacy choice',
+      nextCutId: middleCut.body.id
+    });
+    const studioChoice = await withAuth(request(app).post(`/api/studio/cuts/${startCut.body.id}/choices`), auth.token).send({
+      label: 'Studio choice',
+      nextCutId: tempCut.body.id
+    });
+
+    const legacyCutPatch = await withAuth(request(app).patch(`/api/promptoon/cuts/${middleCut.body.id}`), auth.token).send({
+      title: 'Legacy Patched Middle',
+      contentBlocks: [
+        {
+          id: 'compat-middle-copy',
+          type: 'narration',
+          text: 'legacy route에서 수정된 컷입니다.',
+          textAlign: 'left',
+          fontToken: 'sans-kr'
+        }
+      ],
+      edgeFade: 'bottom'
+    });
+    const studioCutPatch = await withAuth(request(app).patch(`/api/studio/cuts/${startCut.body.id}`), auth.token).send({
+      title: 'Studio Patched Start',
+      body: 'Studio domain route에서 수정된 시작 컷입니다.'
+    });
+    const studioChoicePatch = await withAuth(request(app).patch(`/api/studio/choices/${legacyChoice.body.id}`), auth.token).send({
+      label: 'Studio patched legacy choice',
+      nextCutId: endingCut.body.id,
+      stateWrites: [
+        {
+          key: 'route',
+          value: 'ending'
+        }
+      ]
+    });
+    const legacyChoicePatch = await withAuth(request(app).patch(`/api/promptoon/choices/${studioChoice.body.id}`), auth.token).send({
+      label: 'Legacy patched studio choice',
+      nextCutId: tempCut.body.id
+    });
+
+    const duplicateStudioReorder = await withAuth(
+      request(app).patch(`/api/studio/episodes/${episode.body.id}/cuts/reorder`),
+      auth.token
+    ).send({
+      cuts: [
+        { cutId: startCut.body.id, orderIndex: 0 },
+        { cutId: startCut.body.id, orderIndex: 1 }
+      ]
+    });
+    const duplicateLegacyLayout = await withAuth(
+      request(app).patch(`/api/promptoon/episodes/${episode.body.id}/cuts/layout`),
+      auth.token
+    ).send({
+      cuts: [
+        { cutId: startCut.body.id, positionX: 0, positionY: 0 },
+        { cutId: startCut.body.id, positionX: 10, positionY: 10 }
+      ]
+    });
+    const studioReorder = await withAuth(request(app).patch(`/api/studio/episodes/${episode.body.id}/cuts/reorder`), auth.token).send({
+      cuts: [
+        { cutId: startCut.body.id, orderIndex: 0 },
+        { cutId: middleCut.body.id, orderIndex: 1 },
+        { cutId: tempCut.body.id, orderIndex: 2 },
+        { cutId: endingCut.body.id, orderIndex: 3 }
+      ]
+    });
+    const legacyLayout = await withAuth(request(app).patch(`/api/promptoon/episodes/${episode.body.id}/cuts/layout`), auth.token).send({
+      cuts: [
+        { cutId: startCut.body.id, positionX: 11, positionY: 21 },
+        { cutId: middleCut.body.id, positionX: 111, positionY: 121 },
+        { cutId: tempCut.body.id, positionX: 211, positionY: 221 },
+        { cutId: endingCut.body.id, positionX: 311, positionY: 321 }
+      ]
+    });
+    const studioDeleteTemp = await withAuth(request(app).delete(`/api/studio/cuts/${tempCut.body.id}`), auth.token).send({
+      reconnectToCutId: endingCut.body.id
+    });
+
+    const legacyValidation = await withAuth(request(app).post(`/api/promptoon/episodes/${episode.body.id}/validate`), auth.token);
+    const studioValidation = await withAuth(request(app).post(`/api/studio/episodes/${episode.body.id}/validate`), auth.token);
+    const legacyDraft = await withAuth(request(app).get(`/api/promptoon/episodes/${episode.body.id}/draft`), auth.token);
+    const studioDraft = await withAuth(request(app).get(`/api/studio/episodes/${episode.body.id}/draft`), auth.token);
+
+    expect(project.status).toBe(201);
+    expect(episode.status).toBe(201);
+    expect(legacyEpisodePatch.status).toBe(200);
+    expect(studioEpisodePatch.status).toBe(200);
+    expect(startCut.status).toBe(201);
+    expect(middleCut.status).toBe(201);
+    expect(tempCut.status).toBe(201);
+    expect(endingCut.status).toBe(201);
+    expect(legacyChoice.status).toBe(201);
+    expect(studioChoice.status).toBe(201);
+    expect(legacyCutPatch.status).toBe(200);
+    expect(studioCutPatch.status).toBe(200);
+    expect(studioChoicePatch.status).toBe(200);
+    expect(legacyChoicePatch.status).toBe(200);
+    expect(duplicateStudioReorder.status).toBe(400);
+    expect(duplicateLegacyLayout.status).toBe(400);
+    expect(studioReorder.status).toBe(200);
+    expect(legacyLayout.status).toBe(200);
+    expect(studioDeleteTemp.status).toBe(204);
+    expect(legacyValidation.status).toBe(200);
+    expect(studioValidation.status).toBe(200);
+    expect(studioValidation.body).toEqual(legacyValidation.body);
+    expect(studioDraft.status).toBe(200);
+    expect(studioDraft.body).toEqual(legacyDraft.body);
+    expect(studioDraft.body.episode).toEqual(
+      expect.objectContaining({
+        id: episode.body.id,
+        title: 'Studio Revised Compatibility Episode',
+        coverImageUrl: 'https://cdn.example.com/editor-compat-cover.jpg'
+      })
+    );
+    expect(studioDraft.body.cuts.map((cut: { id: string }) => cut.id)).toEqual([
+      startCut.body.id,
+      middleCut.body.id,
+      endingCut.body.id
+    ]);
+    expect(studioDraft.body.cuts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: startCut.body.id,
+          title: 'Studio Patched Start',
+          body: 'Studio domain route에서 수정된 시작 컷입니다.',
+          positionX: 11,
+          positionY: 21
+        }),
+        expect.objectContaining({
+          id: middleCut.body.id,
+          title: 'Legacy Patched Middle',
+          edgeFade: 'bottom',
+          positionX: 111,
+          positionY: 121
+        }),
+        expect.objectContaining({
+          id: endingCut.body.id,
+          isEnding: true,
+          positionX: 311,
+          positionY: 321
+        })
+      ])
+    );
+    expect(studioDraft.body.choices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: legacyChoice.body.id,
+          label: 'Studio patched legacy choice',
+          nextCutId: endingCut.body.id,
+          stateWrites: [
+            {
+              key: 'route',
+              operation: 'set',
+              value: 'ending'
+            }
+          ]
+        }),
+        expect.objectContaining({
+          id: studioChoice.body.id,
+          label: 'Legacy patched studio choice',
+          nextCutId: endingCut.body.id
+        })
+      ])
+    );
+  });
+
+  it('keeps LoopStateSetting creation compatible across Studio and legacy routes', async () => {
+    const auth = await registerUser();
+    const project = await withAuth(request(app).post('/api/studio/projects'), auth.token).send({
+      title: 'Loop Route Compatibility Project'
+    });
+
+    async function createLoopSeed(episodeNo: number) {
+      const episode = await withAuth(request(app).post(`/api/studio/projects/${project.body.id}/episodes`), auth.token).send({
+        title: `Loop Route Episode ${episodeNo}`,
+        episodeNo
+      });
+      const attachCut = await withAuth(request(app).post(`/api/studio/episodes/${episode.body.id}/cuts`), auth.token).send({
+        title: 'Attach',
+        kind: 'choice',
+        isStart: true
+      });
+      const continuationCut = await withAuth(request(app).post(`/api/studio/episodes/${episode.body.id}/cuts`), auth.token).send({
+        title: 'Continue',
+        kind: 'scene'
+      });
+      const retryCut = await withAuth(request(app).post(`/api/studio/episodes/${episode.body.id}/cuts`), auth.token).send({
+        title: 'Retry',
+        kind: 'scene'
+      });
+
+      expect(episode.status).toBe(201);
+      expect(attachCut.status).toBe(201);
+      expect(continuationCut.status).toBe(201);
+      expect(retryCut.status).toBe(201);
+
+      return {
+        attachCutId: attachCut.body.id as string,
+        continuationCutId: continuationCut.body.id as string,
+        episodeId: episode.body.id as string,
+        retryCutId: retryCut.body.id as string
+      };
+    }
+
+    function normalizeLoopStateResponse(
+      responseBody: {
+        choices: Array<{
+          cutId: string;
+          label: string;
+          nextCutId: string | null;
+          stateWrites?: Array<{ key: string; operation?: string; value: string }>;
+        }>;
+        continuationCutId: string;
+        cuts: Array<{
+          id: string;
+          kind: string;
+          loopMetadata?: {
+            groupId: string;
+            role: string;
+            stageIndex?: number;
+            stageCount?: number;
+            truth?: string;
+            expectedChoice?: string;
+            variantCutIds?: string[];
+            resetStateKeyPrefix?: string;
+          } | null;
+          stateFallbackCutId?: string | null;
+          stateRoutes?: Array<{
+            conditions?: Array<{ stateKey: string; equals: string }>;
+            label?: string;
+            nextCutId: string;
+          }>;
+          title: string;
+        }>;
+        failureCutId: string;
+        firstStageCutId: string;
+        groupId: string;
+        resultRouterCutId: string;
+        retryCutId: string;
+        successCutId: string;
+      },
+      seed: {
+        attachCutId: string;
+        continuationCutId: string;
+        retryCutId: string;
+      }
+    ) {
+      const cutsById = new Map(responseBody.cuts.map((cut) => [cut.id, cut]));
+      const normalizeStateKey = (key: string) => key.replace(responseBody.groupId, '<group>');
+      const getCutRole = (cutId: string | null | undefined): string | null => {
+        if (!cutId) {
+          return null;
+        }
+        if (cutId === seed.attachCutId) {
+          return 'attach';
+        }
+        if (cutId === seed.continuationCutId) {
+          return 'continuation';
+        }
+        if (cutId === seed.retryCutId) {
+          return 'retry';
+        }
+
+        const cut = cutsById.get(cutId);
+        const metadata = cut?.loopMetadata;
+        if (!metadata) {
+          return 'unknown';
+        }
+        if (metadata.role === 'stageBase') {
+          return `stageBase:${metadata.stageIndex}`;
+        }
+        if (metadata.role === 'stageVariant') {
+          return `stageVariant:${metadata.stageIndex}:${metadata.truth}`;
+        }
+        if (metadata.role === 'spacer') {
+          return `spacer:${metadata.stageIndex}`;
+        }
+        return metadata.role;
+      };
+      const loopCuts = responseBody.cuts.filter((cut) => cut.loopMetadata?.groupId === responseBody.groupId);
+      const loopCutSummary = loopCuts
+        .map((cut) => ({
+          expectedChoice: cut.loopMetadata?.expectedChoice ?? null,
+          fallbackRole: getCutRole(cut.stateFallbackCutId),
+          kind: cut.kind,
+          resetStateKeyPrefix: cut.loopMetadata?.resetStateKeyPrefix
+            ? normalizeStateKey(cut.loopMetadata.resetStateKeyPrefix)
+            : null,
+          role: getCutRole(cut.id),
+          routes: (cut.stateRoutes ?? []).map((route) => ({
+            conditions: (route.conditions ?? []).map((condition) => ({
+              equals: condition.equals,
+              stateKey: normalizeStateKey(condition.stateKey)
+            })),
+            label: route.label ?? null,
+            nextRole: getCutRole(route.nextCutId)
+          })),
+          stageCount: cut.loopMetadata?.stageCount ?? null,
+          title: cut.title,
+          variantCount: cut.loopMetadata?.variantCutIds?.length ?? 0
+        }))
+        .sort((left, right) => `${left.role}:${left.title}`.localeCompare(`${right.role}:${right.title}`));
+      const choiceSummary = responseBody.choices
+        .map((choice) => ({
+          label: choice.label,
+          nextRole: getCutRole(choice.nextCutId),
+          sourceRole: getCutRole(choice.cutId),
+          stateWrites: (choice.stateWrites ?? []).map((stateWrite) => ({
+            key: normalizeStateKey(stateWrite.key),
+            operation: stateWrite.operation ?? 'set',
+            value: stateWrite.value
+          }))
+        }))
+        .sort((left, right) =>
+          `${left.sourceRole}:${left.label}:${left.nextRole}`.localeCompare(`${right.sourceRole}:${right.label}:${right.nextRole}`)
+        );
+
+      return {
+        choiceSummary,
+        firstStageRole: getCutRole(responseBody.firstStageCutId),
+        groupId: responseBody.groupId.replace(/[a-f0-9]{8}$/, '<id>'),
+        loopCutSummary,
+        resultRouterRole: getCutRole(responseBody.resultRouterCutId),
+        successRole: getCutRole(responseBody.successCutId),
+        retryRole: getCutRole(responseBody.retryCutId),
+        failureRole: getCutRole(responseBody.failureCutId),
+        continuationRole: getCutRole(responseBody.continuationCutId)
+      };
+    }
+
+    const legacySeed = await createLoopSeed(1);
+    const studioSeed = await createLoopSeed(2);
+    const requestBody = {
+      groupName: 'Station Exit',
+      exitLevelRequired: 5,
+      stages: [
+        {
+          title: 'Entrance',
+          baseAssetUrl: '/uploads/exit-loop/base-01.webp',
+          spacerTitle: 'Entrance Spacer',
+          spacerAssetUrl: '/uploads/exit-loop/spacer-01.webp',
+          variants: [
+            {
+              title: 'Entrance Variant',
+              assetUrl: '/uploads/exit-loop/variant-01.webp',
+              truth: 'real_anomaly'
+            }
+          ]
+        },
+        {
+          title: 'Gate',
+          variants: [
+            {
+              title: 'Gate Variant',
+              truth: 'fake_suspicion'
+            }
+          ]
+        }
+      ]
+    };
+    const legacyLoop = await withAuth(
+      request(app).post(`/api/promptoon/episodes/${legacySeed.episodeId}/loop-state-setting`),
+      auth.token
+    ).send({
+      ...requestBody,
+      attachAfterCutId: legacySeed.attachCutId,
+      continuationCutId: legacySeed.continuationCutId,
+      retryCutId: legacySeed.retryCutId
+    });
+    const studioLoop = await withAuth(
+      request(app).post(`/api/studio/episodes/${studioSeed.episodeId}/loop-state-setting`),
+      auth.token
+    ).send({
+      ...requestBody,
+      attachAfterCutId: studioSeed.attachCutId,
+      continuationCutId: studioSeed.continuationCutId,
+      retryCutId: studioSeed.retryCutId
+    });
+    const legacyDraftFromStudio = await withAuth(request(app).get(`/api/studio/episodes/${legacySeed.episodeId}/draft`), auth.token);
+    const studioDraftFromLegacy = await withAuth(request(app).get(`/api/promptoon/episodes/${studioSeed.episodeId}/draft`), auth.token);
+
+    expect(project.status).toBe(201);
+    expect(legacyLoop.status).toBe(201);
+    expect(studioLoop.status).toBe(201);
+    expect(legacyDraftFromStudio.status).toBe(200);
+    expect(studioDraftFromLegacy.status).toBe(200);
+    expect({
+      choices: legacyDraftFromStudio.body.choices,
+      cuts: legacyDraftFromStudio.body.cuts,
+      episode: legacyDraftFromStudio.body.episode
+    }).toEqual({
+      choices: legacyLoop.body.choices,
+      cuts: legacyLoop.body.cuts,
+      episode: legacyLoop.body.episode
+    });
+    expect({
+      choices: studioDraftFromLegacy.body.choices,
+      cuts: studioDraftFromLegacy.body.cuts,
+      episode: studioDraftFromLegacy.body.episode
+    }).toEqual({
+      choices: studioLoop.body.choices,
+      cuts: studioLoop.body.cuts,
+      episode: studioLoop.body.episode
+    });
+    expect(normalizeLoopStateResponse(studioLoop.body, studioSeed)).toEqual(
+      normalizeLoopStateResponse(legacyLoop.body, legacySeed)
+    );
+    expect(studioLoop.body.cuts.filter((cut: { loopMetadata?: { role?: string } | null }) => cut.loopMetadata?.role === 'stageBase')).toHaveLength(2);
+    expect(studioLoop.body.cuts.filter((cut: { loopMetadata?: { role?: string } | null }) => cut.loopMetadata?.role === 'stageVariant')).toHaveLength(2);
+    expect(studioLoop.body.cuts.filter((cut: { loopMetadata?: { role?: string } | null }) => cut.loopMetadata?.role === 'spacer')).toHaveLength(1);
+    expect(studioLoop.body.cuts.filter((cut: { loopMetadata?: { role?: string } | null }) => cut.loopMetadata?.role === 'resultRouter')).toHaveLength(1);
+  });
+
+  it('creates public projections, community metadata, and telemetry when publishing', async () => {
+    const fixture = await createFeedReadyPublishedEpisodeFixture();
+    const [feedItems, channelProjections, discussions, telemetryEvents, projectMembers] = await Promise.all([
+      query<{ count: string; payload_json: { channelSlug?: string; metrics?: unknown } }>(
+        'SELECT COUNT(*)::text AS count, MAX(payload_json::text)::jsonb AS payload_json FROM promptoon_feed_item WHERE publish_id = $1',
+        [fixture.publish.body.id]
+      ),
+      query<{ count: string }>('SELECT COUNT(*)::text AS count FROM promptoon_channel_home_projection WHERE channel_id = $1', [
+        fixture.channelId
+      ]),
+      query<{ count: string; discussion_url: string | null }>(
+        'SELECT COUNT(*)::text AS count, MAX(discussion_url) AS discussion_url FROM promptoon_episode_discussion WHERE publish_id = $1',
+        [fixture.publish.body.id]
+      ),
+      query<{ count: string }>("SELECT COUNT(*)::text AS count FROM promptoon_telemetry_event WHERE event_name = 'studio_publish'"),
+      query<{ role: string }>('SELECT role FROM promptoon_project_member WHERE project_id = $1 AND user_id = $2', [
+        fixture.project.body.id,
+        fixture.auth.user.id
+      ])
+    ]);
+
+    expect(Number(feedItems.rows[0].count)).toBe(1);
+    expect(feedItems.rows[0].payload_json.channelSlug).toBe(fixture.channelSlug);
+    expect(feedItems.rows[0].payload_json.metrics).toEqual({ comments: 0, likes: 0, shares: 0, views: 0 });
+    expect(Number(channelProjections.rows[0].count)).toBe(1);
+    expect(Number(discussions.rows[0].count)).toBe(1);
+    expect(discussions.rows[0].discussion_url).toBe(`/community/publishes/${fixture.publish.body.id}`);
+    expect(Number(telemetryEvents.rows[0].count)).toBe(1);
+    expect(projectMembers.rows[0].role).toBe('owner');
+  });
+
+  it('keeps project roles, projections, and project analytics available through Studio domain routes', async () => {
+    const fixture = await createFeedReadyPublishedEpisodeFixture();
+    const writer = await registerUser();
+    const reviewer = await registerUser();
+    const outsider = await registerUser();
+    const anonymousId = randomUUID();
+    const sessionId = randomUUID();
+
+    const addMember = await withAuth(request(app).post(`/api/studio/projects/${fixture.project.body.id}/members`), fixture.auth.token).send({
+      loginId: writer.user.loginId,
+      role: 'writer'
+    });
+    expect(addMember.status).toBe(201);
+    const addReviewer = await withAuth(request(app).post(`/api/studio/projects/${fixture.project.body.id}/members`), fixture.auth.token).send({
+      loginId: reviewer.user.loginId,
+      role: 'viewer'
+    });
+    expect(addReviewer.status).toBe(201);
+    expect(addMember.body.members).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ loginId: writer.user.loginId, role: 'writer' }),
+        expect.objectContaining({ loginId: fixture.auth.user.loginId, role: 'owner' })
+      ])
+    );
+
+    const writerDraft = await withAuth(request(app).get(`/api/studio/episodes/${fixture.episode.body.id}/draft`), writer.token);
+    expect(writerDraft.status).toBe(200);
+
+    const writerPatch = await withAuth(request(app).patch(`/api/studio/episodes/${fixture.episode.body.id}`), writer.token).send({
+      title: 'Writer Revised Episode'
+    });
+    expect(writerPatch.status).toBe(200);
+
+    const reviewerDraft = await withAuth(request(app).get(`/api/studio/episodes/${fixture.episode.body.id}/draft`), reviewer.token);
+    const reviewerPatch = await withAuth(request(app).patch(`/api/studio/episodes/${fixture.episode.body.id}`), reviewer.token).send({
+      title: 'Reviewer Cannot Edit'
+    });
+    const writerValidation = await withAuth(request(app).post(`/api/studio/episodes/${fixture.episode.body.id}/validate`), writer.token);
+    const reviewerValidation = await withAuth(request(app).post(`/api/studio/episodes/${fixture.episode.body.id}/validate`), reviewer.token);
+    expect(reviewerDraft.status).toBe(200);
+    expect(reviewerPatch.status).toBe(403);
+    expect(writerValidation.status).toBe(200);
+    expect(reviewerValidation.status).toBe(403);
+
+    const writerPublish = await withAuth(request(app).post(`/api/studio/projects/${fixture.project.body.id}/publish`), writer.token).send({
+      episodeId: fixture.episode.body.id
+    });
+    expect(writerPublish.status).toBe(403);
+
+    await request(app)
+      .post('/api/promptoon/telemetry/events')
+      .send({
+        publishId: fixture.publish.body.id,
+        anonymousId,
+        sessionId,
+        eventType: 'cut_view',
+        cutId: fixture.startCut.body.id
+      });
+    await request(app)
+      .post('/api/promptoon/telemetry/events')
+      .send({
+        publishId: fixture.publish.body.id,
+        anonymousId,
+        sessionId,
+        eventType: 'ending_reach',
+        cutId: fixture.endingCut.body.id
+      });
+
+    const ownerAnalytics = await withAuth(request(app).get(`/api/studio/analytics/projects/${fixture.project.body.id}`), fixture.auth.token);
+    const writerAnalytics = await withAuth(request(app).get(`/api/studio/analytics/projects/${fixture.project.body.id}`), writer.token);
+    const reviewerAnalytics = await withAuth(request(app).get(`/api/studio/analytics/projects/${fixture.project.body.id}`), reviewer.token);
+    const outsiderAnalytics = await withAuth(request(app).get(`/api/studio/analytics/projects/${fixture.project.body.id}`), outsider.token);
+
+    expect(ownerAnalytics.status).toBe(200);
+    expect(writerAnalytics.status).toBe(200);
+    expect(reviewerAnalytics.status).toBe(200);
+    expect(outsiderAnalytics.status).toBe(403);
+    expect(ownerAnalytics.body).toEqual(
+      expect.objectContaining({
+        projectId: fixture.project.body.id,
+        totalEpisodes: 1,
+        publishedEpisodes: 1,
+        totalPublishes: 1,
+        totalViews: 1,
+        uniqueViewers: 1,
+        endingReaches: 1,
+        completionRate: 100
+      })
+    );
+    expect(ownerAnalytics.body.episodes[0]).toEqual(
+      expect.objectContaining({
+        episodeId: fixture.episode.body.id,
+        publishCount: 1,
+        totalViews: 1,
+        uniqueViewers: 1,
+        endingReaches: 1
+      })
+    );
+  });
+
+  it('rebuilds public projections for existing publishes and preserves legacy reads', async () => {
+    const fixture = await createFeedReadyPublishedEpisodeFixture();
+
+    await query('DELETE FROM promptoon_channel_home_projection');
+    await query('DELETE FROM promptoon_feed_item');
+    await query('DELETE FROM promptoon_episode_discussion');
+    await query('UPDATE promptoon_publish SET channel_id = NULL, series_id = NULL WHERE id = $1', [fixture.publish.body.id]);
+    await query('DELETE FROM promptoon_series');
+    await query('DELETE FROM promptoon_channel');
+
+    const rebuild = await withAuth(request(app).post('/api/studio/projections/rebuild'), fixture.auth.token);
+    expect(rebuild.status).toBe(200);
+    expect(rebuild.body).toEqual({
+      publishes: 1,
+      channels: 1,
+      series: 1,
+      feedItems: 1,
+      channelHomes: 1,
+      discussions: 1
+    });
+
+    const [publishPlacement, feedItems, discussions, channels] = await Promise.all([
+      query<{ channel_id: string | null; series_id: string | null }>(
+        'SELECT channel_id::text AS channel_id, series_id::text AS series_id FROM promptoon_publish WHERE id = $1',
+        [fixture.publish.body.id]
+      ),
+      query<{ count: string }>('SELECT COUNT(*)::text AS count FROM promptoon_feed_item WHERE publish_id = $1', [
+        fixture.publish.body.id
+      ]),
+      query<{ count: string }>('SELECT COUNT(*)::text AS count FROM promptoon_episode_discussion WHERE publish_id = $1', [
+        fixture.publish.body.id
+      ]),
+      query<{ id: string; slug: string }>('SELECT id::text AS id, slug FROM promptoon_channel WHERE project_id = $1', [
+        fixture.project.body.id
+      ])
+    ]);
+
+    expect(publishPlacement.rows[0].channel_id).toEqual(expect.any(String));
+    expect(publishPlacement.rows[0].series_id).toEqual(expect.any(String));
+    expect(Number(feedItems.rows[0].count)).toBe(1);
+    expect(Number(discussions.rows[0].count)).toBe(1);
+    expect(channels.rows[0].slug).toEqual(expect.any(String));
+
+    const secondRebuild = await withAuth(request(app).post('/api/studio/projections/rebuild'), fixture.auth.token);
+    expect(secondRebuild.status).toBe(200);
+    expect(secondRebuild.body).toEqual(rebuild.body);
+
+    const restoredFeed = await request(app).get('/api/feed/mixed?limit=10');
+    const restoredChannelHome = await request(app).get(`/api/channels/${channels.rows[0].slug}/home`);
+    const legacyPublished = await request(app).get(`/api/promptoon/episodes/published/${fixture.publish.body.id}`);
+
+    expect(restoredFeed.body.items.map((item: { publishId: string }) => item.publishId)).toContain(fixture.publish.body.id);
+    expect(restoredChannelHome.body.latestEpisodes[0].publishId).toBe(fixture.publish.body.id);
+    expect(legacyPublished.status).toBe(200);
+    expect(legacyPublished.body.id).toBe(fixture.publish.body.id);
+  });
+
+  it('requires studio admin role for projection rebuild', async () => {
+    const auth = await registerUser();
+    await query("UPDATE promptoon_studio_member SET role = 'viewer' WHERE user_id = $1", [auth.user.id]);
+
+    const rebuild = await withAuth(request(app).post('/api/studio/projections/rebuild'), auth.token);
+
+    expect(rebuild.status).toBe(403);
+  });
+
+  it('enforces project member roles across studio and legacy authoring routes', async () => {
+    const owner = await registerUser();
+    const producer = await registerUser();
+    const writer = await registerUser();
+    const viewer = await registerUser();
+    const project = await withAuth(request(app).post('/api/studio/projects'), owner.token).send({
+      title: 'Role Project',
+      description: '권한 테스트 프로젝트입니다.'
+    });
+    const episode = await withAuth(request(app).post(`/api/studio/projects/${project.body.id}/episodes`), owner.token).send({
+      title: 'Role Episode',
+      episodeNo: 1
+    });
+
+    await withAuth(request(app).post(`/api/studio/projects/${project.body.id}/members`), owner.token).send({
+      loginId: producer.user.loginId,
+      role: 'producer'
+    });
+    await withAuth(request(app).post(`/api/studio/projects/${project.body.id}/members`), owner.token).send({
+      loginId: writer.user.loginId,
+      role: 'writer'
+    });
+    await withAuth(request(app).post(`/api/studio/projects/${project.body.id}/members`), owner.token).send({
+      loginId: viewer.user.loginId,
+      role: 'viewer'
+    });
+
+    const members = await withAuth(request(app).get(`/api/studio/projects/${project.body.id}/members`), owner.token);
+    const viewerProjects = await withAuth(request(app).get('/api/studio/projects'), viewer.token);
+    const writerPatch = await withAuth(request(app).patch(`/api/studio/episodes/${episode.body.id}`), writer.token).send({
+      title: 'Writer Updated Episode'
+    });
+    const viewerDraft = await withAuth(request(app).get(`/api/studio/episodes/${episode.body.id}/draft`), viewer.token);
+    const legacyViewerDraft = await withAuth(request(app).get(`/api/promptoon/episodes/${episode.body.id}/draft`), viewer.token);
+    const writerPublish = await withAuth(request(app).post(`/api/studio/projects/${project.body.id}/publish`), writer.token).send({
+      episodeId: episode.body.id
+    });
+    const producerPublish = await withAuth(request(app).post(`/api/studio/projects/${project.body.id}/publish`), producer.token).send({
+      episodeId: episode.body.id
+    });
+    const producerMemberManage = await withAuth(
+      request(app).post(`/api/studio/projects/${project.body.id}/members`),
+      producer.token
+    ).send({
+      loginId: `new-${randomUUID()}`,
+      role: 'viewer'
+    });
+    const ownerPatchMember = await withAuth(
+      request(app).patch(`/api/studio/projects/${project.body.id}/members/${writer.user.id}`),
+      owner.token
+    ).send({
+      role: 'viewer'
+    });
+    const demotedWriterPatch = await withAuth(request(app).patch(`/api/studio/episodes/${episode.body.id}`), writer.token).send({
+      title: 'Should fail'
+    });
+    const ownerDeleteMember = await withAuth(
+      request(app).delete(`/api/studio/projects/${project.body.id}/members/${writer.user.id}`),
+      owner.token
+    );
+    const ownerDeleteOwner = await withAuth(
+      request(app).delete(`/api/studio/projects/${project.body.id}/members/${owner.user.id}`),
+      owner.token
+    );
+
+    expect(members.status).toBe(200);
+    expect(members.body.members.map((member: { role: string }) => member.role)).toEqual(['owner', 'producer', 'writer', 'viewer']);
+    expect(viewerProjects.status).toBe(200);
+    expect(viewerProjects.body.map((currentProject: { id: string }) => currentProject.id)).toContain(project.body.id);
+    expect(writerPatch.status).toBe(200);
+    expect(viewerDraft.status).toBe(200);
+    expect(legacyViewerDraft.status).toBe(403);
+    expect(writerPublish.status).toBe(403);
+    expect(producerPublish.status).toBe(409);
+    expect(producerMemberManage.status).toBe(403);
+    expect(ownerPatchMember.status).toBe(200);
+    expect(ownerPatchMember.body.members.find((member: { userId: string }) => member.userId === writer.user.id).role).toBe('viewer');
+    expect(demotedWriterPatch.status).toBe(403);
+    expect(ownerDeleteMember.status).toBe(200);
+    expect(ownerDeleteOwner.status).toBe(400);
+  });
+
+  it('serves feed from feed item projections only', async () => {
+    const fixture = await createFeedReadyPublishedEpisodeFixture();
+
+    const beforeDelete = await request(app).get('/api/feed/mixed?limit=10');
+    expect(beforeDelete.body.items.map((item: { publishId: string }) => item.publishId)).toContain(fixture.publish.body.id);
+
+    await query('DELETE FROM promptoon_feed_item WHERE publish_id = $1', [fixture.publish.body.id]);
+
+    const afterDelete = await request(app).get('/api/feed/mixed?limit=10');
+    expect(afterDelete.status).toBe(200);
+    expect(afterDelete.body.items.map((item: { publishId: string }) => item.publishId)).not.toContain(fixture.publish.body.id);
+  });
+
+  it('rebuilds channel home projections when missing and updates subscription counts', async () => {
+    const fixture = await createFeedReadyPublishedEpisodeFixture();
+    const subscriber = await registerUser();
+
+    await query('DELETE FROM promptoon_channel_home_projection WHERE channel_id = $1', [fixture.channelId]);
+
+    const rebuilt = await request(app).get(`/api/channels/${fixture.channelSlug}/home`);
+    const projectionCount = await query<{ count: string }>('SELECT COUNT(*)::text AS count FROM promptoon_channel_home_projection WHERE channel_id = $1', [
+      fixture.channelId
+    ]);
+    expect(rebuilt.status).toBe(200);
+    expect(rebuilt.body.latestEpisodes[0].publishId).toBe(fixture.publish.body.id);
+    expect(Number(projectionCount.rows[0].count)).toBe(1);
+
+    const unauthenticatedSubscribe = await request(app).post(`/api/channels/${fixture.channelId}/subscribe`);
+    expect(unauthenticatedSubscribe.status).toBe(401);
+
+    const subscribe = await withAuth(request(app).post(`/api/channels/${fixture.channelId}/subscribe`), subscriber.token);
+    expect(subscribe.status).toBe(204);
+
+    const subscribedHome = await request(app).get(`/api/channels/${fixture.channelSlug}/home`);
+    expect(subscribedHome.body.profile.subscriberCount).toBe(1);
+
+    const unsubscribe = await withAuth(request(app).delete(`/api/channels/${fixture.channelId}/subscribe`), subscriber.token);
+    expect(unsubscribe.status).toBe(204);
+
+    const unsubscribedHome = await request(app).get(`/api/channels/${fixture.channelSlug}/home`);
+    expect(unsubscribedHome.body.profile.subscriberCount).toBe(0);
+  });
+
+  it('tracks public interaction state and updates like and subscription metrics', async () => {
+    const fixture = await createFeedReadyPublishedEpisodeFixture();
+    const reader = await registerUser();
+
+    const publicFeed = await request(app).get('/api/feed/mixed?limit=10');
+    const publicViewer = await request(app).get(`/api/viewer/publishes/${fixture.publish.body.id}`);
+    const publicChannel = await request(app).get(`/api/channels/${fixture.channelSlug}/home`);
+    expect(publicFeed.status).toBe(200);
+    expect(publicViewer.status).toBe(200);
+    expect(publicChannel.status).toBe(200);
+
+    const unauthenticatedState = await request(app).get(`/api/feed/state?publishIds=${fixture.publish.body.id}`);
+    const unauthenticatedViewerState = await request(app).get(`/api/viewer/publishes/${fixture.publish.body.id}/state`);
+    const unauthenticatedLike = await request(app).post(`/api/feed/publishes/${fixture.publish.body.id}/like`);
+    expect(unauthenticatedState.status).toBe(401);
+    expect(unauthenticatedViewerState.status).toBe(401);
+    expect(unauthenticatedLike.status).toBe(401);
+
+    const initialState = await withAuth(
+      request(app).get(`/api/feed/state?publishIds=${fixture.publish.body.id}`),
+      reader.token
+    );
+    expect(initialState.status).toBe(200);
+    expect(initialState.body.items).toEqual([
+      expect.objectContaining({
+        publishId: fixture.publish.body.id,
+        liked: false,
+        bookmarked: false,
+        metrics: {
+          comments: 0,
+          likes: 0,
+          shares: 0,
+          views: 0
+        }
+      })
+    ]);
+
+    const like = await withAuth(request(app).post(`/api/feed/publishes/${fixture.publish.body.id}/like`), reader.token);
+    const likeAgain = await withAuth(request(app).post(`/api/feed/publishes/${fixture.publish.body.id}/like`), reader.token);
+    const bookmark = await withAuth(request(app).post(`/api/feed/publishes/${fixture.publish.body.id}/bookmark`), reader.token);
+    expect(like.status).toBe(204);
+    expect(likeAgain.status).toBe(204);
+    expect(bookmark.status).toBe(204);
+
+    const likedState = await withAuth(
+      request(app).get(`/api/feed/state?publishIds=${fixture.publish.body.id}`),
+      reader.token
+    );
+    expect(likedState.body.items[0]).toEqual(
+      expect.objectContaining({
+        liked: true,
+        bookmarked: true,
+        metrics: expect.objectContaining({
+          likes: 1
+        })
+      })
+    );
+
+    const likedFeed = await request(app).get('/api/feed/mixed?limit=10');
+    const likedFeedItem = likedFeed.body.items.find((item: { publishId: string }) => item.publishId === fixture.publish.body.id);
+    expect(likedFeedItem.metrics.likes).toBe(1);
+
+    const likedChannel = await request(app).get(`/api/channels/${fixture.channelSlug}/home`);
+    expect(likedChannel.body.profile.likeCount).toBe(1);
+
+    const subscribe = await withAuth(request(app).post(`/api/channels/${fixture.channelId}/subscribe`), reader.token);
+    expect(subscribe.status).toBe(204);
+
+    const subscriptionState = await withAuth(
+      request(app).get(`/api/channels/${fixture.channelId}/subscription`),
+      reader.token
+    );
+    expect(subscriptionState.status).toBe(200);
+    expect(subscriptionState.body).toEqual({
+      channelId: fixture.channelId,
+      subscribed: true,
+      subscriberCount: 1
+    });
+
+    const viewerState = await withAuth(
+      request(app).get(`/api/viewer/publishes/${fixture.publish.body.id}/state`),
+      reader.token
+    );
+    expect(viewerState.status).toBe(200);
+    expect(viewerState.body).toEqual(
+      expect.objectContaining({
+        publishId: fixture.publish.body.id,
+        liked: true,
+        bookmarked: true,
+        channelId: fixture.channelId,
+        subscribedToChannel: true,
+        metrics: expect.objectContaining({
+          likes: 1
+        })
+      })
+    );
+
+    const unbookmark = await withAuth(request(app).delete(`/api/feed/publishes/${fixture.publish.body.id}/bookmark`), reader.token);
+    const unlike = await withAuth(request(app).delete(`/api/feed/publishes/${fixture.publish.body.id}/like`), reader.token);
+    expect(unbookmark.status).toBe(204);
+    expect(unlike.status).toBe(204);
+
+    const finalState = await withAuth(
+      request(app).get(`/api/feed/state?publishIds=${fixture.publish.body.id}`),
+      reader.token
+    );
+    expect(finalState.body.items[0]).toEqual(
+      expect.objectContaining({
+        liked: false,
+        bookmarked: false,
+        metrics: expect.objectContaining({
+          likes: 0
+        })
+      })
+    );
+
+    const finalChannel = await request(app).get(`/api/channels/${fixture.channelSlug}/home`);
+    expect(finalChannel.body.profile.likeCount).toBe(0);
+
+    const telemetry = await query<{ count: string }>(
+      "SELECT COUNT(*)::text AS count FROM promptoon_telemetry_event WHERE event_name IN ('feed_like', 'feed_bookmark', 'channel_subscribe')"
+    );
+    expect(Number(telemetry.rows[0].count)).toBeGreaterThanOrEqual(5);
+  });
+
+  it('returns related shorts from short clip projections', async () => {
+    const fixture = await createFeedReadyPublishedEpisodeFixture();
+    await query(
+      `INSERT INTO promptoon_short_clip (
+         project_id,
+         channel_id,
+         series_id,
+         episode_id,
+         publish_id,
+         title,
+         thumbnail_url,
+         duration_sec,
+         published_at
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 15, NOW())`,
+      [
+        fixture.project.body.id,
+        fixture.channelId,
+        fixture.seriesId,
+        fixture.episode.body.id,
+        fixture.publish.body.id,
+        '15초 예고편',
+        'https://cdn.example.com/short.jpg'
+      ]
+    );
+
+    const response = await request(app).get(`/api/viewer/publishes/${fixture.publish.body.id}/related-shorts`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual([
+      expect.objectContaining({
+        title: '15초 예고편',
+        thumbnailUrl: 'https://cdn.example.com/short.jpg',
+        durationSec: 15,
+        href: `/v/${fixture.publish.body.id}`
+      })
+    ]);
+  });
+
+  it('separates generic telemetry events from strict viewer telemetry events', async () => {
+    const fixture = await createFeedReadyPublishedEpisodeFixture();
+    const generic = await request(app)
+      .post('/api/telemetry/events')
+      .send({
+        eventName: 'channel_view',
+        channelId: fixture.channelId,
+        publishId: fixture.publish.body.id,
+        payload: {
+          source: 'test'
+        }
+      });
+    const viewer = await request(app)
+      .post('/api/telemetry/viewer-events')
+      .send({
+        publishId: fixture.publish.body.id,
+        anonymousId: randomUUID(),
+        sessionId: randomUUID(),
+        eventType: 'cut_view',
+        cutId: fixture.startCut.body.id
+      });
+
+    const genericCount = await query<{ count: string }>("SELECT COUNT(*)::text AS count FROM promptoon_telemetry_event WHERE event_name = 'channel_view'");
+    const viewerEventCount = await query<{ count: string }>('SELECT COUNT(*)::text AS count FROM promptoon_viewer_event');
+    const viewerTelemetryCount = await query<{ count: string }>("SELECT COUNT(*)::text AS count FROM promptoon_telemetry_event WHERE event_name = 'cut_view'");
+
+    expect(generic.status).toBe(202);
+    expect(viewer.status).toBe(202);
+    expect(Number(genericCount.rows[0].count)).toBe(1);
+    expect(Number(viewerEventCount.rows[0].count)).toBe(1);
+    expect(Number(viewerTelemetryCount.rows[0].count)).toBe(1);
+  });
+
   it('returns the public feed with latest publishes only and cursor pagination', async () => {
     const auth = await registerUser();
     const project = await withAuth(request(app).post('/api/promptoon/projects'), auth.token).send({ title: 'Feed Project' });
@@ -837,7 +2179,7 @@ maybeDescribe('promptoon api integration', () => {
         episodeId: episode.body.id
       });
 
-      return { episode, publish, startCut };
+      return { branchCut, episode, publish, startCut };
     }
 
     const episodeOne = await createEpisodeWithPublish(1, '첫 번째 버전', 2);
@@ -845,6 +2187,9 @@ maybeDescribe('promptoon api integration', () => {
     const episodeThree = await createEpisodeWithPublish(3, '세 번째 에피소드', 2);
 
     await withAuth(request(app).patch(`/api/promptoon/cuts/${episodeOne.startCut.body.id}`), auth.token).send({
+      body: '첫 번째 에피소드 최신 버전'
+    });
+    await withAuth(request(app).patch(`/api/promptoon/cuts/${episodeOne.branchCut.body.id}`), auth.token).send({
       body: '첫 번째 에피소드 최신 버전'
     });
 
@@ -947,6 +2292,9 @@ maybeDescribe('promptoon api integration', () => {
       const response = await request(app)
         .get(`/api/promptoon/share/${fixture.publish.body.id}?e=${fixture.endingCut.body.id}`)
         .set('Host', 'viewer.example.test');
+      const domainResponse = await request(app)
+        .get(`/api/viewer/publishes/${fixture.publish.body.id}/share?e=${fixture.endingCut.body.id}`)
+        .set('Host', 'viewer.example.test');
 
       expect(response.status).toBe(200);
       expect(response.type).toMatch(/html/);
@@ -955,6 +2303,11 @@ maybeDescribe('promptoon api integration', () => {
       expect(response.text).toContain('https://cdn.example.com/ending.jpg');
       expect(response.text).toContain('window.location.replace("http://viewer.example.test/v/');
       expect(response.text).toContain(`/v/${fixture.publish.body.id}?e=${fixture.endingCut.body.id}`);
+      expect(response.text).toContain(`/api/promptoon/share/${fixture.publish.body.id}?e=${fixture.endingCut.body.id}`);
+      expect(domainResponse.status).toBe(200);
+      expect(domainResponse.type).toMatch(/html/);
+      expect(domainResponse.text).toContain(`/api/viewer/publishes/${fixture.publish.body.id}/share?e=${fixture.endingCut.body.id}`);
+      expect(domainResponse.text).toContain(`/v/${fixture.publish.body.id}?e=${fixture.endingCut.body.id}`);
     } finally {
       if (previousOrigin === undefined) {
         delete process.env.APP_ORIGIN;
@@ -1018,10 +2371,15 @@ maybeDescribe('promptoon api integration', () => {
       });
 
     const response = await withAuth(request(app).get('/api/promptoon/backup/export'), fixture.auth.token);
+    const domainResponse = await withAuth(request(app).get('/api/studio/backup/export'), fixture.auth.token);
 
     expect(response.status).toBe(200);
+    expect(domainResponse.status).toBe(200);
     expect(response.headers['content-disposition']).toContain('promptoon-backup-');
+    expect(domainResponse.headers['content-disposition']).toContain('promptoon-backup-');
     expect(response.body.schemaVersion).toBe(1);
+    expect(domainResponse.body.schemaVersion).toBe(1);
+    expect(domainResponse.body.ownerId).toBe(fixture.auth.user.id);
     expect(response.body.ownerId).toBe(fixture.auth.user.id);
     expect(response.body.totals.projects).toBe(1);
     expect(response.body.totals.episodes).toBe(1);

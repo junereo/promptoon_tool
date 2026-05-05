@@ -8,8 +8,15 @@ beforeEach(() => {
   useAuthStore.setState({
     token: 'token-1',
     user: { id: 'user-1', loginId: 'creator001' },
+    session: {
+      id: 'session-1',
+      userId: 'user-1',
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 3600).toISOString()
+    },
     isAuthenticated: true,
-    hasHydrated: true
+    hasHydrated: true,
+    sessionStatus: 'valid'
   });
 });
 
@@ -25,6 +32,7 @@ describe('handleUnauthorizedResponse', () => {
     handleUnauthorizedResponse(redirect);
 
     expect(useAuthStore.getState().token).toBeNull();
+    expect(useAuthStore.getState().session).toBeNull();
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
     expect(redirect).toHaveBeenCalledWith('/login');
   });

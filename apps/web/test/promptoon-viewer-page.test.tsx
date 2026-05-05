@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { useAuthStore } from '../src/features/auth/store/use-auth-store';
 import { useViewerStore } from '../src/features/viewer/store/use-viewer-store';
 import { PromptoonViewerPage } from '../src/pages/promptoon-viewer-page';
 
@@ -12,6 +13,13 @@ const sendBeaconMock = vi.fn(() => true);
 const fetchMock = vi.fn();
 const shareMock = vi.fn();
 const clipboardWriteTextMock = vi.fn();
+const getRelatedShortsMock = vi.hoisted(() => vi.fn());
+const getInteractionStateMock = vi.hoisted(() => vi.fn());
+const getCommentsMetaMock = vi.hoisted(() => vi.fn());
+const likePublishMock = vi.hoisted(() => vi.fn());
+const unlikePublishMock = vi.hoisted(() => vi.fn());
+const bookmarkPublishMock = vi.hoisted(() => vi.fn());
+const unbookmarkPublishMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../src/features/viewer/hooks/use-published-episode', () => ({
   usePublishedEpisode: () => ({
@@ -19,6 +27,28 @@ vi.mock('../src/features/viewer/hooks/use-published-episode', () => ({
     isError: false,
     data: publishedEpisode
   })
+}));
+
+vi.mock('../src/shared/api/viewer.api', () => ({
+  viewerApi: {
+    getInteractionState: getInteractionStateMock,
+    getRelatedShorts: getRelatedShortsMock
+  }
+}));
+
+vi.mock('../src/shared/api/feed.api', () => ({
+  feedApi: {
+    likePublish: likePublishMock,
+    unlikePublish: unlikePublishMock,
+    bookmarkPublish: bookmarkPublishMock,
+    unbookmarkPublish: unbookmarkPublishMock
+  }
+}));
+
+vi.mock('../src/shared/api/community.api', () => ({
+  communityApi: {
+    getCommentsMeta: getCommentsMetaMock
+  }
 }));
 
 afterEach(() => {
@@ -31,6 +61,33 @@ beforeEach(() => {
   fetchMock.mockClear();
   shareMock.mockReset();
   clipboardWriteTextMock.mockReset();
+  getRelatedShortsMock.mockReset();
+  getInteractionStateMock.mockReset();
+  getCommentsMetaMock.mockReset();
+  likePublishMock.mockReset();
+  unlikePublishMock.mockReset();
+  bookmarkPublishMock.mockReset();
+  unbookmarkPublishMock.mockReset();
+  getRelatedShortsMock.mockResolvedValue([]);
+  getInteractionStateMock.mockResolvedValue({
+    publishId: 'publish-1',
+    liked: false,
+    bookmarked: false,
+    channelId: null,
+    subscribedToChannel: false,
+    metrics: {
+      comments: 0,
+      likes: 0,
+      shares: 0,
+      views: 0
+    }
+  });
+  getCommentsMetaMock.mockResolvedValue({
+    publishId: 'publish-1',
+    commentCount: 0,
+    latestCommentAt: null,
+    discussionUrl: null
+  });
   Object.defineProperty(window.navigator, 'sendBeacon', {
     configurable: true,
     value: sendBeaconMock
@@ -56,6 +113,14 @@ beforeEach(() => {
     historyStack: [],
     navigationDirection: 'reset',
     isChromeVisible: true
+  });
+  useAuthStore.setState({
+    token: null,
+    user: null,
+    session: null,
+    isAuthenticated: false,
+    hasHydrated: true,
+    sessionStatus: 'idle'
   });
 
   publishedEpisode = {
@@ -193,6 +258,56 @@ describe('PromptoonViewerPage', () => {
     expect(payloads.some((payload) => payload.eventType === 'cut_view' && payload.cutId === 'cut-start')).toBe(true);
     expect(window.localStorage.getItem('promptoon_device_id')).toBeTruthy();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps rendering the episode when related shorts and comments metadata fail', async () => {
+    getRelatedShortsMock.mockRejectedValue(new Error('related shorts failed'));
+    getCommentsMetaMock.mockRejectedValue(new Error('comments failed'));
+
+    renderPage();
+
+    expect(await screen.findByText('어디로 갈까요?')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '앞으로' })).toBeTruthy();
+
+    await waitFor(() => {
+      expect(getRelatedShortsMock).toHaveBeenCalledWith('publish-1');
+      expect(getCommentsMetaMock).toHaveBeenCalledWith('publish-1');
+    });
+  });
+
+  it('keeps rendering the episode when authenticated interaction state fails', async () => {
+    useAuthStore.setState({
+      token: 'token-1',
+      user: { id: 'user-1', loginId: 'viewer0001' },
+      session: null,
+      isAuthenticated: true,
+      hasHydrated: true,
+      sessionStatus: 'valid'
+    });
+    getInteractionStateMock.mockRejectedValue(new Error('state failed'));
+
+    renderPage();
+
+    expect(await screen.findByText('어디로 갈까요?')).toBeTruthy();
+
+    await waitFor(() => {
+      expect(getInteractionStateMock).toHaveBeenCalledWith('publish-1');
+    });
+  });
+
+  it('redirects unauthenticated viewer interaction attempts to login', async () => {
+    render(
+      <MemoryRouter initialEntries={['/v/publish-1']}>
+        <Routes>
+          <Route element={<PromptoonViewerPage />} path="/v/:publishId" />
+          <Route element={<div>Login Screen</div>} path="/login" />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: '좋아요' }));
+
+    expect(await screen.findByText('Login Screen')).toBeTruthy();
   });
 
   it('moves forward to the next cut, supports back navigation, and can reset from ending', async () => {
@@ -580,7 +695,7 @@ describe('PromptoonViewerPage', () => {
     fireEvent.click(await screen.findByRole('button', { name: '결과 공유하기' }));
 
     await waitFor(() => {
-      expect(clipboardWriteTextMock).toHaveBeenCalledWith(`${window.location.origin}/api/promptoon/share/publish-1?e=cut-end`);
+      expect(clipboardWriteTextMock).toHaveBeenCalledWith(`${window.location.origin}/api/viewer/publishes/publish-1/share?e=cut-end`);
     });
 
     expect((await screen.findByRole('status')).textContent).toContain('링크가 복사되었습니다.');
@@ -602,7 +717,7 @@ describe('PromptoonViewerPage', () => {
       expect(shareMock).toHaveBeenCalledWith({
         title: 'Episode 1 - 나는 "엔딩" 엔딩을 봤어!',
         text: 'Episode 1 - 나는 "엔딩" 엔딩을 봤어! 넌 어떤 엔딩이 나올까?',
-        url: `${window.location.origin}/api/promptoon/share/publish-1?e=cut-end`
+        url: `${window.location.origin}/api/viewer/publishes/publish-1/share?e=cut-end`
       });
     });
   });

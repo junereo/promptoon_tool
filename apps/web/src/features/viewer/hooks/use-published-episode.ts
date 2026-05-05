@@ -1,12 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
 
-import { promptoonService } from '../../../shared/api/promptoon.service';
+import { viewerApi } from '../../../shared/api/viewer.api';
 import { promptoonKeys } from '../../../shared/api/query-keys';
 
 export function usePublishedEpisode(publishId: string) {
   return useQuery({
     queryKey: promptoonKeys.publishedEpisode(publishId),
-    queryFn: () => promptoonService.getPublishedEpisode(publishId),
+    queryFn: () => viewerApi.getPublishedEpisode(publishId),
     enabled: Boolean(publishId)
   });
 }

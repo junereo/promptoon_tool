@@ -7,6 +7,7 @@ interface AuthenticatedRequest extends Request {
   user?: {
     id: string;
     loginId: string;
+    sessionId: string;
   };
 }
 
@@ -20,7 +21,7 @@ function parseBearerToken(request: Request): string | null {
   return match?.[1] ?? null;
 }
 
-export const requireAuth: RequestHandler = (request, _response, next) => {
+export const requireAuth: RequestHandler = async (request, _response, next) => {
   const token = parseBearerToken(request);
   if (!token) {
     next(new HttpError(401, 'Authentication is required.'));
@@ -28,10 +29,11 @@ export const requireAuth: RequestHandler = (request, _response, next) => {
   }
 
   try {
-    const payload = verifyAccessToken(token);
+    const payload = await verifyAccessToken(token);
     (request as AuthenticatedRequest).user = {
       id: payload.sub,
-      loginId: payload.loginId
+      loginId: payload.loginId,
+      sessionId: payload.sid
     };
     next();
   } catch (error) {
@@ -47,6 +49,7 @@ export function getRequiredAuthUser(request: Request): AuthTokenPayload {
 
   return {
     sub: user.id,
-    loginId: user.loginId
+    loginId: user.loginId,
+    sid: user.sessionId
   };
 }

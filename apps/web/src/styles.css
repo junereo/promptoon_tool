@@ -1,9 +1,37 @@
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;700&family=Noto+Serif+KR:wght@400;600;700&family=Playfair+Display:wght@500;700&family=Space+Grotesk:wght@500;700&display=swap');
 @import '@xyflow/react/dist/style.css';
+@import 'tailwindcss';
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@source '../index.html';
+@source './**/*.{ts,tsx}';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-editor-bg: #0f0f11;
+  --color-editor-panel: #17171b;
+  --color-editor-panelAlt: #1e1e24;
+  --color-editor-panel-alt: #1e1e24;
+  --color-editor-border: #30303a;
+  --color-editor-accent: #7a3040;
+  --color-editor-accentSoft: #a84b63;
+  --color-editor-accent-soft: #a84b63;
+
+  --color-pt-blue: #1d5cff;
+  --color-pt-blue-dark: #0f3fd8;
+  --color-pt-purple: #8b5cf6;
+  --color-pt-cyan: #38bdf8;
+  --color-pt-ink: #101828;
+  --color-pt-muted: #667085;
+  --color-pt-bg: #f7faff;
+
+  --shadow-phone: 0 20px 50px rgba(0, 0, 0, 0.45);
+  --shadow-pt-card: 0 24px 80px rgb(29 92 255 / 0.14);
+  --shadow-pt-phone: 0 30px 80px rgb(15 23 42 / 0.25);
+
+  --font-display: 'Space Grotesk', 'Segoe UI', sans-serif;
+  --font-body: 'IBM Plex Sans', 'Segoe UI', sans-serif;
+}
 
 :root {
   color-scheme: dark;

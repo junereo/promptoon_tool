@@ -238,3 +238,5 @@ export function createPromptoonRouter(): Router {
 
   return router;
 }
+
+export const createLegacyPromptoonRouter = createPromptoonRouter;

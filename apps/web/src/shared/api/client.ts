@@ -3,7 +3,8 @@ import axios, { AxiosHeaders } from 'axios';
 import { handleUnauthorizedResponse } from '../../features/auth/lib/auth-session';
 import { useAuthStore } from '../../features/auth/store/use-auth-store';
 
-export const API_BASE_URL = import.meta.env.VITE_PROMPTOON_API_BASE_URL || '/api/promptoon';
+export const API_ROOT_URL = import.meta.env.VITE_PROMPTOON_API_ROOT_URL || '/api';
+export const API_BASE_URL = import.meta.env.VITE_PROMPTOON_API_BASE_URL || `${API_ROOT_URL}/promptoon`;
 
 export class ApiError extends Error {
   public readonly status: number;
@@ -70,6 +71,22 @@ export const apiClient = createApiClient({
 });
 
 export const publicApiClient = createApiClient({
+  attachAuthToken: false,
+  redirectOnUnauthorized: false
+});
+
+function createRootApiClient(options: { attachAuthToken: boolean; redirectOnUnauthorized: boolean }) {
+  const client = createApiClient(options);
+  client.defaults.baseURL = API_ROOT_URL;
+  return client;
+}
+
+export const rootApiClient = createRootApiClient({
+  attachAuthToken: true,
+  redirectOnUnauthorized: true
+});
+
+export const publicRootApiClient = createRootApiClient({
   attachAuthToken: false,
   redirectOnUnauthorized: false
 });

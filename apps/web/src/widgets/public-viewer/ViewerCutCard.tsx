@@ -1,4 +1,4 @@
-import type { PublishManifest } from '@promptoon/shared';
+import type { ProductPublishManifest } from '@promptoon/shared';
 import type { CSSProperties } from 'react';
 import { useCallback, useEffect, useState } from 'react';
 
@@ -9,7 +9,7 @@ import { getResultCardBlock } from '../../shared/lib/result-card';
 import { CutContentBlocksView } from '../content-blocks/CutContentBlocksView';
 import { ResultCard } from '../result-card/ResultCard';
 
-type ViewerCut = PublishManifest['cuts'][number];
+type ViewerCut = ProductPublishManifest['cuts'][number];
 type ViewerChoice = ViewerCut['choices'][number];
 
 const PROMPTOON_INSTAGRAM_URL = 'https://www.instagram.com/promptoon_ai/';

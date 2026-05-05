@@ -1,6 +1,6 @@
 import type { TelemetryEventRequest } from '@promptoon/shared';
 
-import { API_BASE_URL } from '../api/client';
+import { API_ROOT_URL } from '../api/client';
 
 const DEVICE_ID_KEY = 'promptoon_device_id';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -44,12 +44,12 @@ export function sendPromptoonTelemetryEvent(payload: TelemetryEventRequest) {
 
   if (typeof navigator.sendBeacon === 'function') {
     const blob = new Blob([body], { type: 'application/json' });
-    if (navigator.sendBeacon(`${API_BASE_URL}/telemetry/events`, blob)) {
+    if (navigator.sendBeacon(`${API_ROOT_URL}/telemetry/viewer-events`, blob)) {
       return;
     }
   }
 
-  void fetch(`${API_BASE_URL}/telemetry/events`, {
+  void fetch(`${API_ROOT_URL}/telemetry/viewer-events`, {
     body,
     headers: {
       'Content-Type': 'application/json'

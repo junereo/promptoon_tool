@@ -1,14 +1,26 @@
 import { Suspense, lazy, useState } from 'react';
-import { Link, Outlet, createBrowserRouter, useNavigate } from 'react-router-dom';
+import { Link, Navigate, Outlet, createBrowserRouter, useNavigate } from 'react-router-dom';
 
+import { ChannelHomePage } from '../domains/channel/pages/ChannelHomePage';
+import { CommunityDiscussionPage } from '../domains/community/pages/CommunityDiscussionPage';
+import { FeedHomePage } from '../domains/feed/pages/FeedHomePage';
+import { StudioAssetLibraryPage } from '../domains/studio/pages/StudioAssetLibraryPage';
+import { StudioAnalyticsPage } from '../domains/studio/pages/StudioAnalyticsPage';
+import { StudioCommunityModerationPage } from '../domains/studio/pages/StudioCommunityModerationPage';
+import { StudioEpisodeEditorPage } from '../domains/studio/pages/StudioEpisodeEditorPage';
+import { StudioProjectMembersPage } from '../domains/studio/pages/StudioProjectMembersPage';
+import { StudioProjectDetailPage } from '../domains/studio/pages/StudioProjectDetailPage';
+import { StudioProjectDashboardPage } from '../domains/studio/pages/StudioProjectDashboardPage';
+import { StudioProjectSettingsPage } from '../domains/studio/pages/StudioProjectSettingsPage';
+import { StudioPublishPage } from '../domains/studio/pages/StudioPublishPage';
+import { StudioPublishHistoryPage } from '../domains/studio/pages/StudioPublishHistoryPage';
+import { StudioSeriesPage } from '../domains/studio/pages/StudioSeriesPage';
 import { ProtectedRoute } from '../features/auth/components/ProtectedRoute';
 import { clearAuthSession } from '../features/auth/lib/auth-session';
 import { useAuthStore } from '../features/auth/store/use-auth-store';
 import { preloadPromptoonViewerPage } from '../features/viewer/lib/preload-viewer';
 import { LoginPage } from '../pages/LoginPage';
-import { MainFeedPage } from '../pages/MainFeedPage';
-import { PromptoonEpisodeEditorPage } from '../pages/promptoon-episode-editor-page';
-import { PromptoonProjectListPage } from '../pages/promptoon-project-list-page';
+import { PromptoonOverviewPage } from '../pages/PromptoonOverviewPage';
 import { RegisterPage } from '../pages/RegisterPage';
 
 const PromptoonViewerPage = lazy(() =>
@@ -92,8 +104,40 @@ export const router: AppRouter = createBrowserRouter([
     )
   },
   {
+    path: '/v/:publishId/:episodeNo',
+    element: (
+      <Suspense fallback={<div className="min-h-dvh bg-black" />}>
+        <PromptoonViewerPage />
+      </Suspense>
+    )
+  },
+  {
     path: '/',
-    element: <MainFeedPage />
+    element: <FeedHomePage />
+  },
+  {
+    path: '/feed',
+    element: <FeedHomePage />
+  },
+  {
+    path: '/overview',
+    element: <PromptoonOverviewPage />
+  },
+  {
+    path: '/c/:channelSlug',
+    element: <ChannelHomePage />
+  },
+  {
+    path: '/c/:channelSlug/series',
+    element: <ChannelHomePage />
+  },
+  {
+    path: '/c/:channelSlug/shorts',
+    element: <ChannelHomePage />
+  },
+  {
+    path: '/c/:channelSlug/community',
+    element: <ChannelHomePage />
   },
   {
     path: '/login',
@@ -104,20 +148,126 @@ export const router: AppRouter = createBrowserRouter([
     element: <RegisterPage />
   },
   {
+    path: '/community/publishes/:publishId',
+    element: <CommunityDiscussionPage />
+  },
+  {
     path: '/promptoon',
     element: (
-      <ProtectedRoute>
+      <ProtectedRoute requireStudio>
         <AppShell />
       </ProtectedRoute>
     ),
     children: [
       {
+        index: true,
+        element: <Navigate replace to="projects" />
+      },
+      {
+        path: 'community/publishes/:publishId',
+        element: <StudioCommunityModerationPage />
+      },
+      {
         path: 'projects',
-        element: <PromptoonProjectListPage />
+        element: <StudioProjectDashboardPage />
+      },
+      {
+        path: 'projects/:projectId',
+        element: <StudioProjectDetailPage />
+      },
+      {
+        path: 'projects/:projectId/series',
+        element: <StudioSeriesPage />
+      },
+      {
+        path: 'projects/:projectId/settings',
+        element: <StudioProjectSettingsPage />
+      },
+      {
+        path: 'projects/:projectId/assets',
+        element: <StudioAssetLibraryPage />
+      },
+      {
+        path: 'projects/:projectId/history',
+        element: <StudioPublishHistoryPage />
+      },
+      {
+        path: 'projects/:projectId/members',
+        element: <StudioProjectMembersPage />
+      },
+      {
+        path: 'projects/:projectId/publish',
+        element: <StudioPublishPage />
+      },
+      {
+        path: 'projects/:projectId/analytics',
+        element: <StudioAnalyticsPage />
       },
       {
         path: 'projects/:projectId/episodes/:episodeId',
-        element: <PromptoonEpisodeEditorPage />
+        element: <StudioEpisodeEditorPage />
+      }
+    ]
+  },
+  {
+    path: '/studio',
+    element: (
+      <ProtectedRoute requireStudio>
+        <AppShell />
+      </ProtectedRoute>
+    ),
+    children: [
+      {
+        index: true,
+        element: <Navigate replace to="projects" />
+      },
+      {
+        path: 'community/publishes/:publishId',
+        element: <StudioCommunityModerationPage />
+      },
+      {
+        path: 'projects',
+        element: <StudioProjectDashboardPage />
+      },
+      {
+        path: 'projects/:projectId',
+        element: <StudioProjectDetailPage />
+      },
+      {
+        path: 'projects/:projectId/series',
+        element: <StudioSeriesPage />
+      },
+      {
+        path: 'projects/:projectId/settings',
+        element: <StudioProjectSettingsPage />
+      },
+      {
+        path: 'projects/:projectId/assets',
+        element: <StudioAssetLibraryPage />
+      },
+      {
+        path: 'projects/:projectId/history',
+        element: <StudioPublishHistoryPage />
+      },
+      {
+        path: 'projects/:projectId/members',
+        element: <StudioProjectMembersPage />
+      },
+      {
+        path: 'projects/:projectId/publish',
+        element: <StudioPublishPage />
+      },
+      {
+        path: 'projects/:projectId/analytics',
+        element: <StudioAnalyticsPage />
+      },
+      {
+        path: 'projects/:projectId/episodes/:episodeId',
+        element: <StudioEpisodeEditorPage />
+      },
+      {
+        path: 'episodes/:episodeId/editor',
+        element: <StudioEpisodeEditorPage />
       }
     ]
   }

@@ -171,6 +171,14 @@ export const createProjectSchema = z.object({
   description: z.string().trim().optional()
 });
 
+export const patchProjectSchema = z.object({
+  title: z.string().trim().min(1).optional(),
+  description: z.string().trim().nullable().optional(),
+  thumbnailUrl: z.string().trim().nullable().optional()
+}).refine((value) => Object.keys(value).length > 0, {
+  message: 'At least one project field is required.'
+});
+
 export const createEpisodeSchema = z.object({
   title: z.string().trim().min(1),
   episodeNo: z.number().int().positive(),
@@ -333,6 +341,17 @@ export const analyticsQuerySchema = z.object({
 
 export const resetEpisodeAnalyticsSchema = z.object({
   scope: z.enum(['all', 'views', 'choiceStats', 'endingDistribution', 'cutEngagement', 'feedEntry'])
+});
+
+const assignableProjectRoleSchema = z.enum(['producer', 'writer', 'viewer']);
+
+export const upsertProjectMemberSchema = z.object({
+  loginId: z.string().trim().min(8),
+  role: assignableProjectRoleSchema
+});
+
+export const patchProjectMemberSchema = z.object({
+  role: assignableProjectRoleSchema
 });
 
 export const feedQuerySchema = z.object({

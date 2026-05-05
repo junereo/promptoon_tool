@@ -1,11 +1,11 @@
-import type { PublishManifest } from '@promptoon/shared';
+import type { ProductPublishManifest } from '@promptoon/shared';
 import { motion } from 'framer-motion';
 
 import { buildCutEffectMotionCustom, cutEffectVariants } from '../../shared/lib/cut-effects';
 import { isPromptoonEndingCut } from '../../shared/lib/promptoon-ending';
 import { ViewerCutCard } from './ViewerCutCard';
 
-type ViewerCut = PublishManifest['cuts'][number];
+type ViewerCut = ProductPublishManifest['cuts'][number];
 type ViewerChoice = ViewerCut['choices'][number];
 
 interface ViewerContentProps {

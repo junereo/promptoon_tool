@@ -1,10 +1,14 @@
-import type { PublishManifest } from '@promptoon/shared';
+import type { CommentsMetaResponse, ProductPublishManifest, RelatedShort, ViewerInteractionStateResponse } from '@promptoon/shared';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
+import { useAuthStore } from '../features/auth/store/use-auth-store';
 import { usePublishedEpisode } from '../features/viewer/hooks/use-published-episode';
 import { useViewerTelemetry } from '../features/viewer/hooks/use-viewer-telemetry';
 import { useViewerStore } from '../features/viewer/store/use-viewer-store';
+import { communityApi } from '../shared/api/community.api';
+import { feedApi } from '../shared/api/feed.api';
+import { viewerApi } from '../shared/api/viewer.api';
 import { getCutEffectDurationMs } from '../shared/lib/cut-effects';
 import { isPromptoonEndingCut } from '../shared/lib/promptoon-ending';
 import {
@@ -21,7 +25,7 @@ import {
 } from '../shared/lib/promptoon-state-variants';
 import { ViewerShell } from '../widgets/public-viewer/ViewerShell';
 
-type ViewerCut = PublishManifest['cuts'][number];
+type ViewerCut = ProductPublishManifest['cuts'][number];
 type ViewerChoice = ViewerCut['choices'][number];
 
 interface ViewerPathStep {
@@ -34,7 +38,7 @@ function getSortedViewerChoices(cut: ViewerCut): ViewerChoice[] {
   return [...cut.choices].sort(compareViewerChoices);
 }
 
-function getStartCutId(manifest: PublishManifest): string | null {
+function getStartCutId(manifest: ProductPublishManifest): string | null {
   if (manifest.episode.startCutId && manifest.cuts.some((cut) => cut.id === manifest.episode.startCutId)) {
     return manifest.episode.startCutId;
   }
@@ -46,11 +50,11 @@ function getStartCutId(manifest: PublishManifest): string | null {
   );
 }
 
-function getFeedEntryCutId(manifest: PublishManifest, startChoiceId: string | null): string | null {
+function getFeedEntryCutId(manifest: ProductPublishManifest, startChoiceId: string | null): string | null {
   return getFeedEntryChoice(manifest, startChoiceId)?.nextCutId ?? null;
 }
 
-function getFeedEntryChoice(manifest: PublishManifest, startChoiceId: string | null): ViewerChoice | null {
+function getFeedEntryChoice(manifest: ProductPublishManifest, startChoiceId: string | null): ViewerChoice | null {
   const startCutId = getStartCutId(manifest);
   if (!startChoiceId || !startCutId) {
     return null;
@@ -158,10 +162,12 @@ function resolveViewerPathSteps(
 }
 
 export function PromptoonViewerPage() {
+  const location = useLocation();
   const navigate = useNavigate();
   const { publishId = '' } = useParams();
   const [searchParams] = useSearchParams();
   const publishedEpisode = usePublishedEpisode(publishId);
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const currentCutId = useViewerStore((state) => state.currentCutId);
   const hideChrome = useViewerStore((state) => state.hideChrome);
   const historyStack = useViewerStore((state) => state.historyStack);
@@ -178,6 +184,10 @@ export function PromptoonViewerPage() {
   const [userName, setUserName] = useState('');
   const [viewerState, setViewerState] = useState<PromptoonViewerState>({});
   const [pendingChoice, setPendingChoice] = useState<{ cutId: string; choiceId: string; reactionText: string | null } | null>(null);
+  const [relatedShorts, setRelatedShorts] = useState<RelatedShort[]>([]);
+  const [commentsMeta, setCommentsMeta] = useState<CommentsMetaResponse | null>(null);
+  const [interactionState, setInteractionState] = useState<ViewerInteractionStateResponse | null>(null);
+  const [isInteractionPending, setIsInteractionPending] = useState(false);
   const lastLoopResetCutIdRef = useRef<string | null>(null);
   const [autoPathExpansion, setAutoPathExpansion] = useState<{ isExpanded: boolean; pathStartCutId: string | null }>({
     isExpanded: true,
@@ -257,6 +267,57 @@ export function PromptoonViewerPage() {
   useEffect(() => {
     preloadConnectedAssets(terminalCut, cutsById, viewerState);
   }, [cutsById, terminalCut, viewerState]);
+
+  useEffect(() => {
+    if (!publishId) {
+      setRelatedShorts([]);
+      setCommentsMeta(null);
+      return;
+    }
+
+    let isCancelled = false;
+
+    void Promise.allSettled([
+      viewerApi.getRelatedShorts(publishId),
+      communityApi.getCommentsMeta(publishId)
+    ]).then(([shortsResult, commentsResult]) => {
+      if (isCancelled) {
+        return;
+      }
+
+      setRelatedShorts(shortsResult.status === 'fulfilled' ? shortsResult.value : []);
+      setCommentsMeta(commentsResult.status === 'fulfilled' ? commentsResult.value : null);
+    });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [publishId]);
+
+  useEffect(() => {
+    if (!publishId || !isAuthenticated) {
+      setInteractionState(null);
+      return;
+    }
+
+    let isCancelled = false;
+
+    void viewerApi.getInteractionState(publishId)
+      .then((state) => {
+        if (!isCancelled) {
+          setInteractionState(state);
+        }
+      })
+      .catch(() => {
+        if (!isCancelled) {
+          setInteractionState(null);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [isAuthenticated, publishId]);
 
   useEffect(() => {
     if (!activeCut) {
@@ -445,7 +506,7 @@ export function PromptoonViewerPage() {
       return;
     }
 
-    const shareUrl = `${window.location.origin}/api/promptoon/share/${publishId}?e=${encodeURIComponent(terminalCut.id)}`;
+    const shareUrl = `${window.location.origin}/api/viewer/publishes/${publishId}/share?e=${encodeURIComponent(terminalCut.id)}`;
     const shareTitle = `${manifest.episode.title} - 나는 "${terminalCut.title}" 엔딩을 봤어!`;
     const shareText = `${shareTitle} 넌 어떤 엔딩이 나올까?`;
 
@@ -477,6 +538,65 @@ export function PromptoonViewerPage() {
     }
   }
 
+  function redirectToLogin() {
+    navigate('/login', {
+      state: {
+        from: `${location.pathname}${location.search}`
+      }
+    });
+  }
+
+  async function refreshInteractionState() {
+    if (!publishId || !isAuthenticated) {
+      return;
+    }
+
+    const nextState = await viewerApi.getInteractionState(publishId);
+    setInteractionState(nextState);
+  }
+
+  async function handleLike() {
+    if (!isAuthenticated) {
+      redirectToLogin();
+      return;
+    }
+
+    setIsInteractionPending(true);
+    try {
+      if (interactionState?.liked) {
+        await feedApi.unlikePublish(publishId);
+      } else {
+        await feedApi.likePublish(publishId);
+      }
+      await refreshInteractionState();
+    } catch {
+      // Interaction failures should not interrupt reading.
+    } finally {
+      setIsInteractionPending(false);
+    }
+  }
+
+  async function handleBookmark() {
+    if (!isAuthenticated) {
+      redirectToLogin();
+      return;
+    }
+
+    setIsInteractionPending(true);
+    try {
+      if (interactionState?.bookmarked) {
+        await feedApi.unbookmarkPublish(publishId);
+      } else {
+        await feedApi.bookmarkPublish(publishId);
+      }
+      await refreshInteractionState();
+    } catch {
+      // Interaction failures should not interrupt reading.
+    } finally {
+      setIsInteractionPending(false);
+    }
+  }
+
   return (
     <ViewerShell
       canGoBack={historyStack.length > 0}
@@ -503,10 +623,25 @@ export function PromptoonViewerPage() {
       onShare={handleShare}
       pathSteps={pathSteps}
       pendingChoice={pendingChoice}
+      interactionState={interactionState}
+      isInteractionPending={isInteractionPending}
+      relatedShorts={relatedShorts}
+      commentsMeta={commentsMeta}
       shareBanner={shareBanner}
       shareNotice={shareNotice}
       terminalCut={terminalCut}
       userName={userName}
+      onBookmark={() => {
+        void handleBookmark();
+      }}
+      onComment={() => {
+        if (commentsMeta?.discussionUrl) {
+          navigate(commentsMeta.discussionUrl);
+        }
+      }}
+      onLike={() => {
+        void handleLike();
+      }}
     />
   );
 }

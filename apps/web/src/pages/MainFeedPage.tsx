@@ -1,10 +1,14 @@
 import type { FeedItem } from '@promptoon/shared';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDeferredValue, useEffect, useMemo, useRef, useState, startTransition } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
+import { useAuthStore } from '../features/auth/store/use-auth-store';
 import { useFeedQuery } from '../features/feed/hooks/use-feed-query';
 import { useFeedTelemetry } from '../features/feed/hooks/use-feed-telemetry';
 import { preloadViewerForPublish } from '../features/viewer/lib/preload-viewer';
+import { feedApi } from '../shared/api/feed.api';
+import { promptoonKeys } from '../shared/api/query-keys';
 import { FeedSlide } from '../widgets/public-feed/FeedSlide';
 
 const FEED_BANNER_INSERT_AFTER_INDEX = 4;
@@ -82,19 +86,50 @@ function FeedBannerSlide() {
 }
 
 export function MainFeedPage() {
+  const location = useLocation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const viewedPublishIdsRef = useRef(new Set<string>());
   const preloadedAssetUrlsRef = useRef(new Set<string>());
   const [activeIndex, setActiveIndex] = useState(0);
   const [openingProgress, setOpeningProgress] = useState(0);
   const [openingPublishId, setOpeningPublishId] = useState<string | null>(null);
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const feedQuery = useFeedQuery();
   const telemetry = useFeedTelemetry();
   const feedItems = useMemo(() => flattenFeedItems(feedQuery.data?.pages), [feedQuery.data?.pages]);
+  const publishIds = useMemo(() => feedItems.map((item) => item.publishId), [feedItems]);
+  const publishIdsKey = publishIds.join(',');
+  const interactionQuery = useQuery({
+    enabled: isAuthenticated && publishIds.length > 0,
+    queryKey: promptoonKeys.feedInteractionState(publishIdsKey),
+    queryFn: () => feedApi.getInteractionState(publishIds)
+  });
+  const interactionByPublishId = useMemo(
+    () => new Map((interactionQuery.data?.items ?? []).map((item) => [item.publishId, item])),
+    [interactionQuery.data?.items]
+  );
   const deferredActiveIndex = useDeferredValue(activeIndex);
   const activeItem = feedItems[deferredActiveIndex] ?? null;
   const { fetchNextPage, hasNextPage, isFetchingNextPage } = feedQuery;
+  const likeMutation = useMutation({
+    mutationFn: (input: { publishId: string; liked: boolean }) =>
+      input.liked ? feedApi.unlikePublish(input.publishId) : feedApi.likePublish(input.publishId),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: promptoonKeys.feedInteractionState(publishIdsKey) }),
+        queryClient.invalidateQueries({ queryKey: promptoonKeys.feed() })
+      ]);
+    }
+  });
+  const bookmarkMutation = useMutation({
+    mutationFn: (input: { publishId: string; bookmarked: boolean }) =>
+      input.bookmarked ? feedApi.unbookmarkPublish(input.publishId) : feedApi.bookmarkPublish(input.publishId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: promptoonKeys.feedInteractionState(publishIdsKey) });
+    }
+  });
 
   useEffect(() => {
     const container = containerRef.current;
@@ -228,6 +263,69 @@ export function MainFeedPage() {
     navigate(`/v/${item.publishId}`);
   }
 
+  function redirectToLogin() {
+    navigate('/login', {
+      state: {
+        from: `${location.pathname}${location.search}`
+      }
+    });
+  }
+
+  function handleLikeFeedItem(item: FeedItem) {
+    if (!isAuthenticated) {
+      redirectToLogin();
+      return;
+    }
+
+    const interactionState = interactionByPublishId.get(item.publishId);
+    void likeMutation.mutateAsync({
+      publishId: item.publishId,
+      liked: interactionState?.liked ?? false
+    }).catch(() => undefined);
+  }
+
+  function handleBookmarkFeedItem(item: FeedItem) {
+    if (!isAuthenticated) {
+      redirectToLogin();
+      return;
+    }
+
+    const interactionState = interactionByPublishId.get(item.publishId);
+    void bookmarkMutation.mutateAsync({
+      publishId: item.publishId,
+      bookmarked: interactionState?.bookmarked ?? false
+    }).catch(() => undefined);
+  }
+
+  function handleCommentFeedItem(item: FeedItem) {
+    if (item.channelSlug) {
+      navigate(`/c/${item.channelSlug}/community`);
+      return;
+    }
+
+    navigate(`/v/${item.publishId}`);
+  }
+
+  async function handleShareFeedItem(item: FeedItem) {
+    const href = item.entry?.href ?? `/v/${item.publishId}`;
+    const shareUrl = `${window.location.origin}${href}`;
+
+    try {
+      if (typeof navigator.share === 'function') {
+        await navigator.share({
+          title: item.episodeTitle,
+          text: item.projectTitle,
+          url: shareUrl
+        });
+        return;
+      }
+
+      await navigator.clipboard?.writeText(shareUrl);
+    } catch {
+      // Sharing is opportunistic and should not block feed usage.
+    }
+  }
+
   if (feedQuery.isLoading) {
     return (
       <main className="flex min-h-dvh items-center justify-center bg-black text-zinc-400">
@@ -258,12 +356,23 @@ export function MainFeedPage() {
         {feedItems.map((item, index) => (
           <div className="contents" key={item.publishId}>
             <FeedSlide
+              interactionState={interactionByPublishId.get(item.publishId)}
+              isInteractionPending={
+                (likeMutation.isPending && likeMutation.variables?.publishId === item.publishId) ||
+                (bookmarkMutation.isPending && bookmarkMutation.variables?.publishId === item.publishId)
+              }
               isOpening={openingPublishId === item.publishId}
               item={item}
+              onBookmark={() => handleBookmarkFeedItem(item)}
+              onComment={() => handleCommentFeedItem(item)}
+              onLike={() => handleLikeFeedItem(item)}
               onOpen={() => {
                 void handleOpenFeedItem(item);
               }}
               onPreloadIntent={() => handlePreloadFeedItem(item)}
+              onShare={() => {
+                void handleShareFeedItem(item);
+              }}
               progress={openingPublishId === item.publishId ? openingProgress : 0}
             />
             {shouldRenderFeedBannerAfter(index, feedItems.length) ? <FeedBannerSlide /> : null}

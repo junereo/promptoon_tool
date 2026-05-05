@@ -1,10 +1,12 @@
 import type { FeedResponse } from '@promptoon/shared';
 import { DEFAULT_CUT_EFFECT_DURATION_MS } from '@promptoon/shared';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { MainFeedPage } from '../src/pages/MainFeedPage';
+import { useAuthStore } from '../src/features/auth/store/use-auth-store';
 
 type TriggerableIntersectionObserverGlobal = typeof globalThis & {
   __triggerIntersection?: (element: Element, ratio?: number) => void;
@@ -58,6 +60,14 @@ beforeEach(() => {
   preloadViewerForPublishMock.mockReset();
   preloadViewerForPublishMock.mockResolvedValue(undefined);
   imageSources.length = 0;
+  useAuthStore.setState({
+    token: null,
+    user: null,
+    session: null,
+    isAuthenticated: false,
+    hasHydrated: true,
+    sessionStatus: 'idle'
+  });
 
   class ImageMock {
     set src(value: string) {
@@ -153,13 +163,25 @@ beforeEach(() => {
 });
 
 function renderPage() {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false
+      }
+    }
+  });
+
   return render(
-    <MemoryRouter initialEntries={['/']}>
-      <Routes>
-        <Route element={<MainFeedPage />} path="/" />
-        <Route element={<LocationDisplay />} path="/v/:publishId" />
-      </Routes>
-    </MemoryRouter>
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route element={<MainFeedPage />} path="/" />
+          <Route element={<div>Login Screen</div>} path="/login" />
+          <Route element={<LocationDisplay />} path="/v/:publishId" />
+          <Route element={<LocationDisplay />} path="/c/:channelSlug/community" />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>
   );
 }
 
@@ -243,5 +265,13 @@ describe('MainFeedPage', () => {
     fireEvent.click((await screen.findAllByRole('button', { name: '지금 보기' }))[0]);
 
     expect(await screen.findByText('/v/publish-1')).toBeTruthy();
+  });
+
+  it('redirects unauthenticated interaction actions to login', async () => {
+    renderPage();
+
+    fireEvent.click((await screen.findAllByRole('button', { name: '좋아요' }))[0]);
+
+    expect(await screen.findByText('Login Screen')).toBeTruthy();
   });
 });

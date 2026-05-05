@@ -5,7 +5,13 @@ import { ZodError } from 'zod';
 import { isHttpError } from '../lib/http-error';
 import { resolveFromApiRoot, resolveFromWorkspaceRoot } from '../lib/workspace-paths';
 import { createAuthRouter } from '../modules/auth/auth.routes';
-import { createPromptoonRouter } from '../modules/promptoon-authoring/promptoon.routes';
+import { createChannelRouter } from '../modules/channel/channel.routes';
+import { createCommunityRouter } from '../modules/community/community.routes';
+import { createFeedRouter } from '../modules/feed/feed.routes';
+import { createLegacyPromptoonRouter } from '../modules/promptoon-authoring/promptoon.routes';
+import { createStudioRouter } from '../modules/studio/studio.routes';
+import { createTelemetryRouter } from '../modules/telemetry/telemetry.routes';
+import { createViewerRouter } from '../modules/viewer/viewer.routes';
 
 export function createApp(): Express {
   const app = express();
@@ -19,8 +25,15 @@ export function createApp(): Express {
     response.json({ ok: true });
   });
 
+  app.use('/api/auth', createAuthRouter());
+  app.use('/api/feed', createFeedRouter());
+  app.use('/api/channels', createChannelRouter());
+  app.use('/api/viewer', createViewerRouter());
+  app.use('/api/studio', createStudioRouter());
+  app.use('/api/community', createCommunityRouter());
+  app.use('/api/telemetry', createTelemetryRouter());
   app.use('/api/promptoon/auth', createAuthRouter());
-  app.use('/api/promptoon', createPromptoonRouter());
+  app.use('/api/promptoon', createLegacyPromptoonRouter());
 
   app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
     if (error instanceof ZodError) {

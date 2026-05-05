@@ -1,4 +1,4 @@
-import type { PublishManifest } from '@promptoon/shared';
+import type { CommentsMetaResponse, ProductPublishManifest, RelatedShort, ViewerInteractionStateResponse } from '@promptoon/shared';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { TouchEvent, WheelEvent } from 'react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -8,7 +8,7 @@ import { isPromptoonEndingCut } from '../../shared/lib/promptoon-ending';
 import { ViewerContent } from './ViewerContent';
 import { ViewerControls } from './ViewerControls';
 
-type ViewerCut = PublishManifest['cuts'][number];
+type ViewerCut = ProductPublishManifest['cuts'][number];
 type ViewerChoice = ViewerCut['choices'][number];
 
 interface ViewerPathStep {
@@ -31,8 +31,15 @@ interface ViewerShellProps {
   onReset: () => void;
   onUserNameChange: (value: string) => void;
   onShare?: () => void | Promise<void>;
+  onBookmark?: () => void;
+  onComment?: () => void;
+  onLike?: () => void;
   pathSteps: ViewerPathStep[];
   pendingChoice: { cutId: string; choiceId: string; reactionText: string | null } | null;
+  interactionState?: ViewerInteractionStateResponse | null;
+  isInteractionPending?: boolean;
+  relatedShorts?: RelatedShort[];
+  commentsMeta?: CommentsMetaResponse | null;
   shareBanner: string | null;
   shareNotice: string | null;
   terminalCut: ViewerCut;
@@ -53,8 +60,15 @@ export function ViewerShell({
   onReset,
   onUserNameChange,
   onShare,
+  onBookmark,
+  onComment,
+  onLike,
   pathSteps,
   pendingChoice,
+  interactionState,
+  isInteractionPending,
+  relatedShorts = [],
+  commentsMeta,
   shareBanner,
   shareNotice,
   terminalCut,
@@ -170,6 +184,47 @@ export function ViewerShell({
         onReset={onReset}
       />
 
+      {areControlsVisible ? (
+        <div className="absolute right-4 top-24 z-20 flex flex-col items-center gap-2 sm:right-6 sm:top-28">
+          <button
+            aria-label={interactionState?.liked ? '좋아요 취소' : '좋아요'}
+            aria-pressed={interactionState?.liked ? 'true' : 'false'}
+            className={[
+              'h-11 w-11 rounded-full border text-xs font-semibold shadow-lg backdrop-blur transition disabled:opacity-60',
+              interactionState?.liked ? 'border-editor-accentSoft bg-editor-accent text-white' : 'border-white/15 bg-black/45 text-white/90 hover:bg-black/60'
+            ].join(' ')}
+            disabled={isInteractionPending}
+            onClick={onLike}
+            type="button"
+          >
+            Like
+          </button>
+          <span className="text-[11px] text-white/70">{(interactionState?.metrics.likes ?? 0).toLocaleString('ko-KR')}</span>
+          <button
+            aria-label={interactionState?.bookmarked ? '저장 취소' : '저장'}
+            aria-pressed={interactionState?.bookmarked ? 'true' : 'false'}
+            className={[
+              'h-11 w-11 rounded-full border text-xs font-semibold shadow-lg backdrop-blur transition disabled:opacity-60',
+              interactionState?.bookmarked ? 'border-editor-accentSoft bg-white text-black' : 'border-white/15 bg-black/45 text-white/90 hover:bg-black/60'
+            ].join(' ')}
+            disabled={isInteractionPending}
+            onClick={onBookmark}
+            type="button"
+          >
+            Save
+          </button>
+          <button
+            aria-label="댓글"
+            className="h-11 w-11 rounded-full border border-white/15 bg-black/45 text-xs font-semibold text-white/90 shadow-lg backdrop-blur transition hover:bg-black/60 disabled:opacity-60"
+            disabled={isInteractionPending}
+            onClick={onComment}
+            type="button"
+          >
+            Reply
+          </button>
+        </div>
+      ) : null}
+
       {shareBanner ? (
         <div className="pointer-events-none absolute inset-x-0 top-20 z-20 flex justify-center px-4 sm:top-24">
           <div className="pointer-events-auto flex w-full max-w-2xl items-start justify-between gap-4 rounded-2xl border border-amber-300/20 bg-black/55 px-4 py-3 text-sm text-amber-50/90 backdrop-blur">
@@ -280,6 +335,29 @@ export function ViewerShell({
             {shareNotice}
           </div>
         </div>
+      ) : null}
+
+      {(relatedShorts.length > 0 || commentsMeta) && areControlsVisible ? (
+        <aside className="absolute inset-x-0 bottom-6 z-20 mx-auto w-[min(28rem,calc(100vw-2rem))] rounded-2xl border border-white/10 bg-black/55 p-3 text-sm text-white/85 shadow-2xl backdrop-blur sm:bottom-8">
+          {relatedShorts.length > 0 ? (
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.2em] text-white/45">Related Shorts</p>
+              <div className="mt-2 flex gap-2 overflow-x-auto">
+                {relatedShorts.slice(0, 3).map((short) => (
+                  <a className="min-w-0 flex-1 rounded-lg bg-white/8 px-3 py-2 transition hover:bg-white/12" href={short.href} key={short.id}>
+                    <span className="block truncate text-xs font-medium">{short.title}</span>
+                    <span className="mt-1 block text-[11px] text-white/45">{short.durationSec}s</span>
+                  </a>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {commentsMeta ? (
+            <p className={relatedShorts.length > 0 ? 'mt-3 text-xs text-white/55' : 'text-xs text-white/55'}>
+              댓글 {commentsMeta.commentCount.toLocaleString('ko-KR')}개
+            </p>
+          ) : null}
+        </aside>
       ) : null}
 
       <div className="sr-only">{episodeTitle}</div>

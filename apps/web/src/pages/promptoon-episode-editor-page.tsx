@@ -14,7 +14,7 @@ import type {
   ValidateEpisodeResponse
 } from '@promptoon/shared';
 import { startTransition, useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import {
   buildCutHierarchy,
@@ -126,6 +126,7 @@ export function PromptoonEpisodeEditorPage() {
 
 function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string; episodeId: string }) {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const draftQuery = useEpisodeDraft(episodeId);
   const latestPublishedEpisodeQuery = useLatestPublishedEpisode(episodeId);
   const [analyticsViewGranularity, setAnalyticsViewGranularity] = useState<AnalyticsViewGranularity>('daily');
@@ -169,7 +170,9 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
   const [toolbarNotice, setToolbarNotice] = useState<string | null>(null);
   const [isValidationOpen, setIsValidationOpen] = useState(false);
   const [highlightSaveOrder, setHighlightSaveOrder] = useState(false);
-  const [activeTab, setActiveTab] = useState<'editor' | 'analytics'>('editor');
+  const [activeTab, setActiveTab] = useState<'editor' | 'analytics'>(() =>
+    searchParams.get('tab') === 'analytics' ? 'analytics' : 'editor'
+  );
   const [isScriptEditorOpen, setIsScriptEditorOpen] = useState(false);
   const [previewCutId, setPreviewCutId] = useState<string | null>(null);
   const [previewSelectedChoiceId, setPreviewSelectedChoiceId] = useState<string | null>(null);
