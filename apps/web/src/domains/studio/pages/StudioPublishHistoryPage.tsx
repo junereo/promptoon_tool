@@ -1,4 +1,4 @@
-import { ArrowLeft, ExternalLink } from 'lucide-react';
+import { ArrowLeftLg as ArrowLeft, ExternalLink } from 'react-coolicons';
 import { Link, useParams } from 'react-router-dom';
 
 import { useProjectPublishHistory, useProjects } from '../../../features/project/hooks/use-project-query';

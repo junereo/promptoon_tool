@@ -9,6 +9,19 @@ import { RegisterPage } from '../src/pages/RegisterPage';
 
 const loginMutateAsync = vi.fn();
 const registerMutateAsync = vi.fn();
+const authResponse = {
+  token: 'test-token',
+  session: {
+    id: 'session-1',
+    userId: 'user-1',
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 3600_000).toISOString()
+  },
+  user: {
+    id: 'user-1',
+    loginId: 'filoclo2026'
+  }
+};
 
 vi.mock('../src/features/auth/hooks/use-auth-query', () => ({
   useLogin: () => ({
@@ -30,7 +43,6 @@ beforeEach(() => {
   loginMutateAsync.mockReset();
   registerMutateAsync.mockReset();
   useAuthStore.setState({
-    token: null,
     user: null,
     session: null,
     isAuthenticated: false,
@@ -45,6 +57,7 @@ function renderPage(path: '/login' | '/register') {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/feed" element={<div>Home Feed</div>} />
         <Route path="/promptoon/projects" element={<div>Dashboard</div>} />
       </Routes>
     </MemoryRouter>
@@ -74,5 +87,31 @@ describe('auth pages', () => {
 
     expect(screen.getByText('아이디는 최소 8자 이상이어야 합니다.')).toBeTruthy();
     expect(registerMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('routes to home after login instead of projects', async () => {
+    const user = userEvent.setup();
+    loginMutateAsync.mockResolvedValue(authResponse);
+    renderPage('/login');
+
+    await user.type(screen.getByLabelText('아이디'), 'filoclo2026');
+    await user.type(screen.getByLabelText('비밀번호'), 'password2026');
+    await user.click(screen.getByRole('button', { name: 'Sign In' }));
+
+    expect(await screen.findByText('Home Feed')).toBeTruthy();
+    expect(screen.queryByText('Dashboard')).toBeNull();
+  });
+
+  it('routes to home after register instead of projects', async () => {
+    const user = userEvent.setup();
+    registerMutateAsync.mockResolvedValue(authResponse);
+    renderPage('/register');
+
+    await user.type(screen.getByLabelText('아이디'), 'newuser2026');
+    await user.type(screen.getByLabelText('비밀번호'), 'password2026');
+    await user.click(screen.getByRole('button', { name: 'Create Account' }));
+
+    expect(await screen.findByText('Home Feed')).toBeTruthy();
+    expect(screen.queryByText('Dashboard')).toBeNull();
   });
 });

@@ -42,12 +42,11 @@ function StudioAccessDeniedScreen() {
 export function ProtectedRoute({ children, requireStudio = false }: { children: ReactNode; requireStudio?: boolean }) {
   const hasHydrated = useAuthStore((state) => state.hasHydrated);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
-  const token = useAuthStore((state) => state.token);
   const sessionStatus = useAuthStore((state) => state.sessionStatus);
   const studioRole = useAuthStore((state) => state.studioRole);
   const location = useLocation();
 
-  if (!hasHydrated || (token && (sessionStatus === 'idle' || sessionStatus === 'checking'))) {
+  if (!hasHydrated || sessionStatus === 'idle' || sessionStatus === 'checking') {
     return <AuthLoadingScreen />;
   }
 

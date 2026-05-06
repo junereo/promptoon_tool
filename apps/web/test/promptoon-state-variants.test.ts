@@ -1,11 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import {
   applyChoiceStateWrites,
   clearPromptoonViewerStateByPrefix,
+  getPromptoonViewerStateStorageKey,
   initializeExitLoopStateForCut,
+  readPromptoonViewerState,
   resolveLoopRenderableCut,
-  resolveStateRouterTargetCut
+  resolveStateRouterTargetCut,
+  sanitizePromptoonViewerStateForManifest,
+  writePromptoonViewerState
 } from '../src/shared/lib/promptoon-state-variants';
 
 type TestCut = {
@@ -46,6 +50,10 @@ function cut(id: string, overrides?: Partial<TestCut>): TestCut {
 }
 
 describe('promptoon state routing', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
   it('matches all conditions in a state router route', () => {
     const router = cut('router', {
       kind: 'stateRouter',
@@ -262,5 +270,130 @@ describe('promptoon state routing', () => {
 
     expect(resetState['exitLoop.station.level']).toBe('0');
     expect(resetState['exitLoop.station.route']).toBe('retry');
+  });
+
+  it('stores viewer state in an integrity envelope and rejects tampered values', () => {
+    writePromptoonViewerState('publish-1', {
+      'exitLoop.station.level': '1'
+    });
+
+    const storageKey = getPromptoonViewerStateStorageKey('publish-1');
+    const stored = window.localStorage.getItem(storageKey);
+    expect(stored).toContain('"integrity"');
+    expect(readPromptoonViewerState('publish-1')).toEqual({
+      'exitLoop.station.level': '1'
+    });
+
+    const envelope = JSON.parse(stored ?? '{}');
+    envelope.payload['exitLoop.station.level'] = '5';
+    window.localStorage.setItem(storageKey, JSON.stringify(envelope));
+
+    expect(readPromptoonViewerState('publish-1')).toEqual({});
+    expect(window.localStorage.getItem(storageKey)).toBeNull();
+  });
+
+  it('removes legacy exit-loop storage and rejects raw viewer state', () => {
+    window.localStorage.setItem('promptoon:exit-loop:exit-loop-demo:state', JSON.stringify({ stageIndex: 2 }));
+    window.localStorage.setItem('promptoon:exit-loop:hotel-loop:state', JSON.stringify({ stageIndex: 3 }));
+    window.localStorage.setItem('promptoon:exit-loop:dm-loop:state', JSON.stringify({ stageIndex: 4 }));
+    window.localStorage.setItem(
+      getPromptoonViewerStateStorageKey('publish-legacy'),
+      JSON.stringify({
+        'exitLoop.station.level': '4'
+      })
+    );
+
+    expect(readPromptoonViewerState('publish-legacy')).toEqual({});
+    expect(window.localStorage.getItem('promptoon:exit-loop:exit-loop-demo:state')).toBeNull();
+    expect(window.localStorage.getItem('promptoon:exit-loop:hotel-loop:state')).toBeNull();
+    expect(window.localStorage.getItem('promptoon:exit-loop:dm-loop:state')).toBeNull();
+    expect(window.localStorage.getItem(getPromptoonViewerStateStorageKey('publish-legacy'))).toBeNull();
+  });
+
+  it('drops viewer state values that are not allowed by every loop group in the published manifest', () => {
+    const stationStage = cut('station-stage-1', {
+      kind: 'loopStage',
+      loopMetadata: {
+        kind: 'exitLoop',
+        exitLevelRequired: 3,
+        groupId: 'station',
+        role: 'stageBase',
+        stageIndex: 1
+      }
+    });
+    const stationVariant = cut('station-variant-1', {
+      kind: 'loopVariant',
+      loopMetadata: {
+        baseCutId: stationStage.id,
+        kind: 'exitLoop',
+        groupId: 'station',
+        role: 'stageVariant',
+        stageIndex: 1,
+        truth: 'real_anomaly'
+      }
+    });
+    const hotelStage = cut('hotel-stage-1', {
+      kind: 'loopStage',
+      loopMetadata: {
+        kind: 'exitLoop',
+        exitLevelRequired: 2,
+        groupId: 'hotel',
+        role: 'stageBase',
+        stageIndex: 1
+      }
+    });
+    const hotelVariant = cut('hotel-variant-1', {
+      kind: 'loopVariant',
+      loopMetadata: {
+        baseCutId: hotelStage.id,
+        kind: 'exitLoop',
+        groupId: 'hotel',
+        role: 'stageVariant',
+        stageIndex: 1,
+        truth: 'fake_suspicion'
+      }
+    });
+    const manifest = {
+      project: { id: 'project-1', title: 'Project' },
+      episode: { id: 'episode-1', title: 'Episode', episodeNo: 1, startCutId: stationStage.id },
+      cuts: [stationStage, stationVariant, hotelStage, hotelVariant].map((currentCut, orderIndex) => ({
+        ...currentCut,
+        orderIndex,
+        body: '',
+        choices: []
+      }))
+    };
+
+    expect(
+      sanitizePromptoonViewerStateForManifest(
+        {
+          'exitLoop.station.activeStage': '2',
+          'exitLoop.station.activeTruth': 'fake_suspicion',
+          'exitLoop.station.activeVariantCutId': 'variant-missing',
+          'exitLoop.station.exitLevelRequired': '3',
+          'exitLoop.station.level': '99',
+          'exitLoop.station.route': 'exit',
+          'exitLoop.hotel.activeStage': '1',
+          'exitLoop.hotel.activeTruth': 'fake_suspicion',
+          'exitLoop.hotel.activeVariantCutId': 'hotel-variant-1',
+          'exitLoop.hotel.exitLevelRequired': '2',
+          'exitLoop.hotel.level': '8',
+          'exitLoop.hotel.route': 'retry',
+          'exitLoop.unknown.level': '1',
+          injected: 'true'
+        },
+        manifest as never
+      )
+    ).toEqual({
+      'exitLoop.station.exitLevelRequired': '3',
+      'exitLoop.station.level': '3',
+      'exitLoop.station.route': 'exit',
+      'exitLoop.hotel.activeStage': '1',
+      'exitLoop.hotel.activeTruth': 'fake_suspicion',
+      'exitLoop.hotel.activeVariantCutId': 'hotel-variant-1',
+      'exitLoop.hotel.exitLevelRequired': '2',
+      'exitLoop.hotel.level': '2',
+      'exitLoop.hotel.route': 'retry'
+    });
   });
 });

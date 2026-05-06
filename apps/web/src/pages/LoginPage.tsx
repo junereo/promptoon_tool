@@ -1,10 +1,12 @@
-import { useState } from 'react';
-import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { useLogin } from '../features/auth/hooks/use-auth-query';
 import { useAuthStore } from '../features/auth/store/use-auth-store';
 import { authService } from '../shared/api/auth.service';
 import { ApiError } from '../shared/api/client';
+
+const POST_LOGIN_REDIRECT_PATH = '/feed';
 
 function getValidationError(loginId: string, password: string): string | null {
   if (loginId.trim().length < 8) {
@@ -20,7 +22,7 @@ function getValidationError(loginId: string, password: string): string | null {
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const location = useLocation();
+  const [searchParams] = useSearchParams();
   const loginMutation = useLogin();
   const login = useAuthStore((state) => state.login);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -29,8 +31,41 @@ export function LoginPage() {
   const [loginId, setLoginId] = useState('');
   const [password, setPassword] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isOauthChecking, setIsOauthChecking] = useState(false);
 
-  if (!hasHydrated) {
+  useEffect(() => {
+    if (!hasHydrated || searchParams.get('oauth') !== '1') {
+      return;
+    }
+
+    let isMounted = true;
+    setIsOauthChecking(true);
+    setErrorMessage(null);
+
+    void authService
+      .refresh()
+      .then((response) => {
+        login(response);
+        navigate(POST_LOGIN_REDIRECT_PATH, { replace: true });
+      })
+      .catch((error) => {
+        if (!isMounted) {
+          return;
+        }
+        setErrorMessage(error instanceof ApiError ? error.message : 'SNS 로그인 세션을 확인할 수 없습니다.');
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsOauthChecking(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [hasHydrated, login, navigate, searchParams]);
+
+  if (!hasHydrated || isOauthChecking) {
     return (
       <main className="flex min-h-screen items-center justify-center px-6">
         <div className="w-full max-w-md rounded-[28px] border border-editor-border bg-editor-panel/85 p-8 text-center text-zinc-300 shadow-2xl shadow-black/30">
@@ -41,7 +76,7 @@ export function LoginPage() {
   }
 
   if (hasHydrated && isAuthenticated) {
-    return <Navigate replace to="/promptoon/projects" />;
+    return <Navigate replace to={POST_LOGIN_REDIRECT_PATH} />;
   }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -60,8 +95,7 @@ export function LoginPage() {
       });
 
       login(response);
-      const from = (location.state as { from?: string } | null)?.from;
-      navigate(from || '/promptoon/projects', { replace: true });
+      navigate(POST_LOGIN_REDIRECT_PATH, { replace: true });
     } catch (error) {
       setErrorMessage(error instanceof ApiError ? error.message : '로그인에 실패했습니다.');
     }

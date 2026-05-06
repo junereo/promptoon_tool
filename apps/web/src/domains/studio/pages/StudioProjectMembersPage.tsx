@@ -1,6 +1,6 @@
 import type { FormEvent } from 'react';
 import type { ProjectRole } from '@promptoon/shared';
-import { ArrowLeft, ShieldCheck, Trash2, UserPlus, Users } from 'lucide-react';
+import { ArrowLeftLg as ArrowLeft, ShieldCheck, TrashFull as Trash2, UserAdd as UserPlus, Users } from 'react-coolicons';
 import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 

@@ -131,7 +131,6 @@ beforeEach(() => {
   subscribeMock.mockResolvedValue(undefined);
   unsubscribeMock.mockResolvedValue(undefined);
   useAuthStore.setState({
-    token: null,
     user: null,
     session: null,
     isAuthenticated: false,
@@ -239,7 +238,6 @@ describe('ChannelHomePage', () => {
   it('loads subscription state and toggles subscribe for authenticated users', async () => {
     getChannelHomeMock.mockResolvedValue(createChannelHome());
     useAuthStore.setState({
-      token: 'token-1',
       user: { id: 'user-1', loginId: 'viewer0001' },
       session: null,
       isAuthenticated: true,

@@ -1,4 +1,14 @@
-import { BarChart3, BookOpen, History, ImageIcon, Layers3, Send, Settings, SquarePen, Users } from 'lucide-react';
+import {
+  ChartBarVertical01 as BarChart3,
+  BookOpen,
+  Clock as History,
+  Image01 as ImageIcon,
+  Layers as Layers3,
+  PaperPlane as Send,
+  Settings,
+  EditPencilLine01 as SquarePen,
+  Users
+} from 'react-coolicons';
 import { Link, useParams } from 'react-router-dom';
 
 import { useProjects } from '../../../features/project/hooks/use-project-query';

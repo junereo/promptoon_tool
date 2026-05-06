@@ -14,16 +14,43 @@ export interface DiscoursePostResponse {
   post_number?: number;
 }
 
+export interface DiscourseUserCreateResponse {
+  success?: boolean;
+  message?: string;
+  errors?: unknown;
+}
+
+export interface DiscourseAssetResponse {
+  body: Buffer;
+  contentType: string;
+  cacheControl: string | null;
+}
+
 function getBaseUrl(): string {
-  if (!env.discourse.baseUrl || !env.discourse.apiKey) {
-    throw new HttpError(503, 'Discourse integration is not configured.');
+  const missingEnv = getMissingDiscourseEnv();
+  if (missingEnv.length > 0) {
+    throw new HttpError(503, `Discourse integration is not configured. Missing: ${missingEnv.join(', ')}.`, {
+      missingEnv
+    });
   }
 
-  return env.discourse.baseUrl.replace(/\/+$/, '');
+  return env.discourse.baseUrl!.replace(/\/+$/, '');
 }
 
 export function isDiscourseConfigured(): boolean {
   return Boolean(env.discourse.baseUrl && env.discourse.apiKey);
+}
+
+export function getMissingDiscourseEnv(): string[] {
+  const missingEnv: string[] = [];
+  if (!env.discourse.baseUrl) {
+    missingEnv.push('DISCOURSE_BASE_URL');
+  }
+  if (!env.discourse.apiKey) {
+    missingEnv.push('DISCOURSE_API_KEY');
+  }
+
+  return missingEnv;
 }
 
 export function getDiscourseTopicUrl(topicId: string | number): string | null {
@@ -34,6 +61,23 @@ export function getDiscourseTopicUrl(topicId: string | number): string | null {
   return `${env.discourse.baseUrl.replace(/\/+$/, '')}/t/${encodeURIComponent(String(topicId))}`;
 }
 
+function normalizeAssetPath(path: string): string {
+  const trimmed = path.trim();
+  if (!trimmed.startsWith('/') || trimmed.startsWith('//') || trimmed.includes('..')) {
+    throw new HttpError(400, 'Invalid Discourse asset path.');
+  }
+
+  const pathname = trimmed.split('?')[0] ?? '';
+  const isAllowedAssetPath = ['/letter_avatar_proxy/', '/user_avatar/', '/uploads/'].some((prefix) =>
+    pathname.startsWith(prefix)
+  );
+  if (!isAllowedAssetPath) {
+    throw new HttpError(400, 'Unsupported Discourse asset path.');
+  }
+
+  return trimmed;
+}
+
 async function requestDiscourse<T>(
   path: string,
   options: {
@@ -42,16 +86,23 @@ async function requestDiscourse<T>(
     username?: string;
   } = {}
 ): Promise<T> {
-  const response = await fetch(`${getBaseUrl()}${path}`, {
-    method: options.method ?? 'GET',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      'Api-Key': env.discourse.apiKey ?? '',
-      'Api-Username': options.username ?? env.discourse.apiUser
-    },
-    ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) })
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${getBaseUrl()}${path}`, {
+      method: options.method ?? 'GET',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        'Api-Key': env.discourse.apiKey ?? '',
+        'Api-Username': options.username ?? env.discourse.apiUser
+      },
+      ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) })
+    });
+  } catch (error) {
+    throw new HttpError(502, 'Discourse request failed.', {
+      reason: error instanceof Error ? error.message : 'Network request failed.'
+    });
+  }
 
   if (!response.ok) {
     let details: unknown = null;
@@ -67,7 +118,16 @@ async function requestDiscourse<T>(
     });
   }
 
-  return response.json() as Promise<T>;
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  const responseText = await response.text();
+  if (!responseText.trim()) {
+    return undefined as T;
+  }
+
+  return JSON.parse(responseText) as T;
 }
 
 export function getCategories(): Promise<unknown> {
@@ -82,12 +142,43 @@ export function getTopTopics(): Promise<unknown> {
   return requestDiscourse('/top.json');
 }
 
-export function getTopic(topicId: string): Promise<unknown> {
-  return requestDiscourse(`/t/${encodeURIComponent(topicId)}.json`);
+export function getTopic(topicId: string, username?: string): Promise<unknown> {
+  return requestDiscourse(`/t/${encodeURIComponent(topicId)}.json`, {
+    username
+  });
 }
 
 export function getUser(username: string): Promise<unknown> {
   return requestDiscourse(`/u/${encodeURIComponent(username)}.json`);
+}
+
+export async function getAsset(path: string): Promise<DiscourseAssetResponse> {
+  const response = await fetch(`${getBaseUrl()}${normalizeAssetPath(path)}`, {
+    headers: {
+      Accept: 'image/*',
+      'Api-Key': env.discourse.apiKey ?? '',
+      'Api-Username': env.discourse.apiUser
+    }
+  });
+
+  if (!response.ok) {
+    throw new HttpError(response.status >= 400 && response.status < 500 ? response.status : 502, 'Discourse asset request failed.', {
+      status: response.status
+    });
+  }
+
+  const contentType = response.headers.get('content-type') ?? 'application/octet-stream';
+  if (!contentType.toLowerCase().startsWith('image/')) {
+    throw new HttpError(502, 'Discourse asset response is not an image.', {
+      contentType
+    });
+  }
+
+  return {
+    body: Buffer.from(await response.arrayBuffer()),
+    contentType,
+    cacheControl: response.headers.get('cache-control')
+  };
 }
 
 export function createUser(input: {
@@ -95,8 +186,8 @@ export function createUser(input: {
   name: string;
   email: string;
   password: string;
-}): Promise<unknown> {
-  return requestDiscourse('/users.json', {
+}): Promise<DiscourseUserCreateResponse> {
+  return requestDiscourse<DiscourseUserCreateResponse>('/users.json', {
     method: 'POST',
     username: env.discourse.apiUser,
     body: {
@@ -176,6 +267,16 @@ export function likePost(input: { postId: string; username: string }): Promise<u
       id: input.postId,
       post_action_type_id: 2,
       flag_topic: false
+    }
+  });
+}
+
+export function unlikePost(input: { postId: string; username: string }): Promise<unknown> {
+  return requestDiscourse(`/post_actions/${encodeURIComponent(input.postId)}`, {
+    method: 'DELETE',
+    username: input.username,
+    body: {
+      post_action_type_id: 2
     }
   });
 }

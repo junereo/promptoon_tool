@@ -117,16 +117,17 @@ export async function verifyAccessToken(token: string): Promise<AuthTokenPayload
     throw new HttpError(401, 'Invalid authentication token.');
   }
 
+  const currentUserId = await repository.resolveCurrentUserId(db, decoded.sub);
   const session = await repository.getActiveSession(db, {
     sessionId: decoded.sid,
-    userId: decoded.sub
+    userId: currentUserId
   });
   if (!session) {
     throw new HttpError(401, 'Authentication session is expired or invalid.');
   }
 
   return {
-    sub: decoded.sub,
+    sub: currentUserId,
     loginId: decoded.loginId,
     sid: decoded.sid
   };
@@ -220,9 +221,10 @@ export async function logout(userId: string, sessionId: string): Promise<void> {
 
 export async function refresh(refreshToken: string): Promise<AuthResponse> {
   const payload = verifyRefreshToken(refreshToken);
+  const currentUserId = await repository.resolveCurrentUserId(db, payload.sub);
   const session = await repository.getSessionById(db, payload.sid);
 
-  if (!session || session.user_id !== payload.sub) {
+  if (!session || session.user_id !== currentUserId) {
     throw new HttpError(401, 'Refresh token is expired or invalid.');
   }
 

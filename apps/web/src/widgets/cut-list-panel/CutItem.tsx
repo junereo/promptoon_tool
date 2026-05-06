@@ -1,5 +1,6 @@
 import type { Cut } from '@promptoon/shared';
 import type { HTMLAttributes } from 'react';
+import { TrashFull as TrashIcon } from 'react-coolicons';
 
 const KIND_STYLES: Record<Cut['kind'], string> = {
   scene: 'border-zinc-700 bg-zinc-900/70 text-zinc-200',
@@ -12,27 +13,6 @@ const KIND_STYLES: Record<Cut['kind'], string> = {
   loopVariant: 'border-teal-500/40 bg-teal-500/10 text-teal-200',
   loopSpacer: 'border-cyan-500/40 bg-cyan-500/10 text-cyan-200'
 };
-
-function TrashIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      className="h-3.5 w-3.5"
-      fill="none"
-      stroke="currentColor"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="1.8"
-      viewBox="0 0 24 24"
-    >
-      <path d="M3 6h18" />
-      <path d="M8 6V4h8v2" />
-      <path d="M6 6l1 15h10l1-15" />
-      <path d="M10 11v6" />
-      <path d="M14 11v6" />
-    </svg>
-  );
-}
 
 export function CutItem({
   cut,
@@ -153,7 +133,7 @@ export function CutItem({
         onClick={onDelete}
         type="button"
       >
-        <TrashIcon />
+        <TrashIcon aria-hidden className="h-3.5 w-3.5" />
       </button>
     </div>
   );

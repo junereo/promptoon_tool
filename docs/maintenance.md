@@ -136,9 +136,17 @@ TEST_DATABASE_URL='postgresql://promptoon_test_user:promptoon_test_password@loca
 
 `test:api:integration:setup`은 `TEST_DATABASE_URL`의 database를 drop/create합니다. 개발 DB와 같은 URL을 사용하지 않습니다.
 
-## 7. 운영성 작업
+## 7. 프론트엔드 아이콘
 
-### 7.1. Projection repair
+Web/Admin의 UI 아이콘은 [coolicons](https://github.com/krystonschwarze/coolicons)를 기준으로 사용합니다.
+
+- React 컴포넌트는 `react-coolicons`에서 import합니다.
+- 새 아이콘을 추가할 때는 `lucide-react`나 직접 작성한 인라인 SVG 대신 coolicons 이름을 먼저 찾습니다.
+- coolicons에 같은 이름이 없으면 의미가 가장 가까운 아이콘을 alias로 import합니다.
+
+## 8. 운영성 작업
+
+### 8.1. Projection repair
 
 기존 publish 데이터가 public feed/channel/viewer surface에 보이지 않으면 Studio 인증 token으로 projection repair를 실행합니다.
 
@@ -150,7 +158,7 @@ curl -X POST \
 
 이 작업은 기존 `promptoon_publish.id`와 manifest를 유지하고, default channel/series, feed item, channel home projection, episode discussion projection만 idempotent하게 보강합니다.
 
-### 7.2. Auth/session 점검
+### 8.2. Auth/session 점검
 
 - JWT만으로는 인증되지 않습니다. JWT의 `sid`가 가리키는 `promptoon_session` row가 활성 상태여야 합니다.
 - `POST /api/auth/logout`은 현재 session만 삭제합니다.
@@ -158,7 +166,7 @@ curl -X POST \
 - admin 접근은 active session과 `platform_admin` 권한이 모두 필요합니다.
 - `PROMPTOON_PLATFORM_ADMIN_LOGIN_IDS`를 사용하면 특정 loginId를 admin 접근 시 bootstrap할 수 있습니다.
 
-### 7.3. Upload 경로
+### 8.3. Upload 경로
 
 API는 업로드를 우선 workspace `.data/uploads`에 쓰고, 권한 문제가 있으면 `apps/api/.data/uploads`로 폴백합니다. 정적 serve는 두 경로를 모두 `/uploads`에 mount합니다.
 
@@ -168,7 +176,7 @@ API는 업로드를 우선 workspace `.data/uploads`에 쓰고, 권한 문제가
 sudo chown -R "$USER:$USER" .data
 ```
 
-### 7.4. Discourse 연동
+### 8.4. Discourse 연동
 
 Discourse bridge를 사용하려면 아래 값이 필요합니다.
 
@@ -178,8 +186,10 @@ Discourse bridge를 사용하려면 아래 값이 필요합니다.
 - `DISCOURSE_CATEGORY_ID`
 
 DB-backed comment/comment-meta endpoint는 Discourse 설정 없이 사용할 수 있습니다. 외부 Discourse topic/post API는 설정이 없으면 정상 호출할 수 없습니다.
+Discourse API key는 API 서버 환경 변수로만 설정합니다. 로컬에서는 `apps/api/.env`에 두고 API 서버를 재시작합니다. `apps/web/.env` 또는 `VITE_DISCOURSE_API_KEY`처럼 웹 번들에 포함되는 값으로 설정하지 않습니다.
+개발 모드에서 `DISCOURSE_API_KEY`만 있고 `DISCOURSE_BASE_URL`이 비어 있으면 API 서버는 로컬 Discourse 기본 주소 `http://127.0.0.1:3000`을 사용합니다.
 
-## 8. 트러블슈팅
+## 9. 트러블슈팅
 
 1. API health check가 실패할 때
    - `pnpm run dev:api`가 실행 중인지 확인합니다.

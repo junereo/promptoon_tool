@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ShieldCheck } from 'lucide-react';
+import { ShieldCheck } from 'react-coolicons';
 import { Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { useAdminAuthStore } from '../features/auth/use-admin-auth-store';

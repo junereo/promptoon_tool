@@ -1157,6 +1157,7 @@ export async function createProject(request: CreateProjectRequest, userId: strin
       userId,
       role: 'owner'
     });
+    await repository.ensureDefaultChannelForProject(client, project, userId);
     return project;
   });
 }

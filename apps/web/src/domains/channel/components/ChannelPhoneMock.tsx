@@ -1,4 +1,4 @@
-import { Bell, Bookmark } from 'lucide-react';
+import { Bell, Bookmark } from 'react-coolicons';
 
 import { PhoneFrame } from '../../../shared/ui/PhoneFrame';
 

@@ -46,7 +46,7 @@ interface PublishRow {
 
 export interface ProductChannelRow {
   id: string;
-  project_id: string;
+  project_id: string | null;
   owner_user_id: string | null;
   slug: string;
   display_name: string;
@@ -55,6 +55,7 @@ export interface ProductChannelRow {
   banner_url: string | null;
   bio: string | null;
   is_verified: boolean;
+  is_default: boolean;
   visibility: string;
   created_at: Date;
   updated_at: Date;
@@ -160,6 +161,26 @@ interface DiscourseThreadSyncRow {
   last_synced_at: Date | null;
 }
 
+interface ProjectDiscussionRow {
+  project_id: string;
+  discourse_topic_id: string | null;
+  provider_status: CommunityThreadSyncStatus;
+  discussion_url: string | null;
+  comment_count: number;
+  latest_comment_at: Date | null;
+  payload_json: Record<string, unknown> | null;
+  last_synced_at: Date | null;
+}
+
+interface DiscourseTopicContextRow {
+  project_id: string;
+  publish_id: string | null;
+  episode_id: string | null;
+  episode_title: string | null;
+  discourse_topic_id: string;
+  source: 'project' | 'episode';
+}
+
 export interface ProductUserCommunityIdentity {
   id: string;
   loginId: string;
@@ -174,6 +195,26 @@ export interface FeedProjectionInput {
   feedItem: FeedItem;
   channel: ProductChannelRow;
   series: ProductSeriesRow;
+}
+
+export interface ProductProjectDiscussion {
+  projectId: string;
+  discourseTopicId: string | null;
+  status: CommunityThreadSyncStatus;
+  discussionUrl: string | null;
+  commentCount: number;
+  latestCommentAt: string | null;
+  payload: Record<string, unknown>;
+  lastSyncedAt: string | null;
+}
+
+export interface ProductDiscourseTopicContext {
+  projectId: string;
+  publishId: string | null;
+  episodeId: string | null;
+  episodeTitle: string | null;
+  discourseTopicId: string;
+  source: 'project' | 'episode';
 }
 
 function toIsoString(value: Date): string {
@@ -231,6 +272,30 @@ function mapDiscourseThreadSync(row: DiscourseThreadSyncRow): DiscourseThreadSyn
   };
 }
 
+function mapProjectDiscussion(row: ProjectDiscussionRow): ProductProjectDiscussion {
+  return {
+    projectId: row.project_id,
+    discourseTopicId: row.discourse_topic_id,
+    status: row.provider_status,
+    discussionUrl: row.discussion_url,
+    commentCount: row.comment_count,
+    latestCommentAt: row.latest_comment_at ? toIsoString(row.latest_comment_at) : null,
+    payload: row.payload_json ?? {},
+    lastSyncedAt: row.last_synced_at ? toIsoString(row.last_synced_at) : null
+  };
+}
+
+function mapDiscourseTopicContext(row: DiscourseTopicContextRow): ProductDiscourseTopicContext {
+  return {
+    projectId: row.project_id,
+    publishId: row.publish_id,
+    episodeId: row.episode_id,
+    episodeTitle: row.episode_title,
+    discourseTopicId: row.discourse_topic_id,
+    source: row.source
+  };
+}
+
 function mapChannelProfile(row: ProductChannelRow, counts?: Partial<ChannelProfile>): ChannelProfile {
   return {
     id: row.id,
@@ -267,6 +332,17 @@ function slugify(value: string, fallbackId: string): string {
     .slice(0, 48);
 
   return `${normalized || 'channel'}-${fallbackId.slice(0, 8)}`;
+}
+
+interface ChannelOwnerRow {
+  id: string;
+  login_id: string;
+  display_name: string | null;
+  profile_image_url: string | null;
+}
+
+function getChannelOwnerDisplayName(owner: ChannelOwnerRow): string {
+  return owner.display_name?.trim() || owner.login_id.trim() || 'channel';
 }
 
 export async function getProjectById(db: DbExecutor, projectId: string): Promise<Project | null> {
@@ -356,31 +432,40 @@ export async function ensureDefaultChannelForProject(
   project: Project,
   ownerUserId: string
 ): Promise<ProductChannelRow> {
-  const existing = await db.query<ProductChannelRow>('SELECT * FROM promptoon_channel WHERE project_id = $1 LIMIT 1', [project.id]);
+  const channelOwnerId = project.createdBy || ownerUserId;
+  const existing = await db.query<ProductChannelRow>(
+    `SELECT *
+     FROM promptoon_channel
+     WHERE owner_user_id = $1 AND is_default = TRUE
+     ORDER BY created_at ASC
+     LIMIT 1`,
+    [channelOwnerId]
+  );
   if (existing.rows[0]) {
-    if (!existing.rows[0].owner_user_id && ownerUserId) {
-      const updated = await db.query<ProductChannelRow>(
-        `UPDATE promptoon_channel
-         SET owner_user_id = $2,
-             updated_at = NOW()
-         WHERE id = $1
-         RETURNING *`,
-        [existing.rows[0].id, ownerUserId]
-      );
-      return updated.rows[0];
-    }
-
     return existing.rows[0];
   }
 
-  const slug = slugify(project.title, project.id);
+  const ownerResult = await db.query<ChannelOwnerRow>(
+    'SELECT id, login_id, display_name, profile_image_url FROM users WHERE id = $1',
+    [channelOwnerId]
+  );
+  const owner = ownerResult.rows[0];
+  const displayName = owner ? getChannelOwnerDisplayName(owner) : project.title;
+  const avatarUrl = owner?.profile_image_url ?? null;
+  const slug = slugify(displayName, channelOwnerId);
   const result = await db.query<ProductChannelRow>(
-    `INSERT INTO promptoon_channel (project_id, owner_user_id, slug, display_name, handle, bio)
-     VALUES ($1, $2, $3, $4, $5, $6)
-     ON CONFLICT (project_id) DO UPDATE
-       SET updated_at = NOW()
+    `INSERT INTO promptoon_channel (project_id, owner_user_id, slug, display_name, handle, avatar_url, bio, is_default)
+     VALUES (NULL, $1, $2, $3, $4, $5, NULL, TRUE)
+     ON CONFLICT (slug) DO UPDATE
+       SET project_id = NULL,
+           owner_user_id = EXCLUDED.owner_user_id,
+           display_name = EXCLUDED.display_name,
+           handle = EXCLUDED.handle,
+           avatar_url = COALESCE(promptoon_channel.avatar_url, EXCLUDED.avatar_url),
+           is_default = TRUE,
+           updated_at = NOW()
      RETURNING *`,
-    [project.id, ownerUserId, slug, project.title, `@${slug}`, project.description]
+    [channelOwnerId, slug, displayName, `@${slug}`, avatarUrl]
   );
 
   return result.rows[0];
@@ -1132,6 +1217,181 @@ export async function upsertDiscourseThreadSync(
   }
 
   return mapDiscourseThreadSync(result.rows[0]);
+}
+
+export async function getProjectDiscussion(db: DbExecutor, projectId: string): Promise<ProductProjectDiscussion | null> {
+  const result = await db.query<ProjectDiscussionRow>(
+    `SELECT project_id, discourse_topic_id, provider_status, discussion_url, comment_count, latest_comment_at, payload_json, last_synced_at
+     FROM promptoon_project_discussion
+     WHERE project_id = $1`,
+    [projectId]
+  );
+
+  return result.rows[0] ? mapProjectDiscussion(result.rows[0]) : null;
+}
+
+export async function upsertProjectDiscussionSync(
+  db: DbExecutor,
+  input: {
+    projectId: string;
+    discourseTopicId?: string | null;
+    status: CommunityThreadSyncStatus;
+    discussionUrl?: string | null;
+    payload?: Record<string, unknown>;
+  }
+): Promise<ProductProjectDiscussion> {
+  const result = await db.query<ProjectDiscussionRow>(
+    `INSERT INTO promptoon_project_discussion
+       (project_id, discourse_topic_id, provider_status, discussion_url, payload_json, last_synced_at)
+     VALUES ($1, $2, $3, $4, $5, CASE WHEN $3 = 'synced' THEN NOW() ELSE NULL END)
+     ON CONFLICT (project_id) DO UPDATE
+       SET discourse_topic_id = EXCLUDED.discourse_topic_id,
+           provider_status = EXCLUDED.provider_status,
+           discussion_url = EXCLUDED.discussion_url,
+           payload_json = EXCLUDED.payload_json,
+           last_synced_at = CASE WHEN EXCLUDED.provider_status = 'synced' THEN NOW() ELSE promptoon_project_discussion.last_synced_at END,
+           updated_at = NOW()
+     RETURNING project_id, discourse_topic_id, provider_status, discussion_url, comment_count, latest_comment_at, payload_json, last_synced_at`,
+    [
+      input.projectId,
+      input.discourseTopicId ?? null,
+      input.status,
+      input.discussionUrl ?? null,
+      JSON.stringify(input.payload ?? {})
+    ]
+  );
+
+  return mapProjectDiscussion(result.rows[0]);
+}
+
+export async function updateProjectDiscussionMetrics(
+  db: DbExecutor,
+  input: {
+    projectId: string;
+    commentCount: number;
+    latestCommentAt?: string | null;
+  }
+): Promise<void> {
+  await db.query(
+    `UPDATE promptoon_project_discussion
+     SET comment_count = $2,
+         latest_comment_at = $3,
+         updated_at = NOW()
+     WHERE project_id = $1`,
+    [input.projectId, input.commentCount, input.latestCommentAt ?? null]
+  );
+}
+
+export async function updateEpisodeDiscourseMetrics(
+  db: DbExecutor,
+  input: {
+    publishId: string;
+    discourseTopicId: string;
+    commentCount: number;
+    latestCommentAt?: string | null;
+    discussionUrl?: string | null;
+  }
+): Promise<ProductPublishProjectionContextRow | null> {
+  const context = await getPublishProjectionContext(db, input.publishId);
+  if (!context) {
+    return null;
+  }
+
+  await ensureEpisodeDiscussion(db, {
+    episodeId: context.episode_id,
+    publishId: input.publishId
+  });
+
+  await db.query(
+    `UPDATE promptoon_episode_discussion
+     SET discourse_topic_id = $2,
+         discussion_url = COALESCE($5, discussion_url),
+         comment_count = $3,
+         latest_comment_at = $4,
+         updated_at = NOW()
+     WHERE publish_id = $1`,
+    [input.publishId, input.discourseTopicId, input.commentCount, input.latestCommentAt ?? null, input.discussionUrl ?? null]
+  );
+
+  await db.query(
+    `UPDATE promptoon_feed_item
+     SET metrics_json = jsonb_set(
+           COALESCE(metrics_json, '{"views":0,"likes":0,"comments":0,"shares":0}'::jsonb),
+           '{comments}',
+           to_jsonb($2::integer),
+           true
+         ),
+         payload_json = jsonb_set(
+           jsonb_set(
+             payload_json,
+             '{metrics}',
+             COALESCE(payload_json->'metrics', metrics_json, '{"views":0,"likes":0,"comments":0,"shares":0}'::jsonb),
+             true
+           ),
+           '{metrics,comments}',
+           to_jsonb($2::integer),
+           true
+         ),
+         updated_at = NOW()
+     WHERE publish_id = $1`,
+    [input.publishId, input.commentCount]
+  );
+
+  return context;
+}
+
+export async function listSyncedDiscourseTopicContextsByProjectId(
+  db: DbExecutor,
+  projectId: string
+): Promise<ProductDiscourseTopicContext[]> {
+  const result = await db.query<DiscourseTopicContextRow>(
+    `SELECT *
+     FROM (
+       SELECT
+         discussion.project_id,
+         NULL::uuid AS publish_id,
+         NULL::uuid AS episode_id,
+         NULL::text AS episode_title,
+         discussion.discourse_topic_id,
+         'project'::text AS source
+       FROM promptoon_project_discussion AS discussion
+       WHERE discussion.project_id = $1
+         AND discussion.provider_status = 'synced'
+         AND discussion.discourse_topic_id IS NOT NULL
+
+       UNION ALL
+
+       SELECT
+         publish.project_id,
+         publish.id AS publish_id,
+         publish.episode_id,
+         COALESCE(publish.manifest #>> '{episode,title}', episode.title) AS episode_title,
+         sync.discourse_topic_id,
+         'episode'::text AS source
+       FROM promptoon_publish AS publish
+       JOIN promptoon_episode AS episode ON episode.id = publish.episode_id
+       JOIN promptoon_discourse_thread_sync AS sync ON sync.publish_id = publish.id
+       WHERE publish.project_id = $1
+         AND publish.status = 'published'
+         AND sync.provider_status = 'synced'
+         AND sync.discourse_topic_id IS NOT NULL
+     ) AS contexts
+     ORDER BY CASE WHEN source = 'project' THEN 0 ELSE 1 END, episode_title ASC NULLS FIRST, publish_id ASC NULLS FIRST`,
+    [projectId]
+  );
+
+  return result.rows.map(mapDiscourseTopicContext);
+}
+
+export async function getDiscourseTopicContextForProject(
+  db: DbExecutor,
+  input: {
+    projectId: string;
+    topicId: string;
+  }
+): Promise<ProductDiscourseTopicContext | null> {
+  const contexts = await listSyncedDiscourseTopicContextsByProjectId(db, input.projectId);
+  return contexts.find((context) => context.discourseTopicId === input.topicId) ?? null;
 }
 
 export async function getUserCommunityIdentity(db: DbExecutor, userId: string): Promise<ProductUserCommunityIdentity | null> {

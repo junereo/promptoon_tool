@@ -1,6 +1,16 @@
 import type { AdminUserRoleFilter, PlatformRole, StudioRole } from '@promptoon/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Activity, CheckCircle2, Database, FileText, MessageSquare, Rocket, Search, ShieldCheck, Users } from 'lucide-react';
+import {
+  ChartLine as Activity,
+  CircleCheck as CheckCircle2,
+  Data as Database,
+  FileDocument as FileText,
+  Chat as MessageSquare,
+  PaperPlane as Rocket,
+  SearchMagnifyingGlass as Search,
+  ShieldCheck,
+  Users
+} from 'react-coolicons';
 import type { ReactNode } from 'react';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';

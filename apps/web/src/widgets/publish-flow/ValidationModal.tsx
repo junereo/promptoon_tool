@@ -21,7 +21,7 @@ export function ValidationModal({
 
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 px-4 py-8 backdrop-blur-sm">
-      <div className="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-[32px] border border-editor-border bg-editor-panel shadow-2xl shadow-black/40">
+      <div className="flex max-h-[80dvh] w-full max-w-2xl flex-col overflow-hidden rounded-[32px] border border-editor-border bg-editor-panel shadow-2xl shadow-black/40">
         <div className="border-b border-editor-border px-6 py-5">
           <div className="flex items-start justify-between gap-4">
             <div>

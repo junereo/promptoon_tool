@@ -217,7 +217,7 @@ interface FeedCursorInput {
 
 interface ChannelRow {
   id: string;
-  project_id: string;
+  project_id: string | null;
   owner_user_id: string | null;
   slug: string;
   display_name: string;
@@ -226,6 +226,7 @@ interface ChannelRow {
   banner_url: string | null;
   bio: string | null;
   is_verified: boolean;
+  is_default: boolean;
   visibility: string;
   created_at: Date;
   updated_at: Date;
@@ -1577,32 +1578,52 @@ function slugify(value: string, fallbackId: string): string {
   return `${normalized || 'channel'}-${fallbackId.slice(0, 8)}`;
 }
 
-export async function ensureDefaultChannelForProject(db: DbExecutor, project: Project, ownerUserId: string): Promise<ChannelRow> {
-  const existing = await db.query<ChannelRow>('SELECT * FROM promptoon_channel WHERE project_id = $1 LIMIT 1', [project.id]);
-  if (existing.rows[0]) {
-    if (!existing.rows[0].owner_user_id && ownerUserId) {
-      const updated = await db.query<ChannelRow>(
-        `UPDATE promptoon_channel
-         SET owner_user_id = $2,
-             updated_at = NOW()
-         WHERE id = $1
-         RETURNING *`,
-        [existing.rows[0].id, ownerUserId]
-      );
-      return updated.rows[0];
-    }
+interface ChannelOwnerRow {
+  id: string;
+  login_id: string;
+  display_name: string | null;
+  profile_image_url: string | null;
+}
 
+function getChannelOwnerDisplayName(owner: ChannelOwnerRow): string {
+  return owner.display_name?.trim() || owner.login_id.trim() || 'channel';
+}
+
+export async function ensureDefaultChannelForProject(db: DbExecutor, project: Project, ownerUserId: string): Promise<ChannelRow> {
+  const channelOwnerId = project.createdBy || ownerUserId;
+  const existing = await db.query<ChannelRow>(
+    `SELECT *
+     FROM promptoon_channel
+     WHERE owner_user_id = $1 AND is_default = TRUE
+     ORDER BY created_at ASC
+     LIMIT 1`,
+    [channelOwnerId]
+  );
+  if (existing.rows[0]) {
     return existing.rows[0];
   }
 
-  const slug = slugify(project.title, project.id);
+  const ownerResult = await db.query<ChannelOwnerRow>(
+    'SELECT id, login_id, display_name, profile_image_url FROM users WHERE id = $1',
+    [channelOwnerId]
+  );
+  const owner = ownerResult.rows[0];
+  const displayName = owner ? getChannelOwnerDisplayName(owner) : project.title;
+  const avatarUrl = owner?.profile_image_url ?? null;
+  const slug = slugify(displayName, channelOwnerId);
   const result = await db.query<ChannelRow>(
-    `INSERT INTO promptoon_channel (project_id, owner_user_id, slug, display_name, handle, bio)
-     VALUES ($1, $2, $3, $4, $5, $6)
-     ON CONFLICT (project_id) DO UPDATE
-       SET updated_at = NOW()
+    `INSERT INTO promptoon_channel (project_id, owner_user_id, slug, display_name, handle, avatar_url, bio, is_default)
+     VALUES (NULL, $1, $2, $3, $4, $5, NULL, TRUE)
+     ON CONFLICT (slug) DO UPDATE
+       SET project_id = NULL,
+           owner_user_id = EXCLUDED.owner_user_id,
+           display_name = EXCLUDED.display_name,
+           handle = EXCLUDED.handle,
+           avatar_url = COALESCE(promptoon_channel.avatar_url, EXCLUDED.avatar_url),
+           is_default = TRUE,
+           updated_at = NOW()
      RETURNING *`,
-    [project.id, ownerUserId, slug, project.title, `@${slug}`, project.description]
+    [channelOwnerId, slug, displayName, `@${slug}`, avatarUrl]
   );
 
   return result.rows[0];

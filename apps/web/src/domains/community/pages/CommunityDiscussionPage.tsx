@@ -1,4 +1,4 @@
-import { MessageCircle } from 'lucide-react';
+import { ChatCircle as MessageCircle } from 'react-coolicons';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 

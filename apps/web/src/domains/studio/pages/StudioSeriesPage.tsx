@@ -1,4 +1,4 @@
-import { ArrowLeft, SquarePen } from 'lucide-react';
+import { ArrowLeftLg as ArrowLeft, EditPencilLine01 as SquarePen } from 'react-coolicons';
 import { Link, useParams } from 'react-router-dom';
 
 import { useProjects } from '../../../features/project/hooks/use-project-query';

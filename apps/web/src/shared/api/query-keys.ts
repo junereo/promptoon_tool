@@ -1,4 +1,4 @@
-import type { AnalyticsViewGranularity, AnalyticsViewRange } from '@promptoon/shared';
+import type { AnalyticsViewGranularity, AnalyticsViewRange, CommunityDiscourseScope } from '@promptoon/shared';
 
 export const promptoonKeys = {
   feed: () => ['promptoon', 'feed'] as const,
@@ -15,6 +15,13 @@ export const promptoonKeys = {
   publishedEpisode: (publishId: string) => ['promptoon', 'published', publishId] as const,
   viewerInteractionState: (publishId: string) => ['promptoon', 'viewer', publishId, 'state'] as const,
   communityEmbed: (publishId: string) => ['promptoon', 'community', publishId, 'embed'] as const,
+  communityComments: (publishId: string) => ['promptoon', 'community', publishId, 'comments'] as const,
+  communityCommentsMeta: (publishId: string) => ['promptoon', 'community', publishId, 'comments-meta'] as const,
+  communityDiscourseInteractionRoot: (publishId: string) => ['promptoon', 'community', publishId, 'discourse-interaction'] as const,
+  communityDiscourseInteraction: (publishId: string, viewerKey: string) =>
+    ['promptoon', 'community', publishId, 'discourse-interaction', viewerKey] as const,
+  communityDiscourseComments: (publishId: string, scope: CommunityDiscourseScope) =>
+    ['promptoon', 'community', publishId, 'discourse-comments', scope] as const,
   episodeAnalyticsRoot: (episodeId: string) => ['promptoon', 'episodes', episodeId, 'analytics'] as const,
   episodeAnalytics: (episodeId: string, viewsGranularity: AnalyticsViewGranularity, viewsRange?: AnalyticsViewRange) =>
     ['promptoon', 'episodes', episodeId, 'analytics', viewsGranularity, viewsRange?.from ?? null, viewsRange?.to ?? null] as const

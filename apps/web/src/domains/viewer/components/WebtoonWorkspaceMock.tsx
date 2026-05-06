@@ -5,14 +5,14 @@ import {
   BookOpen,
   ChevronLeft,
   ChevronRight,
-  GalleryHorizontalEnd,
-  Menu,
-  MessageCircle,
-  PencilLine,
+  Image02 as GalleryHorizontalEnd,
+  HamburgerMd as Menu,
+  ChatCircle as MessageCircle,
+  EditPencilLine01 as PencilLine,
   Play,
-  Send,
+  PaperPlane as Send,
   Users
-} from 'lucide-react';
+} from 'react-coolicons';
 
 const episodes = [
   '56화. 다시 흐르기 시작한 시간',

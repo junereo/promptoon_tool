@@ -61,7 +61,6 @@ beforeEach(() => {
   preloadViewerForPublishMock.mockResolvedValue(undefined);
   imageSources.length = 0;
   useAuthStore.setState({
-    token: null,
     user: null,
     session: null,
     isAuthenticated: false,

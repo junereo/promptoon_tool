@@ -47,6 +47,7 @@ import {
   useValidateEpisode
 } from '../features/editor/hooks/use-episode-query';
 import { LoopStateSettingModal } from '../features/exit-loop-cut-graph/ui/LoopStateSettingModal';
+import { LoopStateSettingOverviewModal } from '../features/exit-loop-cut-graph/ui/LoopStateSettingOverviewModal';
 import { useEditorStore } from '../features/editor/store/use-editor-store';
 import { AnalyticsDashboard } from '../widgets/analytics-dashboard/AnalyticsDashboard';
 import { EpisodeEditorShell } from '../widgets/episode-editor-shell/episode-editor-shell';
@@ -178,6 +179,7 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
   const [previewSelectedChoiceId, setPreviewSelectedChoiceId] = useState<string | null>(null);
   const [graphLayoutMode, setGraphLayoutMode] = useState<GraphLayoutMode>('custom');
   const [graphPositionDraft, setGraphPositionDraft] = useState<Record<string, { x: number; y: number }>>({});
+  const [isLoopStateSettingOverviewOpen, setIsLoopStateSettingOverviewOpen] = useState(false);
   const [isLoopStateSettingOpen, setIsLoopStateSettingOpen] = useState(false);
   const [loopStateSettingInitialAnchorCutId, setLoopStateSettingInitialAnchorCutId] = useState<string | null>(null);
 
@@ -210,6 +212,7 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
     setPreviewSelectedChoiceId(null);
     setGraphLayoutMode('custom');
     setGraphPositionDraft({});
+    setIsLoopStateSettingOverviewOpen(false);
     setIsLoopStateSettingOpen(false);
     setLoopStateSettingInitialAnchorCutId(null);
   }, [episodeId, resetForEpisode]);
@@ -469,13 +472,24 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
     return response.assetUrl;
   }
 
-  function handleOpenLoopStateSetting(anchorCutId?: string) {
+  function getLoopStateSettingAnchorCutId(anchorCutId?: string | null): string | null {
     const anchorCut = anchorCutId ? orderedCuts.find((cut) => cut.id === anchorCutId) ?? null : null;
     const selectedAnchorCut =
       selectedCut && selectedCut.kind !== 'loopVariant' && selectedCut.kind !== 'loopSpacer' ? selectedCut : null;
-    setLoopStateSettingInitialAnchorCutId(
-      anchorCut && anchorCut.kind !== 'loopVariant' && anchorCut.kind !== 'loopSpacer' ? anchorCut.id : selectedAnchorCut?.id ?? null
-    );
+
+    return anchorCut && anchorCut.kind !== 'loopVariant' && anchorCut.kind !== 'loopSpacer'
+      ? anchorCut.id
+      : selectedAnchorCut?.id ?? null;
+  }
+
+  function handleOpenLoopStateSetting(anchorCutId?: string) {
+    setLoopStateSettingInitialAnchorCutId(getLoopStateSettingAnchorCutId(anchorCutId));
+    setIsLoopStateSettingOverviewOpen(true);
+  }
+
+  function handleCreateNewLoopStateSetting(anchorCutId?: string | null) {
+    setLoopStateSettingInitialAnchorCutId(getLoopStateSettingAnchorCutId(anchorCutId));
+    setIsLoopStateSettingOverviewOpen(false);
     setIsLoopStateSettingOpen(true);
   }
 
@@ -959,6 +973,15 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
         selectedCut={selectedCut}
         toolbarNotice={toolbarNotice}
         viewMode={viewMode}
+      />
+      <LoopStateSettingOverviewModal
+        choices={draftQuery.data.choices}
+        cuts={orderedCuts}
+        initialAnchorCutId={loopStateSettingInitialAnchorCutId}
+        isOpen={isLoopStateSettingOverviewOpen}
+        onClose={() => setIsLoopStateSettingOverviewOpen(false)}
+        onCreateNew={handleCreateNewLoopStateSetting}
+        onSelectCut={(cutId) => setSelected({ type: 'cut', id: cutId })}
       />
       <LoopStateSettingModal
         cuts={orderedCuts}

@@ -12,7 +12,6 @@ afterEach(() => {
 beforeEach(() => {
   window.localStorage.clear();
   useAuthStore.setState({
-    token: null,
     user: null,
     session: null,
     studioRole: null,
@@ -68,13 +67,12 @@ describe('ProtectedRoute', () => {
 
   it('redirects unauthenticated users after hydration and allows authenticated users', async () => {
     useAuthStore.setState({
-      token: null,
       user: null,
       session: null,
       studioRole: null,
       isAuthenticated: false,
       hasHydrated: true,
-      sessionStatus: 'idle'
+      sessionStatus: 'invalid'
     });
 
     renderProtectedRoute();
@@ -83,7 +81,6 @@ describe('ProtectedRoute', () => {
     cleanup();
 
     useAuthStore.setState({
-      token: 'token-1',
       user: { id: 'user-1', loginId: 'creator001' },
       session: {
         id: 'session-1',
@@ -101,9 +98,8 @@ describe('ProtectedRoute', () => {
     expect(screen.getByText('Protected Dashboard')).toBeTruthy();
   });
 
-  it('waits for persisted token session validation before allowing protected routes', () => {
+  it('waits for cookie session validation before allowing protected routes', () => {
     useAuthStore.setState({
-      token: 'token-1',
       user: { id: 'user-1', loginId: 'creator001' },
       session: null,
       studioRole: null,
@@ -120,7 +116,6 @@ describe('ProtectedRoute', () => {
 
   it('requires a Studio role when a route opts into Studio access', () => {
     useAuthStore.setState({
-      token: 'token-1',
       user: { id: 'user-1', loginId: 'creator001' },
       session: {
         id: 'session-1',

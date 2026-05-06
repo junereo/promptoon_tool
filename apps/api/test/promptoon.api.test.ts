@@ -2,13 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import { DEFAULT_CUT_EFFECT_DURATION_MS } from '@promptoon/shared';
 
 import { createApp } from '../src/app/createApp';
 import { closePool, query } from '../src/db';
 import { runMigrations } from '../src/db/migrate';
+import { env } from '../src/lib/env';
 import { resolveFromApiRoot, resolveFromWorkspaceRoot } from '../src/lib/workspace-paths';
 
 const integrationEnabled = Boolean(process.env.TEST_DATABASE_URL);
@@ -217,6 +218,7 @@ maybeDescribe('promptoon api integration', () => {
     await query('DELETE FROM promptoon_feed_item');
     await query('DELETE FROM promptoon_comment');
     await query('DELETE FROM promptoon_discourse_thread_sync');
+    await query('DELETE FROM promptoon_project_discussion');
     await query('DELETE FROM promptoon_episode_discussion');
     await query('DELETE FROM promptoon_viewer_event');
     await query('DELETE FROM promptoon_publish');
@@ -234,6 +236,14 @@ maybeDescribe('promptoon api integration', () => {
     await query('DELETE FROM promptoon_session');
     await query('DELETE FROM promptoon_oauth_account');
     await query('DELETE FROM users');
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    env.discourse.baseUrl = process.env.DISCOURSE_BASE_URL ?? null;
+    env.discourse.apiKey = process.env.DISCOURSE_API_KEY ?? null;
+    env.discourse.apiUser = process.env.DISCOURSE_API_USER ?? 'system';
+    env.discourse.categoryId = process.env.DISCOURSE_CATEGORY_ID ?? null;
   });
 
   afterAll(async () => {
@@ -1160,6 +1170,312 @@ maybeDescribe('promptoon api integration', () => {
     expect(metaAfterModeration.body.commentCount).toBe(0);
   });
 
+  it('reports missing Discourse server env without exposing secret values', async () => {
+    env.discourse.baseUrl = null;
+    env.discourse.apiKey = null;
+
+    const response = await request(app).get('/api/community/discourse/categories');
+
+    expect(response.status).toBe(503);
+    expect(response.body.error).toContain('DISCOURSE_BASE_URL');
+    expect(response.body.error).toContain('DISCOURSE_API_KEY');
+    expect(response.body.details).toEqual({
+      missingEnv: ['DISCOURSE_BASE_URL', 'DISCOURSE_API_KEY']
+    });
+  });
+
+  it('bridges feed comments to Discourse with project and episode scopes', async () => {
+    env.discourse.baseUrl = 'https://discourse.example.test';
+    env.discourse.apiKey = 'test-discourse-key';
+    env.discourse.apiUser = 'system';
+    env.discourse.categoryId = '7';
+
+    const discourseTopics = new Map<string, { id: string; title: string; posts: Array<Record<string, unknown>> }>();
+    let nextTopicId = 100;
+    let nextPostId = 1000;
+
+    function getTimestamp() {
+      nextPostId += 1;
+      return new Date(Date.UTC(2026, 4, 6, 0, 0, 0, nextPostId)).toISOString();
+    }
+
+    function jsonResponse(body: unknown, status = 200) {
+      return new Response(JSON.stringify(body), {
+        status,
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+    }
+
+    function findDiscoursePostById(postId: string) {
+      for (const topic of discourseTopics.values()) {
+        const post = topic.posts.find((item) => String(item.id) === postId);
+        if (post) {
+          return post;
+        }
+      }
+
+      return null;
+    }
+
+    function setLikeAction(post: Record<string, unknown>, liked: boolean) {
+      const nextCount = liked ? Number(post.like_count ?? 0) + 1 : Math.max(0, Number(post.like_count ?? 0) - 1);
+      post.like_count = nextCount;
+      post.actions_summary = [
+        {
+          id: 2,
+          count: nextCount,
+          acted: liked,
+          can_act: !liked
+        }
+      ];
+    }
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        const requestUrl = new URL(String(url));
+        const method = init?.method ?? 'GET';
+        const body = init?.body ? JSON.parse(String(init.body)) : null;
+
+        if (requestUrl.pathname === '/users.json' && method === 'POST') {
+          return jsonResponse({ success: true });
+        }
+
+        if (requestUrl.pathname === '/posts.json' && method === 'POST') {
+          if (body?.topic_id) {
+            const topicId = String(body.topic_id);
+            const topic = discourseTopics.get(topicId);
+            if (!topic) {
+              return jsonResponse({ errors: ['topic not found'] }, 404);
+            }
+            const postNumber = topic.posts.length + 1;
+            const post = {
+              id: nextPostId + 1,
+              topic_id: topicId,
+              post_number: postNumber,
+              reply_to_post_number: body.reply_to_post_number ?? null,
+              username: init?.headers ? 'promptoon_user' : 'unknown',
+              name: 'Promptoon User',
+              avatar_template: '/letter_avatar_proxy/v4/letter/p/96.png',
+              cooked: `<p>${body.raw}</p>`,
+              raw: body.raw,
+              created_at: getTimestamp(),
+              updated_at: getTimestamp(),
+              like_count: 0,
+              reply_count: 0,
+              actions_summary: [{ id: 2, count: 0, acted: false, can_act: true }]
+            };
+            topic.posts.push(post);
+            return jsonResponse({ id: post.id, topic_id: Number(topicId), post_number: postNumber });
+          }
+
+          const topicId = String(nextTopicId++);
+          discourseTopics.set(topicId, {
+            id: topicId,
+            title: body.title,
+            posts: [
+              {
+                id: nextPostId + 1,
+                topic_id: topicId,
+                post_number: 1,
+                username: 'system',
+                name: 'System',
+                avatar_template: '/letter_avatar_proxy/v4/letter/s/96.png',
+                cooked: `<p>${body.raw}</p>`,
+                raw: body.raw,
+                created_at: getTimestamp(),
+                updated_at: getTimestamp(),
+                like_count: 0,
+                reply_count: 0,
+                actions_summary: [{ id: 2, count: 0, acted: false, can_act: true }]
+              }
+            ]
+          });
+          return jsonResponse({ topic_id: Number(topicId), id: Number(topicId), post_number: 1 });
+        }
+
+        const topicMatch = requestUrl.pathname.match(/^\/t\/([^/]+)\.json$/);
+        if (topicMatch && method === 'GET') {
+          const topic = discourseTopics.get(topicMatch[1]);
+          if (!topic) {
+            return jsonResponse({ errors: ['topic not found'] }, 404);
+          }
+          return jsonResponse({
+            id: Number(topic.id),
+            title: topic.title,
+            post_stream: {
+              posts: topic.posts
+            }
+          });
+        }
+
+        if (requestUrl.pathname === '/post_actions.json' && method === 'POST') {
+          const post = findDiscoursePostById(String(body.id));
+          if (!post) {
+            return jsonResponse({ errors: ['post not found'] }, 404);
+          }
+          setLikeAction(post, true);
+          return jsonResponse({ success: true });
+        }
+
+        const postActionMatch = requestUrl.pathname.match(/^\/post_actions\/([^/]+)$/);
+        if (postActionMatch && method === 'DELETE') {
+          const post = findDiscoursePostById(postActionMatch[1]);
+          if (!post) {
+            return jsonResponse({ errors: ['post not found'] }, 404);
+          }
+          setLikeAction(post, false);
+          return jsonResponse({ success: true });
+        }
+
+        return jsonResponse({ errors: ['not found'] }, 404);
+      })
+    );
+
+    const fixture = await createFeedReadyPublishedEpisodeFixture();
+    const episode2 = await withAuth(request(app).post(`/api/promptoon/projects/${fixture.project.body.id}/episodes`), fixture.auth.token).send({
+      title: 'Product Episode 2',
+      episodeNo: 2,
+      coverImageUrl: 'https://cdn.example.com/product-cover-2.jpg'
+    });
+    const startCut2 = await withAuth(request(app).post(`/api/promptoon/episodes/${episode2.body.id}/cuts`), fixture.auth.token).send({
+      title: 'Feed Branch 2',
+      body: '두 번째 에피소드입니다.',
+      kind: 'choice',
+      isStart: true,
+      assetUrl: 'https://cdn.example.com/product-start-2.jpg'
+    });
+    const ending2 = await withAuth(request(app).post(`/api/promptoon/episodes/${episode2.body.id}/cuts`), fixture.auth.token).send({
+      title: 'Ending 2',
+      kind: 'ending',
+      isEnding: true
+    });
+    await withAuth(request(app).post(`/api/promptoon/cuts/${startCut2.body.id}/choices`), fixture.auth.token).send({
+      label: '계속',
+      nextCutId: ending2.body.id
+    });
+    const publish2 = await withAuth(request(app).post(`/api/promptoon/projects/${fixture.project.body.id}/publish`), fixture.auth.token).send({
+      episodeId: episode2.body.id
+    });
+
+    const publicProjectComments = await request(app).get(`/api/community/publishes/${fixture.publish.body.id}/discourse/comments?scope=project`);
+    const unauthenticatedCreate = await request(app)
+      .post(`/api/community/publishes/${fixture.publish.body.id}/discourse/comments`)
+      .send({ scope: 'episode', raw: '로그인 없이 댓글' });
+    const projectComment = await withAuth(
+      request(app).post(`/api/community/publishes/${fixture.publish.body.id}/discourse/comments`),
+      fixture.auth.token
+    ).send({ scope: 'project', raw: 'DM 전체 댓글' });
+    const episode1Comment = await withAuth(
+      request(app).post(`/api/community/publishes/${fixture.publish.body.id}/discourse/comments`),
+      fixture.auth.token
+    ).send({ scope: 'episode', raw: '재미있어요' });
+    const episode2Comment = await withAuth(
+      request(app).post(`/api/community/publishes/${publish2.body.id}/discourse/comments`),
+      fixture.auth.token
+    ).send({ scope: 'episode', raw: '좋아요' });
+    const projectComments = await request(app).get(`/api/community/publishes/${fixture.publish.body.id}/discourse/comments?scope=project`);
+    const episode1Post = projectComments.body.posts.find(
+      (post: { source: string; episodeTitle?: string }) => post.source === 'episode' && post.episodeTitle === 'Product Episode'
+    );
+    const replyToEpisode1 = await withAuth(
+      request(app).post(`/api/community/publishes/${fixture.publish.body.id}/discourse/comments`),
+      fixture.auth.token
+    ).send({
+      scope: 'project',
+      topicId: episode1Post.topicId,
+      replyToPostNumber: episode1Post.postNumber,
+      raw: '첫화 인가요'
+    });
+    const forbiddenTopic = await withAuth(
+      request(app).post(`/api/community/publishes/${fixture.publish.body.id}/discourse/comments`),
+      fixture.auth.token
+    ).send({
+      scope: 'project',
+      topicId: '999999',
+      raw: '다른 프로젝트 topic'
+    });
+    const episodeComments = await request(app).get(`/api/community/publishes/${fixture.publish.body.id}/discourse/comments?scope=episode`);
+    const projectCommentsAfterReply = await request(app).get(
+      `/api/community/publishes/${fixture.publish.body.id}/discourse/comments?scope=project`
+    );
+    const interactionAfterReply = await withAuth(
+      request(app).get(`/api/community/publishes/${fixture.publish.body.id}/discourse/interaction`),
+      fixture.auth.token
+    );
+    const likePublish = await withAuth(
+      request(app).post(`/api/community/publishes/${fixture.publish.body.id}/discourse/like`),
+      fixture.auth.token
+    );
+    const unlikePublish = await withAuth(
+      request(app).delete(`/api/community/publishes/${fixture.publish.body.id}/discourse/like`),
+      fixture.auth.token
+    );
+
+    expect(publicProjectComments.status).toBe(200);
+    expect(publicProjectComments.body.posts).toEqual([]);
+    expect(unauthenticatedCreate.status).toBe(401);
+    expect(projectComment.status).toBe(201);
+    expect(projectComment.body.source).toBe('project');
+    expect(episode1Comment.status).toBe(201);
+    expect(episode1Comment.body.source).toBe('episode');
+    expect(episode2Comment.status).toBe(201);
+    expect(projectComments.status).toBe(200);
+    expect(projectComments.body.posts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: 'project', label: 'Product Flow Project 전체', cooked: '<p>DM 전체 댓글</p>' }),
+        expect.objectContaining({ source: 'episode', episodeTitle: 'Product Episode', cooked: '<p>재미있어요</p>' }),
+        expect.objectContaining({ source: 'episode', episodeTitle: 'Product Episode 2', cooked: '<p>좋아요</p>' })
+      ])
+    );
+    expect(replyToEpisode1.status).toBe(201);
+    expect(replyToEpisode1.body.source).toBe('episode');
+    expect(forbiddenTopic.status).toBe(403);
+    expect(episodeComments.body.posts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ cooked: '<p>재미있어요</p>' }),
+        expect.objectContaining({ cooked: '<p>첫화 인가요</p>', replyToPostNumber: episode1Post.postNumber })
+      ])
+    );
+    expect(projectCommentsAfterReply.body.commentCount).toBe(4);
+    expect(interactionAfterReply.status).toBe(200);
+    expect(interactionAfterReply.body).toEqual(
+      expect.objectContaining({
+        publishId: fixture.publish.body.id,
+        liked: false,
+        metrics: expect.objectContaining({
+          comments: 4,
+          likes: 0
+        })
+      })
+    );
+    expect(likePublish.status).toBe(200);
+    expect(likePublish.body).toEqual(
+      expect.objectContaining({
+        liked: true,
+        metrics: expect.objectContaining({
+          comments: 4,
+          likes: 1
+        }),
+        target: expect.objectContaining({
+          source: 'episode'
+        })
+      })
+    );
+    expect(unlikePublish.status).toBe(200);
+    expect(unlikePublish.body).toEqual(
+      expect.objectContaining({
+        liked: false,
+        metrics: expect.objectContaining({
+          comments: 4,
+          likes: 0
+        })
+      })
+    );
+  });
+
   it('tracks Studio uploaded asset metadata, replacement, and delete history', async () => {
     const auth = await registerUser();
     const project = await withAuth(request(app).post('/api/studio/projects'), auth.token).send({
@@ -1888,8 +2204,8 @@ maybeDescribe('promptoon api integration', () => {
       query<{ count: string }>('SELECT COUNT(*)::text AS count FROM promptoon_episode_discussion WHERE publish_id = $1', [
         fixture.publish.body.id
       ]),
-      query<{ id: string; slug: string }>('SELECT id::text AS id, slug FROM promptoon_channel WHERE project_id = $1', [
-        fixture.project.body.id
+      query<{ id: string; slug: string }>('SELECT id::text AS id, slug FROM promptoon_channel WHERE owner_user_id = $1 AND is_default = TRUE', [
+        fixture.auth.user.id
       ])
     ]);
 

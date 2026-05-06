@@ -54,6 +54,10 @@ function clampStageCount(value: number): number {
   return Math.min(12, Math.max(1, value));
 }
 
+function getDefaultGroupName(loopGroupCount: number): string {
+  return loopGroupCount > 0 ? `Exit Loop ${loopGroupCount + 1}` : 'Exit Loop';
+}
+
 function toNullableAssetUrl(value: string): string | null {
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
@@ -152,7 +156,7 @@ export const LoopStateSettingModal = memo(function LoopStateSettingModal({
     const canUseInitialAnchor =
       initialAttachAfterCutId !== null &&
       cuts.some((cut) => cut.id === initialAttachAfterCutId && cut.kind !== 'loopVariant' && cut.kind !== 'loopSpacer');
-    setGroupName('Exit Loop');
+    setGroupName(getDefaultGroupName(loopGroupCount));
     setStageCount(4);
     setExitLevelRequired(5);
     setAttachAfterCutId(canUseInitialAnchor ? initialAttachAfterCutId : '');
@@ -160,7 +164,7 @@ export const LoopStateSettingModal = memo(function LoopStateSettingModal({
     setRetryCutId('');
     setStageDrafts(createStageDrafts(4));
     setStatusMessage(null);
-  }, [cuts, initialAttachAfterCutId, isOpen]);
+  }, [cuts, initialAttachAfterCutId, isOpen, loopGroupCount]);
 
   useEffect(() => {
     setStageDrafts((current) => {

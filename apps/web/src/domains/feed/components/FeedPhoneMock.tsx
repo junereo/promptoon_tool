@@ -1,6 +1,15 @@
 import type { ReactNode } from 'react';
 
-import { Bell, Heart, Home, MessageCircle, Plus, Search, Send, User } from 'lucide-react';
+import {
+  Bell,
+  Heart01 as Heart,
+  House01 as Home,
+  ChatCircle as MessageCircle,
+  AddPlus as Plus,
+  SearchMagnifyingGlass as Search,
+  PaperPlane as Send,
+  User01 as User
+} from 'react-coolicons';
 
 import { PhoneFrame } from '../../../shared/ui/PhoneFrame';
 

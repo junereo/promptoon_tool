@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 
 import { db } from '../../db';
 import { env } from '../../lib/env';
@@ -6,16 +6,57 @@ import { HttpError } from '../../lib/http-error';
 import * as repository from '../promptoon-core/product.repository';
 import * as client from './discourse.client';
 
+const DISCOURSE_USERNAME_MAX_LENGTH = 20;
+
 function buildDiscourseUsername(userId: string): string {
-  return `promptoon_${userId.replace(/-/g, '').slice(0, 24)}`;
+  const hash = createHash('sha256').update(userId).digest('hex');
+  return `pt_${hash.slice(0, DISCOURSE_USERNAME_MAX_LENGTH - 3)}`;
 }
 
 function buildFallbackEmail(userId: string): string {
   return `promptoon_${userId.replace(/-/g, '')}@users.invalid`;
 }
 
+function isUsableDiscourseUsername(username: string | null | undefined): username is string {
+  return Boolean(
+    username &&
+      username.length <= DISCOURSE_USERNAME_MAX_LENGTH &&
+      /^[a-z0-9_]+$/i.test(username)
+  );
+}
+
 export function getDiscourseTopicUrl(topicId: string | number): string | null {
   return client.getDiscourseTopicUrl(topicId);
+}
+
+function getDiscourseAssetProxyUrl(path: string): string {
+  return `/api/community/discourse/assets?path=${encodeURIComponent(path)}`;
+}
+
+export function resolveDiscourseUrl(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  if (value.startsWith('//')) {
+    return `https:${value}`;
+  }
+  if (/^https?:\/\//i.test(value)) {
+    if (!env.discourse.baseUrl) {
+      return value;
+    }
+
+    const discourseBase = new URL(env.discourse.baseUrl);
+    const target = new URL(value);
+    if (target.origin === discourseBase.origin) {
+      return getDiscourseAssetProxyUrl(`${target.pathname}${target.search}`);
+    }
+
+    return value;
+  }
+  if (env.discourse.baseUrl && value.startsWith('/')) {
+    return getDiscourseAssetProxyUrl(value);
+  }
+  return value;
 }
 
 export function isDiscourseConfigured(): boolean {
@@ -28,7 +69,7 @@ export async function ensureDiscourseUserForUser(userId: string): Promise<string
     throw new HttpError(404, 'User not found.');
   }
 
-  if (user.discourseUsername) {
+  if (isUsableDiscourseUsername(user.discourseUsername)) {
     try {
       await client.getUser(user.discourseUsername);
       return user.discourseUsername;
@@ -39,13 +80,23 @@ export async function ensureDiscourseUserForUser(userId: string): Promise<string
     }
   }
 
-  const discourseUsername = user.discourseUsername ?? buildDiscourseUsername(user.id);
-  await client.createUser({
-    username: discourseUsername,
-    name: user.displayName ?? user.loginId ?? discourseUsername,
-    email: user.email ?? buildFallbackEmail(user.id),
-    password: randomBytes(24).toString('base64url')
-  });
+  const discourseUsername = buildDiscourseUsername(user.id);
+  try {
+    const created = await client.createUser({
+      username: discourseUsername,
+      name: user.displayName ?? user.loginId ?? discourseUsername,
+      email: user.email ?? buildFallbackEmail(user.id),
+      password: randomBytes(24).toString('base64url')
+    });
+    if (created.success === false) {
+      throw new HttpError(422, 'Discourse user creation failed.', created);
+    }
+  } catch (error) {
+    if (!(error instanceof HttpError) || (error.statusCode !== 400 && error.statusCode !== 422)) {
+      throw error;
+    }
+    await client.getUser(discourseUsername);
+  }
   await repository.updateUserDiscourseUsername(db, {
     userId: user.id,
     discourseUsername
@@ -66,22 +117,41 @@ export function getTopTopics(): Promise<unknown> {
   return client.getTopTopics();
 }
 
-export function getTopic(topicId: string): Promise<unknown> {
-  return client.getTopic(topicId);
+export async function getTopic(topicId: string, userId?: string): Promise<unknown> {
+  const discourseUsername = userId ? await ensureDiscourseUserForUser(userId) : undefined;
+  return client.getTopic(topicId, discourseUsername);
 }
 
-export async function createTopicForPublish(input: {
-  publishId: string;
+export async function getTopicForExistingUser(topicId: string, userId: string): Promise<unknown> {
+  const user = await repository.getUserCommunityIdentity(db, userId);
+  if (!isUsableDiscourseUsername(user?.discourseUsername)) {
+    return client.getTopic(topicId);
+  }
+
+  try {
+    return await client.getTopic(topicId, user.discourseUsername);
+  } catch (error) {
+    if (error instanceof HttpError && (error.statusCode === 403 || error.statusCode === 404)) {
+      return client.getTopic(topicId);
+    }
+    throw error;
+  }
+}
+
+export function getAsset(path: string): Promise<client.DiscourseAssetResponse> {
+  return client.getAsset(path);
+}
+
+export async function createTopic(input: {
   title: string;
   raw: string;
   userId: string;
 }): Promise<{ topicId: string; topicUrl: string | null; rawResponse: unknown }> {
-  const discourseUsername = await ensureDiscourseUserForUser(input.userId);
   const created = await client.createTopic({
     title: input.title,
     raw: input.raw,
     category: env.discourse.categoryId,
-    username: discourseUsername
+    username: env.discourse.apiUser
   });
   const topicId = String(created.topic_id ?? created.id ?? '');
   if (!topicId) {
@@ -93,6 +163,19 @@ export async function createTopicForPublish(input: {
     topicUrl: client.getDiscourseTopicUrl(topicId),
     rawResponse: created
   };
+}
+
+export async function createTopicForPublish(input: {
+  publishId: string;
+  title: string;
+  raw: string;
+  userId: string;
+}): Promise<{ topicId: string; topicUrl: string | null; rawResponse: unknown }> {
+  return createTopic({
+    title: input.title,
+    raw: input.raw,
+    userId: input.userId
+  });
 }
 
 export async function createComment(input: {
@@ -130,6 +213,14 @@ export async function deletePost(input: { postId: string; userId: string }): Pro
 export async function likePost(input: { postId: string; userId: string }): Promise<unknown> {
   const discourseUsername = await ensureDiscourseUserForUser(input.userId);
   return client.likePost({
+    postId: input.postId,
+    username: discourseUsername
+  });
+}
+
+export async function unlikePost(input: { postId: string; userId: string }): Promise<unknown> {
+  const discourseUsername = await ensureDiscourseUserForUser(input.userId);
+  return client.unlikePost({
     postId: input.postId,
     username: discourseUsername
   });

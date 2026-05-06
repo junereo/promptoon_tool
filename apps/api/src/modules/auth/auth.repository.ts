@@ -36,6 +36,8 @@ interface OAuthAccountRow {
   updated_at: Date;
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export interface AuthUserRecord extends AuthUser {
   passwordHash: string;
   email?: string | null;
@@ -93,6 +95,26 @@ export async function getUserByLoginId(
   return mapAuthUserRecord(row);
 }
 
+export async function resolveCurrentUserId(db: DbExecutor, userId: string): Promise<string> {
+  if (!UUID_PATTERN.test(userId)) {
+    return userId;
+  }
+
+  try {
+    const result = await db.query<{ new_ulid: string }>(
+      'SELECT new_ulid FROM promptoon_user_id_migration_map WHERE old_uuid = $1::uuid',
+      [userId]
+    );
+    return result.rows[0]?.new_ulid ?? userId;
+  } catch (error) {
+    if ((error as { code?: string }).code === '42P01') {
+      return userId;
+    }
+
+    throw error;
+  }
+}
+
 export async function createUser(
   db: DbExecutor,
   input: {
@@ -105,11 +127,10 @@ export async function createUser(
   }
 ): Promise<AuthUser> {
   const result = await db.query<UserRow>(
-    `INSERT INTO users (id, login_id, password_hash, email, display_name, profile_image_url, discourse_username)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `INSERT INTO users (login_id, password_hash, email, display_name, profile_image_url, discourse_username)
+     VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING *`,
     [
-      randomUUID(),
       input.loginId,
       input.passwordHash,
       input.email ?? null,
@@ -266,15 +287,15 @@ export async function upsertOAuthUser(db: DbExecutor, input: OAuthProfileInput):
   const loginId = `${input.provider}:${input.providerAccountId}`;
   const passwordHash = `OAUTH_LOGIN_DISABLED:${randomUUID()}`;
   const userResult = await db.query<UserRow>(
-    `INSERT INTO users (id, login_id, password_hash, email, display_name, profile_image_url)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO users (login_id, password_hash, email, display_name, profile_image_url)
+     VALUES ($1, $2, $3, $4, $5)
      ON CONFLICT (login_id) DO UPDATE
        SET email = COALESCE(EXCLUDED.email, users.email),
            display_name = COALESCE(EXCLUDED.display_name, users.display_name),
            profile_image_url = COALESCE(EXCLUDED.profile_image_url, users.profile_image_url),
            updated_at = NOW()
      RETURNING *`,
-    [randomUUID(), loginId, passwordHash, input.email ?? null, input.displayName ?? null, input.profileImageUrl ?? null]
+    [loginId, passwordHash, input.email ?? null, input.displayName ?? null, input.profileImageUrl ?? null]
   );
   const user = userResult.rows[0];
 

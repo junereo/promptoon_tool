@@ -37,6 +37,7 @@ Promptoon은 인터랙티브 에피소드 제작, 배포, 소비, 커뮤니티, 
 - DB-backed comment metadata/comment list/create/edit/delete/moderation을 제공합니다.
 - publish별 episode discussion projection을 만들 수 있습니다.
 - Discourse topic 생성, topic 조회, post 작성/수정/삭제, like/bookmark bridge endpoint가 있습니다.
+- Feed 댓글은 Project 전체 댓글과 현재 episode 댓글을 탭으로 분리하며, Discourse topic이 없으면 첫 작성 시 lazy 생성합니다.
 - Discourse sync 상태는 Admin 콘솔과 Studio community moderation 화면에서 확인합니다.
 
 ## 5. Studio 프로젝트 관리

@@ -20,6 +20,7 @@ import {
   resolveManifestLoopRenderableCut,
   resolveManifestStateRouterTargetCut,
   resolveManifestStateVariantCut,
+  sanitizePromptoonViewerStateForManifest,
   writePromptoonViewerState,
   type PromptoonViewerState
 } from '../shared/lib/promptoon-state-variants';
@@ -239,8 +240,9 @@ export function PromptoonViewerPage() {
       : null;
 
   useEffect(() => {
-    if (publishId && startCutId) {
-      const storedViewerState = readPromptoonViewerState(publishId);
+    if (publishId && startCutId && manifest) {
+      const storedViewerState = sanitizePromptoonViewerStateForManifest(readPromptoonViewerState(publishId), manifest);
+      writePromptoonViewerState(publishId, storedViewerState);
       if (feedEntryCutId) {
         const nextViewerState = feedEntryChoice
           ? applyChoiceStateWrites(storedViewerState, feedEntryChoice)
@@ -254,7 +256,7 @@ export function PromptoonViewerPage() {
       setViewerState(storedViewerState);
       initialize(publishId, startCutId);
     }
-  }, [feedEntryChoice, feedEntryCutId, initialize, initializeFromFeed, publishId, startCutId]);
+  }, [feedEntryChoice, feedEntryCutId, initialize, initializeFromFeed, manifest, publishId, startCutId]);
 
   useEffect(() => {
     setShareBannerDismissed(false);

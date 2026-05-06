@@ -1,4 +1,4 @@
-import { ArrowLeft, MessageSquare } from 'lucide-react';
+import { ArrowLeftLg as ArrowLeft, Chat as MessageSquare } from 'react-coolicons';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 

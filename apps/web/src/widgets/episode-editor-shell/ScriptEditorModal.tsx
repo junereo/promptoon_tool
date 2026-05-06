@@ -108,7 +108,7 @@ export function ScriptEditorModal({
       <section
         aria-labelledby="script-editor-title"
         aria-modal="true"
-        className="flex max-h-[92vh] w-full max-w-5xl flex-col rounded-[28px] border border-editor-border bg-editor-panel shadow-2xl shadow-black/50"
+        className="flex max-h-[92dvh] w-full max-w-5xl flex-col rounded-[28px] border border-editor-border bg-editor-panel shadow-2xl shadow-black/50"
         role="dialog"
       >
         <div className="flex flex-col gap-4 border-b border-editor-border px-6 py-5 lg:flex-row lg:items-start lg:justify-between">

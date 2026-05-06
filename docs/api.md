@@ -224,8 +224,16 @@ Content block type:
   - 인증 필요. Body: `{ status: "visible" | "hidden" | "deleted", reason? }`
 - `POST /api/community/publishes/:publishId/discourse-sync`
 - `POST /api/community/publishes/:publishId/discourse-topic`
+- `GET /api/community/publishes/:publishId/discourse/comments?scope=project|episode`
+  - 공개 조회. `project`는 같은 project의 전체 topic과 episode topic 댓글을 함께 반환합니다.
+- `GET /api/community/publishes/:publishId/discourse/interaction`
+  - 공개 조회. Discourse 기준 댓글 수와 episode topic 첫 post 좋아요 수를 반환합니다. 인증 cookie가 있으면 현재 사용자의 좋아요 상태도 함께 반환합니다.
+- `POST /api/community/publishes/:publishId/discourse/like`
+- `DELETE /api/community/publishes/:publishId/discourse/like`
+  - 인증 필요. 현재 feed episode의 Discourse topic을 lazy 생성하고, 첫 post에 좋아요/좋아요 취소를 적용합니다.
 - `POST /api/community/publishes/:publishId/discourse/comments`
-  - 인증 필요. Body: `{ raw, replyToPostNumber? }`
+  - 인증 필요. Body: `{ scope: "project" | "episode", raw, topicId?, replyToPostNumber? }`
+  - topic이 아직 없으면 `project` 또는 현재 episode topic을 lazy 생성합니다.
 - `GET /api/community/discourse/categories`
 - `GET /api/community/discourse/latest`
 - `GET /api/community/discourse/top`

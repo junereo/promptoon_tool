@@ -6,7 +6,6 @@ import { useAuthStore } from '../src/features/auth/store/use-auth-store';
 beforeEach(() => {
   window.localStorage.clear();
   useAuthStore.setState({
-    token: 'token-1',
     user: { id: 'user-1', loginId: 'creator001' },
     session: {
       id: 'session-1',
@@ -40,6 +39,8 @@ describe('handleUnauthorizedResponse', () => {
     expect(useAuthStore.getState().isAuthenticated).toBe(true);
     expect(useAuthStore.getState().sessionStatus).toBe('idle');
     expect(useAuthStore.getState().studioRole).toBeNull();
+    expect(window.localStorage.getItem('promptoon_auth')).toBeNull();
+    expect(window.localStorage.getItem('promptoon_auth_session')).toBe('1');
   });
 
   it('clears the auth session and redirects to login from protected screens', () => {
@@ -48,9 +49,10 @@ describe('handleUnauthorizedResponse', () => {
 
     handleUnauthorizedResponse(redirect);
 
-    expect(useAuthStore.getState().token).toBeNull();
     expect(useAuthStore.getState().session).toBeNull();
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
+    expect(window.localStorage.getItem('promptoon_auth')).toBeNull();
+    expect(window.localStorage.getItem('promptoon_auth_session')).toBeNull();
     expect(redirect).toHaveBeenCalledWith('/login');
   });
 
@@ -60,7 +62,8 @@ describe('handleUnauthorizedResponse', () => {
 
     handleUnauthorizedResponse(redirect);
 
-    expect(useAuthStore.getState().token).toBeNull();
+    expect(window.localStorage.getItem('promptoon_auth')).toBeNull();
+    expect(window.localStorage.getItem('promptoon_auth_session')).toBeNull();
     expect(redirect).not.toHaveBeenCalled();
   });
 });

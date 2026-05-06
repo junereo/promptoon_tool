@@ -1,4 +1,4 @@
-import { ArrowLeft, BarChart3 } from 'lucide-react';
+import { ArrowLeftLg as ArrowLeft, ChartBarVertical01 as BarChart3 } from 'react-coolicons';
 import { Link, useParams } from 'react-router-dom';
 
 import { useProjectAnalytics } from '../../../features/analytics/hooks/use-project-analytics';

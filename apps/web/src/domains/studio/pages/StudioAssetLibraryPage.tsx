@@ -1,4 +1,4 @@
-import { ArrowLeft, ImageIcon } from 'lucide-react';
+import { ArrowLeftLg as ArrowLeft, Image01 as ImageIcon } from 'react-coolicons';
 import { Link, useParams } from 'react-router-dom';
 import type { ProjectAssetSource } from '@promptoon/shared';
 

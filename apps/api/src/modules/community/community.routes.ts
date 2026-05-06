@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 
 import { asyncHandler } from '../../lib/async-handler';
-import { getRequiredAuthUser, requireAuth } from '../../lib/auth';
+import { getOptionalAuthUser, getRequiredAuthUser, optionalAuth, requireAuth } from '../../lib/auth';
 import { HttpError } from '../../lib/http-error';
 import * as service from './community.service';
 
@@ -23,7 +23,9 @@ const discourseThreadSyncSchema = z.object({
 });
 
 const discourseCommentSchema = z.object({
+  scope: z.enum(['project', 'episode']).default('episode'),
   raw: z.string().trim().min(1).max(20000),
+  topicId: z.string().trim().min(1).nullable().optional(),
   replyToPostNumber: z.number().int().positive().nullable().optional()
 });
 
@@ -92,11 +94,48 @@ export function createCommunityRouter(): Router {
     );
   }));
 
+  router.get('/publishes/:publishId/discourse/comments', asyncHandler(async (request, response) => {
+    const scope = request.query.scope === 'episode' ? 'episode' : 'project';
+    response.json(await service.listDiscourseComments(getParam(request.params.publishId, 'publishId'), scope));
+  }));
+
+  router.get('/publishes/:publishId/discourse/interaction', optionalAuth, asyncHandler(async (request, response) => {
+    response.json(
+      await service.getDiscourseInteraction(
+        getParam(request.params.publishId, 'publishId'),
+        getOptionalAuthUser(request)?.sub ?? null
+      )
+    );
+  }));
+
+  router.post('/publishes/:publishId/discourse/like', requireAuth, asyncHandler(async (request, response) => {
+    response.json(
+      await service.likeDiscoursePublish(getParam(request.params.publishId, 'publishId'), getRequiredAuthUser(request).sub)
+    );
+  }));
+
+  router.delete('/publishes/:publishId/discourse/like', requireAuth, asyncHandler(async (request, response) => {
+    response.json(
+      await service.unlikeDiscoursePublish(getParam(request.params.publishId, 'publishId'), getRequiredAuthUser(request).sub)
+    );
+  }));
+
   router.post('/publishes/:publishId/discourse/comments', requireAuth, asyncHandler(async (request, response) => {
     const body = discourseCommentSchema.parse(request.body);
     response.status(201).json(
       await service.createDiscourseComment(getParam(request.params.publishId, 'publishId'), body, getRequiredAuthUser(request).sub)
     );
+  }));
+
+  router.get('/discourse/assets', asyncHandler(async (request, response) => {
+    if (typeof request.query.path !== 'string') {
+      throw new HttpError(400, 'Missing Discourse asset path.');
+    }
+
+    const asset = await service.getDiscourseAsset(request.query.path);
+    response.setHeader('Content-Type', asset.contentType);
+    response.setHeader('Cache-Control', asset.cacheControl ?? 'public, max-age=86400');
+    response.send(asset.body);
   }));
 
   router.get('/discourse/categories', asyncHandler(async (_request, response) => {

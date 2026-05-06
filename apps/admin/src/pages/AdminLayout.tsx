@@ -1,4 +1,12 @@
-import { BarChart3, FileText, Home, LogOut, MessageSquare, Rocket, Users } from 'lucide-react';
+import {
+  ChartBarVertical01 as BarChart3,
+  FileDocument as FileText,
+  House01 as Home,
+  LogOut,
+  Chat as MessageSquare,
+  PaperPlane as Rocket,
+  Users
+} from 'react-coolicons';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 
 import { queryClient } from '../app/query-client';

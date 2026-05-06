@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-import { BookOpen, Gem, Link2, Play, Target, Users } from 'lucide-react';
+import { BookOpen, Star as Gem, Link as Link2, Play, Compass as Target, Users } from 'react-coolicons';
 
 import { ChannelPhoneMock } from '../domains/channel/components/ChannelPhoneMock';
 import { FeedPhoneMock } from '../domains/feed/components/FeedPhoneMock';

@@ -5,6 +5,8 @@ import { useRegister } from '../features/auth/hooks/use-auth-query';
 import { useAuthStore } from '../features/auth/store/use-auth-store';
 import { ApiError } from '../shared/api/client';
 
+const POST_REGISTER_REDIRECT_PATH = '/feed';
+
 function getValidationError(loginId: string, password: string): string | null {
   if (loginId.trim().length < 8) {
     return '아이디는 최소 8자 이상이어야 합니다.';
@@ -39,7 +41,7 @@ export function RegisterPage() {
   }
 
   if (hasHydrated && isAuthenticated) {
-    return <Navigate replace to="/promptoon/projects" />;
+    return <Navigate replace to={POST_REGISTER_REDIRECT_PATH} />;
   }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -58,7 +60,7 @@ export function RegisterPage() {
       });
 
       login(response);
-      navigate('/promptoon/projects', { replace: true });
+      navigate(POST_REGISTER_REDIRECT_PATH, { replace: true });
     } catch (error) {
       setErrorMessage(error instanceof ApiError ? error.message : '회원가입에 실패했습니다.');
     }

@@ -17,6 +17,7 @@ import sharp from 'sharp';
 import { db, withTransaction } from '../../db';
 import { HttpError } from '../../lib/http-error';
 import { resolveFromApiRoot, resolveFromWorkspaceRoot } from '../../lib/workspace-paths';
+import * as productRepository from '../promptoon-core/product.repository';
 import * as accessRepository from './access.repository';
 import * as assetRepository from './asset.repository';
 import * as authorizationService from './authorization.service';
@@ -241,6 +242,7 @@ export async function createProject(request: CreateProjectRequest, userId: strin
         userId,
         role: 'owner'
       });
+      await productRepository.ensureDefaultChannelForProject(client, project, userId);
       return project;
     });
   } catch (error) {

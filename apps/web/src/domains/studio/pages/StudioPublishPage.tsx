@@ -1,4 +1,4 @@
-import { ArrowLeft, Eye, Rocket, RotateCcw } from 'lucide-react';
+import { ArrowLeftLg as ArrowLeft, Show as Eye, PaperPlane as Rocket, ArrowsReload01 as RotateCcw } from 'react-coolicons';
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 

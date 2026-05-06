@@ -2,6 +2,7 @@ import { Suspense, lazy, useState } from 'react';
 import { Link, Navigate, Outlet, createBrowserRouter, useNavigate } from 'react-router-dom';
 
 import { ChannelHomePage } from '../domains/channel/pages/ChannelHomePage';
+import { ChannelPage } from '../domains/channel/pages/ChannelPage';
 import { CommunityDiscussionPage } from '../domains/community/pages/CommunityDiscussionPage';
 import { FeedHomePage } from '../domains/feed/pages/FeedHomePage';
 import { StudioAssetLibraryPage } from '../domains/studio/pages/StudioAssetLibraryPage';
@@ -118,6 +119,10 @@ export const router: AppRouter = createBrowserRouter([
   {
     path: '/feed',
     element: <FeedHomePage />
+  },
+  {
+    path: '/channel/:channelId',
+    element: <ChannelPage />
   },
   {
     path: '/overview',

@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAuthStore } from '../src/features/auth/store/use-auth-store';
 import { useViewerStore } from '../src/features/viewer/store/use-viewer-store';
 import { PromptoonViewerPage } from '../src/pages/promptoon-viewer-page';
+import { readPromptoonViewerState } from '../src/shared/lib/promptoon-state-variants';
 
 let publishedEpisode: Publish;
 const sendBeaconMock = vi.fn(() => true);
@@ -115,7 +116,6 @@ beforeEach(() => {
     isChromeVisible: true
   });
   useAuthStore.setState({
-    token: null,
     user: null,
     session: null,
     isAuthenticated: false,
@@ -277,7 +277,6 @@ describe('PromptoonViewerPage', () => {
 
   it('keeps rendering the episode when authenticated interaction state fails', async () => {
     useAuthStore.setState({
-      token: 'token-1',
       user: { id: 'user-1', loginId: 'viewer0001' },
       session: null,
       isAuthenticated: true,
@@ -486,7 +485,7 @@ describe('PromptoonViewerPage', () => {
     expect(screen.queryByText('공통 기본 연출입니다.')).toBeNull();
     expect(await screen.findByText('공통 엔딩입니다.')).toBeTruthy();
     expect(screen.queryByRole('button', { name: '공통 다음' })).toBeNull();
-    expect(JSON.parse(window.localStorage.getItem('promptoon:viewer-state:publish-1') ?? '{}')).toEqual({
+    expect(readPromptoonViewerState('publish-1')).toEqual({
       first_route: 'A'
     });
 

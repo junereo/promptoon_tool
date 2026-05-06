@@ -66,3 +66,75 @@ export interface DiscourseThreadSyncResponse {
   lastSyncedAt?: string | null;
   payload?: Record<string, unknown>;
 }
+
+export type CommunityDiscourseScope = 'project' | 'episode';
+
+export type CommunityDiscoursePostSource = 'project' | 'episode';
+
+export interface CommunityDiscourseTopicSummary {
+  topicId: string;
+  source: CommunityDiscoursePostSource;
+  title: string;
+  label: string;
+  publishId?: string | null;
+  episodeId?: string | null;
+  episodeTitle?: string | null;
+}
+
+export interface CommunityDiscoursePost {
+  id: string;
+  topicId: string;
+  postNumber: number;
+  replyToPostNumber?: number | null;
+  source: CommunityDiscoursePostSource;
+  label: string;
+  publishId?: string | null;
+  episodeId?: string | null;
+  episodeTitle?: string | null;
+  username: string;
+  displayName?: string | null;
+  avatarUrl?: string | null;
+  cooked: string;
+  createdAt: string;
+  updatedAt?: string | null;
+  likeCount: number;
+  replyCount: number;
+}
+
+export interface CommunityDiscourseCommentsResponse {
+  publishId: string;
+  projectId: string;
+  scope: CommunityDiscourseScope;
+  title: string;
+  commentCount: number;
+  topics: CommunityDiscourseTopicSummary[];
+  posts: CommunityDiscoursePost[];
+}
+
+export interface CommunityDiscourseInteractionTarget {
+  source: CommunityDiscoursePostSource;
+  topicId: string;
+  postId: string;
+  postNumber: number;
+}
+
+export interface CommunityDiscourseInteractionResponse {
+  publishId: string;
+  projectId: string;
+  liked: boolean;
+  metrics: import('./feed').FeedItemMetrics;
+  target: CommunityDiscourseInteractionTarget | null;
+}
+
+export interface CreateCommunityDiscourseCommentRequest {
+  scope?: CommunityDiscourseScope;
+  raw: string;
+  topicId?: string | null;
+  replyToPostNumber?: number | null;
+}
+
+export interface CreateCommunityDiscourseCommentResponse {
+  topicId: string;
+  source: CommunityDiscoursePostSource;
+  rawResponse: unknown;
+}
