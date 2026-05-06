@@ -12,6 +12,7 @@ import { db, withTransaction } from '../../db';
 import { HttpError } from '../../lib/http-error';
 import * as projectionService from '../promptoon-core/projection.service';
 import * as repository from '../promptoon-core/product.repository';
+import * as discourseService from './discourse.service';
 
 function assertExists<T>(value: T | null, message: string): T {
   if (!value) {
@@ -77,10 +78,20 @@ export async function getCommunityEmbed(publishId: string): Promise<CommunityEmb
     repository.getDiscourseThreadSync(db, publishId)
   ]);
 
+  const discourseTopicId = threadSync?.status === 'synced' ? threadSync.discourseTopicId : null;
+  const discourseUrl = discourseTopicId ? discourseService.getDiscourseTopicUrl(discourseTopicId) : null;
+
   return {
     ...meta,
-    provider: threadSync?.status === 'synced' ? 'discourse' : 'promptoon',
-    title: `${publish.manifest.episode.title} 댓글`
+    provider: discourseTopicId ? 'discourse' : 'promptoon',
+    title: `${publish.manifest.episode.title} 댓글`,
+    ...(discourseTopicId
+      ? {
+          discourseTopicId,
+          embedUrl: discourseUrl ?? meta.embedUrl ?? meta.discussionUrl ?? null,
+          discussionUrl: discourseUrl ?? meta.discussionUrl ?? null
+        }
+      : {})
   };
 }
 
@@ -175,11 +186,16 @@ export async function syncDiscourseThread(
   input: {
     discourseTopicId?: string | null;
     status: CommunityThreadSyncStatus;
+    createTopic?: boolean;
     payload?: Record<string, unknown>;
   },
   userId: string
 ): Promise<DiscourseThreadSyncResponse> {
   await ensurePublishModeratableByUser(publishId, userId);
+  if (input.createTopic && !input.discourseTopicId) {
+    return createDiscourseThreadForPublish(publishId, userId);
+  }
+
   const response = await repository.upsertDiscourseThreadSync(db, {
     publishId,
     discourseTopicId: input.discourseTopicId,
@@ -196,6 +212,101 @@ export async function syncDiscourseThread(
     }
   });
   return response;
+}
+
+export async function createDiscourseThreadForPublish(publishId: string, userId: string): Promise<DiscourseThreadSyncResponse> {
+  await ensurePublishModeratableByUser(publishId, userId);
+  const publish = await projectionService.getPublishedEpisode(publishId);
+  const title = `${publish.manifest.project.title} - ${publish.manifest.episode.title}`;
+  const topic = await discourseService.createTopicForPublish({
+    publishId,
+    title,
+    userId,
+    raw: [
+      `Promptoon episode discussion for **${publish.manifest.episode.title}**.`,
+      '',
+      `Viewer: /v/${publish.id}`,
+      `Community: /community/publishes/${publish.id}`
+    ].join('\n')
+  });
+
+  const response = await repository.upsertDiscourseThreadSync(db, {
+    publishId,
+    discourseTopicId: topic.topicId,
+    status: 'synced',
+    payload: {
+      topicUrl: topic.topicUrl,
+      rawResponse: topic.rawResponse
+    }
+  });
+
+  await repository.insertTelemetryEvent(db, {
+    eventName: 'community_discourse_topic_created',
+    userId,
+    projectId: publish.projectId,
+    episodeId: publish.episodeId,
+    publishId,
+    payload: {
+      discourseTopicId: topic.topicId,
+      topicUrl: topic.topicUrl
+    }
+  });
+
+  return response;
+}
+
+export async function getDiscourseTopic(topicId: string): Promise<unknown> {
+  return discourseService.getTopic(topicId);
+}
+
+export async function getDiscourseCategories(): Promise<unknown> {
+  return discourseService.getCategories();
+}
+
+export async function getDiscourseLatestTopics(): Promise<unknown> {
+  return discourseService.getLatestTopics();
+}
+
+export async function getDiscourseTopTopics(): Promise<unknown> {
+  return discourseService.getTopTopics();
+}
+
+export async function createDiscourseComment(
+  publishId: string,
+  input: {
+    raw: string;
+    replyToPostNumber?: number | null;
+  },
+  userId: string
+): Promise<unknown> {
+  assertExists(await repository.getPublishById(db, publishId), 'Published episode not found.');
+  const threadSync = assertExists(await repository.getDiscourseThreadSync(db, publishId), 'Discourse thread is not synced.');
+  if (threadSync.status !== 'synced' || !threadSync.discourseTopicId) {
+    throw new HttpError(409, 'Discourse thread is not synced.');
+  }
+
+  return discourseService.createComment({
+    topicId: threadSync.discourseTopicId,
+    raw: input.raw,
+    userId,
+    replyToPostNumber: input.replyToPostNumber
+  });
+}
+
+export function updateDiscoursePost(postId: string, raw: string, userId: string): Promise<unknown> {
+  return discourseService.updatePost({ postId, raw, userId });
+}
+
+export function deleteDiscoursePost(postId: string, userId: string): Promise<unknown> {
+  return discourseService.deletePost({ postId, userId });
+}
+
+export function likeDiscoursePost(postId: string, userId: string): Promise<unknown> {
+  return discourseService.likePost({ postId, userId });
+}
+
+export function bookmarkDiscoursePost(postId: string, userId: string): Promise<unknown> {
+  return discourseService.bookmarkPost({ postId, userId });
 }
 
 export async function trackTelemetryEvent(payload: TelemetryEventPayload): Promise<void> {

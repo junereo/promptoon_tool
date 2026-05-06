@@ -1,7 +1,7 @@
 import type { Request, RequestHandler } from 'express';
 
 import { HttpError } from './http-error';
-import { verifyAccessToken, type AuthTokenPayload } from '../modules/auth/auth.service';
+import { authCookieNames, verifyAccessToken, type AuthTokenPayload } from '../modules/auth/auth.service';
 
 interface AuthenticatedRequest extends Request {
   user?: {
@@ -13,12 +13,24 @@ interface AuthenticatedRequest extends Request {
 
 function parseBearerToken(request: Request): string | null {
   const authorization = request.header('authorization');
-  if (!authorization) {
+  const match = authorization?.match(/^Bearer\s+(.+)$/i);
+  if (match?.[1]) {
+    return match[1];
+  }
+
+  const cookieHeader = request.header('cookie');
+  if (!cookieHeader) {
     return null;
   }
 
-  const match = authorization.match(/^Bearer\s+(.+)$/i);
-  return match?.[1] ?? null;
+  for (const entry of cookieHeader.split(';')) {
+    const [rawKey, ...rawValue] = entry.trim().split('=');
+    if (rawKey === authCookieNames.access) {
+      return decodeURIComponent(rawValue.join('='));
+    }
+  }
+
+  return null;
 }
 
 export const requireAuth: RequestHandler = async (request, _response, next) => {

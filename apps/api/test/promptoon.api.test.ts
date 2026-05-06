@@ -229,6 +229,7 @@ maybeDescribe('promptoon api integration', () => {
     await query('DELETE FROM promptoon_episode');
     await query('DELETE FROM promptoon_project');
     await query('DELETE FROM promptoon_project_member');
+    await query('DELETE FROM promptoon_platform_admin');
     await query('DELETE FROM promptoon_studio_member');
     await query('DELETE FROM promptoon_session');
     await query('DELETE FROM promptoon_oauth_account');
@@ -248,6 +249,8 @@ maybeDescribe('promptoon api integration', () => {
     expect(response.status).toBe(201);
     expect(response.body.user.loginId).toBe(loginId);
     expect(response.body.token).toEqual(expect.any(String));
+    expect(response.body.refreshToken).toEqual(expect.any(String));
+    expect(response.body.session.id).toEqual(expect.any(String));
 
     const result = await query<{ login_id: string; password_hash: string }>('SELECT login_id, password_hash FROM users WHERE login_id = $1', [
       loginId
@@ -280,10 +283,11 @@ maybeDescribe('promptoon api integration', () => {
     expect(success.status).toBe(200);
     expect(success.body.user.loginId).toBe(loginId);
     expect(success.body.token).toEqual(expect.any(String));
+    expect(success.body.refreshToken).toEqual(expect.any(String));
     expect(failure.status).toBe(401);
   });
 
-  it('supports root auth me/logout routes, studio membership bootstrap, and oauth scaffold responses', async () => {
+  it('supports root auth me/logout routes without automatic Studio membership and oauth scaffold responses', async () => {
     const loginId = `root-auth-${randomUUID()}`;
     const register = await request(app)
       .post('/api/auth/register')
@@ -298,7 +302,7 @@ maybeDescribe('promptoon api integration', () => {
     const me = await withAuth(request(app).get('/api/auth/me'), register.body.token);
     expect(me.status).toBe(200);
     expect(me.body.user.loginId).toBe(loginId);
-    expect(me.body.studioRole).toBe('studio_admin');
+    expect(me.body.studioRole).toBeNull();
     expect(me.body.session.id).toEqual(expect.any(String));
 
     const member = await query<{ role: string }>('SELECT role FROM promptoon_studio_member WHERE user_id = $1', [
@@ -307,7 +311,7 @@ maybeDescribe('promptoon api integration', () => {
     const sessionsBeforeLogout = await query<{ count: string }>('SELECT COUNT(*)::text AS count FROM promptoon_session WHERE user_id = $1', [
       register.body.user.id
     ]);
-    expect(member.rows[0].role).toBe('studio_admin');
+    expect(member.rowCount).toBe(0);
     expect(Number(sessionsBeforeLogout.rows[0].count)).toBeGreaterThan(0);
 
     const logout = await withAuth(request(app).post('/api/auth/logout'), register.body.token);
@@ -326,6 +330,103 @@ maybeDescribe('promptoon api integration', () => {
     const oauthStart = await request(app).get('/api/auth/google/start');
     expect(oauthStart.status).toBe(501);
     expect(oauthStart.body.error).toContain('Google OAuth is scaffolded');
+
+    const kakaoStart = await request(app).get('/api/auth/kakao/start');
+    expect(kakaoStart.status).toBe(503);
+    expect(kakaoStart.body.error).toContain('Kakao OAuth is not configured');
+  });
+
+  it('protects platform admin routes and lets platform admins manage Studio roles', async () => {
+    const previousBootstrapLoginIds = process.env.PROMPTOON_PLATFORM_ADMIN_LOGIN_IDS;
+    const regular = await registerUser(`regular-${randomUUID()}`);
+    const admin = await registerUser(`platform-${randomUUID()}`);
+
+    try {
+      const denied = await withAuth(request(app).get('/api/admin/me'), regular.token);
+      expect(denied.status).toBe(403);
+
+      process.env.PROMPTOON_PLATFORM_ADMIN_LOGIN_IDS = admin.user.loginId;
+
+      const adminMe = await withAuth(request(app).get('/api/admin/me'), admin.token);
+      expect(adminMe.status).toBe(200);
+      expect(adminMe.body.platformRole).toBe('platform_admin');
+      expect(adminMe.body.studioRole).toBeNull();
+
+      const platformAdminRow = await query<{ role: string }>('SELECT role FROM promptoon_platform_admin WHERE user_id = $1', [
+        admin.user.id
+      ]);
+      expect(platformAdminRow.rows[0]?.role).toBe('platform_admin');
+
+      const users = await withAuth(request(app).get('/api/admin/users').query({ query: regular.user.loginId }), admin.token);
+      expect(users.status).toBe(200);
+      expect(users.body.users).toEqual([
+        expect.objectContaining({
+          userId: regular.user.id,
+          studioRole: null,
+          platformRole: null
+        })
+      ]);
+
+      const grantStudio = await withAuth(request(app).patch(`/api/admin/users/${regular.user.id}/studio-role`), admin.token).send({
+        role: 'producer'
+      });
+      expect(grantStudio.status).toBe(200);
+      expect(grantStudio.body.studioRole).toBe('producer');
+
+      const regularMe = await withAuth(request(app).get('/api/auth/me'), regular.token);
+      expect(regularMe.status).toBe(200);
+      expect(regularMe.body.studioRole).toBe('producer');
+
+      const revokeStudio = await withAuth(request(app).patch(`/api/admin/users/${regular.user.id}/studio-role`), admin.token).send({
+        role: null
+      });
+      expect(revokeStudio.status).toBe(200);
+      expect(revokeStudio.body.studioRole).toBeNull();
+
+      process.env.PROMPTOON_PLATFORM_ADMIN_LOGIN_IDS = '';
+      const selfRevoke = await withAuth(request(app).patch(`/api/admin/users/${admin.user.id}/platform-role`), admin.token).send({
+        role: null
+      });
+      expect(selfRevoke.status).toBe(400);
+      expect(selfRevoke.body.error).toContain('At least one platform admin');
+    } finally {
+      if (previousBootstrapLoginIds === undefined) {
+        delete process.env.PROMPTOON_PLATFORM_ADMIN_LOGIN_IDS;
+      } else {
+        process.env.PROMPTOON_PLATFORM_ADMIN_LOGIN_IDS = previousBootstrapLoginIds;
+      }
+    }
+  });
+
+  it('rotates refresh tokens and rejects reused refresh sessions', async () => {
+    const loginId = `refresh-${randomUUID()}`;
+    const register = await request(app)
+      .post('/api/auth/register')
+      .send({ loginId, password: PASSWORD });
+
+    expect(register.status).toBe(201);
+    expect(register.body.refreshToken).toEqual(expect.any(String));
+
+    const rotated = await request(app)
+      .post('/api/auth/refresh')
+      .send({ refreshToken: register.body.refreshToken });
+    expect(rotated.status).toBe(200);
+    expect(rotated.body.token).toEqual(expect.any(String));
+    expect(rotated.body.refreshToken).toEqual(expect.any(String));
+    expect(rotated.body.session.id).not.toBe(register.body.session.id);
+
+    const oldAccessTokenMe = await withAuth(request(app).get('/api/auth/me'), register.body.token);
+    const newAccessTokenMe = await withAuth(request(app).get('/api/auth/me'), rotated.body.token);
+    expect(oldAccessTokenMe.status).toBe(401);
+    expect(newAccessTokenMe.status).toBe(200);
+
+    const reused = await request(app)
+      .post('/api/auth/refresh')
+      .send({ refreshToken: register.body.refreshToken });
+    expect(reused.status).toBe(401);
+
+    const afterReuse = await withAuth(request(app).get('/api/auth/me'), rotated.body.token);
+    expect(afterReuse.status).toBe(401);
   });
 
   it('rejects deleted and expired auth sessions', async () => {
@@ -1752,6 +1853,12 @@ maybeDescribe('promptoon api integration', () => {
   it('rebuilds public projections for existing publishes and preserves legacy reads', async () => {
     const fixture = await createFeedReadyPublishedEpisodeFixture();
 
+    await query(
+      `INSERT INTO promptoon_studio_member (user_id, role)
+       VALUES ($1, 'studio_admin')
+       ON CONFLICT (user_id) DO UPDATE SET role = EXCLUDED.role`,
+      [fixture.auth.user.id]
+    );
     await query('DELETE FROM promptoon_channel_home_projection');
     await query('DELETE FROM promptoon_feed_item');
     await query('DELETE FROM promptoon_episode_discussion');
@@ -1808,7 +1915,12 @@ maybeDescribe('promptoon api integration', () => {
 
   it('requires studio admin role for projection rebuild', async () => {
     const auth = await registerUser();
-    await query("UPDATE promptoon_studio_member SET role = 'viewer' WHERE user_id = $1", [auth.user.id]);
+    await query(
+      `INSERT INTO promptoon_studio_member (user_id, role)
+       VALUES ($1, 'viewer')
+       ON CONFLICT (user_id) DO UPDATE SET role = EXCLUDED.role`,
+      [auth.user.id]
+    );
 
     const rebuild = await withAuth(request(app).post('/api/studio/projections/rebuild'), auth.token);
 

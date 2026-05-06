@@ -13,6 +13,21 @@ export const communityApi = {
     return data;
   },
 
+  async createDiscourseThread(publishId: string): Promise<unknown> {
+    const { data } = await rootApiClient.post(`/community/publishes/${publishId}/discourse-topic`);
+    return data;
+  },
+
+  async getDiscourseTopic(topicId: string): Promise<unknown> {
+    const { data } = await publicRootApiClient.get(`/community/discourse/t/${topicId}`);
+    return data;
+  },
+
+  async createDiscourseComment(publishId: string, raw: string): Promise<unknown> {
+    const { data } = await rootApiClient.post(`/community/publishes/${publishId}/discourse/comments`, { raw });
+    return data;
+  },
+
   async createEpisodeDiscussion(episodeId: string): Promise<void> {
     await rootApiClient.post(`/community/episodes/${episodeId}/discussion`);
   }

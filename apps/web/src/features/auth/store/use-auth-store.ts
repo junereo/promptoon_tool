@@ -33,11 +33,11 @@ export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
       ...initialState,
-      login: ({ token, user }) =>
+      login: ({ token, user, session }) =>
         set({
           token,
           user,
-          session: null,
+          session: session ?? null,
           studioRole: null,
           isAuthenticated: true,
           sessionStatus: 'idle'

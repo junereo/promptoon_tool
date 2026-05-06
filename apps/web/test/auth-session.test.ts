@@ -25,6 +25,23 @@ afterEach(() => {
 });
 
 describe('handleUnauthorizedResponse', () => {
+  it('marks a fresh login for session validation so Studio role is loaded before protected routes render', () => {
+    useAuthStore.getState().login({
+      token: 'fresh-token',
+      user: { id: 'user-2', loginId: 'creator002' },
+      session: {
+        id: 'session-2',
+        userId: 'user-2',
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 3600).toISOString()
+      }
+    });
+
+    expect(useAuthStore.getState().isAuthenticated).toBe(true);
+    expect(useAuthStore.getState().sessionStatus).toBe('idle');
+    expect(useAuthStore.getState().studioRole).toBeNull();
+  });
+
   it('clears the auth session and redirects to login from protected screens', () => {
     window.history.pushState({}, '', '/promptoon/projects');
     const redirect = vi.fn();

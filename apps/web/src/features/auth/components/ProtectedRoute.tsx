@@ -14,6 +14,8 @@ function AuthLoadingScreen() {
 }
 
 function StudioAccessDeniedScreen() {
+  const adminAppUrl = import.meta.env.VITE_ADMIN_APP_URL || 'http://127.0.0.1:5174';
+
   return (
     <main className="flex min-h-screen items-center justify-center px-6">
       <div className="w-full max-w-md rounded-[28px] border border-editor-border bg-editor-panel/85 p-8 text-center shadow-2xl shadow-black/30">
@@ -21,9 +23,17 @@ function StudioAccessDeniedScreen() {
         <p className="mt-3 text-sm leading-6 text-zinc-400">
           프로젝트 제작, 발행, 분석 관리는 Studio 멤버 권한이 있는 계정으로만 접근할 수 있습니다.
         </p>
-        <Link className="mt-6 inline-flex rounded-full border border-editor-border px-4 py-2 text-sm text-zinc-200 transition hover:border-zinc-500" to="/">
-          피드로 이동
-        </Link>
+        <div className="mt-6 flex flex-wrap justify-center gap-3">
+          <a
+            className="inline-flex rounded-full border border-editor-accentSoft bg-editor-accent/20 px-4 py-2 text-sm text-zinc-100 transition hover:border-zinc-300"
+            href={adminAppUrl}
+          >
+            관리자 콘솔
+          </a>
+          <Link className="inline-flex rounded-full border border-editor-border px-4 py-2 text-sm text-zinc-200 transition hover:border-zinc-500" to="/">
+            피드로 이동
+          </Link>
+        </div>
       </div>
     </main>
   );

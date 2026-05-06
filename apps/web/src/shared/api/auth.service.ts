@@ -9,5 +9,13 @@ export const authService = {
 
   async register(payload: RegisterRequest): Promise<AuthResponse> {
     return authApi.register(payload);
+  },
+
+  async refresh(): Promise<AuthResponse> {
+    return authApi.refresh();
+  },
+
+  async getKakaoAuthorizationUrl(): Promise<string> {
+    return authApi.getKakaoAuthorizationUrl();
   }
 };

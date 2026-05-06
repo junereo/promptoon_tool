@@ -49,6 +49,12 @@ export function StudioCommunityModerationPage() {
           </Link>
           <p className="mt-4 text-xs uppercase tracking-[0.2em] text-zinc-500">Provider</p>
           <p className="mt-2 text-sm text-zinc-300">{embed.provider}</p>
+          {embed.provider === 'discourse' && embed.discourseTopicId ? (
+            <>
+              <p className="mt-4 text-xs uppercase tracking-[0.2em] text-zinc-500">Discourse Topic</p>
+              <p className="mt-2 text-sm text-zinc-300">{embed.discourseTopicId}</p>
+            </>
+          ) : null}
         </article>
       </section>
     </main>

@@ -21,6 +21,7 @@ export interface CommentsMetaResponse {
 export interface CommunityEmbedResponse extends CommentsMetaResponse {
   provider: 'promptoon' | 'discourse';
   title: string;
+  discourseTopicId?: string | null;
 }
 
 export type CommunityCommentStatus = 'visible' | 'hidden' | 'deleted';

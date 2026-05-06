@@ -18,7 +18,17 @@ const moderateCommentSchema = z.object({
 const discourseThreadSyncSchema = z.object({
   discourseTopicId: z.string().trim().min(1).nullable().optional(),
   status: z.enum(['pending', 'synced', 'failed']).default('pending'),
+  createTopic: z.boolean().optional(),
   payload: z.record(z.string(), z.unknown()).optional()
+});
+
+const discourseCommentSchema = z.object({
+  raw: z.string().trim().min(1).max(20000),
+  replyToPostNumber: z.number().int().positive().nullable().optional()
+});
+
+const discoursePostEditSchema = z.object({
+  raw: z.string().trim().min(1).max(20000)
 });
 
 function getParam(value: string | string[] | undefined, name: string): string {
@@ -74,6 +84,52 @@ export function createCommunityRouter(): Router {
   router.post('/publishes/:publishId/discourse-sync', requireAuth, asyncHandler(async (request, response) => {
     const body = discourseThreadSyncSchema.parse(request.body);
     response.json(await service.syncDiscourseThread(getParam(request.params.publishId, 'publishId'), body, getRequiredAuthUser(request).sub));
+  }));
+
+  router.post('/publishes/:publishId/discourse-topic', requireAuth, asyncHandler(async (request, response) => {
+    response.status(201).json(
+      await service.createDiscourseThreadForPublish(getParam(request.params.publishId, 'publishId'), getRequiredAuthUser(request).sub)
+    );
+  }));
+
+  router.post('/publishes/:publishId/discourse/comments', requireAuth, asyncHandler(async (request, response) => {
+    const body = discourseCommentSchema.parse(request.body);
+    response.status(201).json(
+      await service.createDiscourseComment(getParam(request.params.publishId, 'publishId'), body, getRequiredAuthUser(request).sub)
+    );
+  }));
+
+  router.get('/discourse/categories', asyncHandler(async (_request, response) => {
+    response.json(await service.getDiscourseCategories());
+  }));
+
+  router.get('/discourse/latest', asyncHandler(async (_request, response) => {
+    response.json(await service.getDiscourseLatestTopics());
+  }));
+
+  router.get('/discourse/top', asyncHandler(async (_request, response) => {
+    response.json(await service.getDiscourseTopTopics());
+  }));
+
+  router.get('/discourse/t/:topicId', asyncHandler(async (request, response) => {
+    response.json(await service.getDiscourseTopic(getParam(request.params.topicId, 'topicId')));
+  }));
+
+  router.patch('/discourse/posts/:postId', requireAuth, asyncHandler(async (request, response) => {
+    const body = discoursePostEditSchema.parse(request.body);
+    response.json(await service.updateDiscoursePost(getParam(request.params.postId, 'postId'), body.raw, getRequiredAuthUser(request).sub));
+  }));
+
+  router.delete('/discourse/posts/:postId', requireAuth, asyncHandler(async (request, response) => {
+    response.json(await service.deleteDiscoursePost(getParam(request.params.postId, 'postId'), getRequiredAuthUser(request).sub));
+  }));
+
+  router.post('/discourse/posts/:postId/like', requireAuth, asyncHandler(async (request, response) => {
+    response.json(await service.likeDiscoursePost(getParam(request.params.postId, 'postId'), getRequiredAuthUser(request).sub));
+  }));
+
+  router.post('/discourse/posts/:postId/bookmark', requireAuth, asyncHandler(async (request, response) => {
+    response.json(await service.bookmarkDiscoursePost(getParam(request.params.postId, 'postId'), getRequiredAuthUser(request).sub));
   }));
 
   router.post('/discourse/webhook', asyncHandler(async (request, response) => {

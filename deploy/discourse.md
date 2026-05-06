@@ -46,3 +46,47 @@ DiscourseAxios, discourse.routes/controller/service, discourse-user.service, cre
 클립 임베드까지 필요하면 onebox/oEmbed 라우트도 같이 이식: onebox.routes.ts (line 12), onebox.controller.ts (line 119).
 
 주의할 점: 현재 프론트 설정 파일에도 Discourse API key가 하드코딩되어 있습니다: discourseConfig.ts (line 2), axiosInstance.ts (line 9). 다른 프로젝트에는 이 방식으로 복사하지 말고, key는 서버 env에만 둬야 합니다. 현재 노출된 키는 교체 대상으로 보는 게 맞습니다.
+
+## Promptoon 적용 상태
+
+Promptoon에는 AIVRP 방식처럼 프론트가 Discourse API를 직접 호출하지 않고 API 서버 proxy를 통해서만 접근하도록 구현한다.
+
+필요 env:
+
+```text
+DISCOURSE_BASE_URL
+DISCOURSE_API_KEY
+DISCOURSE_API_USER
+DISCOURSE_CATEGORY_ID
+KAKAO_REST_API_KEY 또는 KAKAO_CLIENT_ID
+KAKAO_REDIRECT_URI
+KAKAO_CLIENT_SECRET optional
+JWT_REFRESH_SECRET
+```
+
+추가된 Promptoon route:
+
+```text
+POST /api/community/publishes/:publishId/discourse-topic
+POST /api/community/publishes/:publishId/discourse/comments
+GET /api/community/discourse/categories
+GET /api/community/discourse/latest
+GET /api/community/discourse/top
+GET /api/community/discourse/t/:topicId
+PATCH /api/community/discourse/posts/:postId
+DELETE /api/community/discourse/posts/:postId
+POST /api/community/discourse/posts/:postId/like
+POST /api/community/discourse/posts/:postId/bookmark
+GET /api/auth/kakao/start
+GET /api/auth/kakao/callback
+POST /api/auth/kakao/callback
+POST /api/auth/refresh
+```
+
+보안 정책:
+
+- Discourse API key는 서버 env에만 둔다.
+- Discourse username은 `users.discourse_username`에 저장하고 없으면 서버가 생성한다.
+- refresh token 원문은 DB에 저장하지 않고 SHA-256 hash만 저장한다.
+- refresh token rotation 후 이전 token 재사용이 감지되면 해당 사용자의 active session을 모두 revoke한다.
+- access token은 짧은 TTL과 `iss`/`aud`/`typ` 검증을 적용한다.

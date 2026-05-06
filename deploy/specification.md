@@ -202,6 +202,9 @@ index.ts
 
 - JWT Bearer token 기반 인증.
 - JWT의 session id가 `promptoon_session`에 살아 있어야 유효한 session으로 본다.
+- 플랫폼 운영 권한은 `promptoon_platform_admin`의 `platform_admin`으로 분리한다.
+- `PROMPTOON_PLATFORM_ADMIN_LOGIN_IDS`는 최초 관리자 bootstrap allowlist로 사용한다.
+- 회원가입, 일반 로그인, Kakao OAuth 로그인은 더 이상 Studio 권한을 자동 부여하지 않는다.
 - Studio project 접근은 `promptoon_project_member` role 기반으로 제한한다.
 - Studio route 접근은 `/api/auth/me`의 `studioRole`을 확인한 뒤 허용한다.
 - project role은 `owner`, `producer`, `writer`, `viewer`로 구분한다.
@@ -210,6 +213,28 @@ index.ts
 - publish/update/unpublish는 publish role을 요구한다.
 - like/bookmark/subscribe 상태 변경은 인증이 필요하다.
 - 공개 Feed/Channel/Viewer 읽기는 인증 없이 가능하다.
+
+### Platform Admin
+
+플랫폼 운영은 기존 web Studio 화면과 분리된 monorepo app `apps/admin`에서 담당한다.
+
+```text
+apps/admin
+GET /api/admin/me
+GET /api/admin/users?query=&role=
+PATCH /api/admin/users/:userId/platform-role
+PATCH /api/admin/users/:userId/studio-role
+GET /api/admin/projects
+GET /api/admin/publishes
+GET /api/admin/community/discourse
+GET /api/admin/telemetry/summary
+```
+
+관리자 앱은 Vite + React + TypeScript + Tailwind v4 기반이며 기본 dev port는 `5174`다.
+모든 `/api/admin/*` route는 `platform_admin` 권한을 요구한다.
+관리자 앱은 사용자 검색, platform admin 권한 부여/회수, Studio role 부여/회수, 프로젝트/발행/Discourse/Telemetry 운영 조회를 제공한다.
+기존 `/studio` 화면은 Studio member만 접근하며, 권한 없음 화면에서는 별도 관리자 콘솔로 이동할 수 있게 안내한다.
+Kakao OAuth에서 관리자 앱으로 돌아오려면 `ADMIN_CLIENT_REDIRECT_URL=http://localhost:5174/login?oauth=1`을 설정한다.
 
 ### Telemetry
 
@@ -328,12 +353,41 @@ Community는 comments meta에 더해 public embed route와 Studio moderation rou
 
 ```text
 GET /api/community/publishes/:publishId/embed
+POST /api/community/publishes/:publishId/discourse-topic
+POST /api/community/publishes/:publishId/discourse/comments
+GET /api/community/discourse/categories
+GET /api/community/discourse/latest
+GET /api/community/discourse/top
+GET /api/community/discourse/t/:topicId
+PATCH /api/community/discourse/posts/:postId
+DELETE /api/community/discourse/posts/:postId
+POST /api/community/discourse/posts/:postId/like
+POST /api/community/discourse/posts/:postId/bookmark
 /community/publishes/:publishId
 /studio/community/publishes/:publishId
 ```
 
 기본 provider는 `promptoon` 내부 embed이며, Discourse sync 상태가 `synced`이면 embed contract의 provider가 `discourse`로 전환된다.
 댓글은 공개 목록, 인증 작성, 작성자 수정/삭제, project role 기반 moderation을 지원한다.
+Discourse API key는 API 서버 env에만 두고, web client는 `/api/community/discourse/*` proxy와 publish 단위 sync/comment route만 호출한다.
+`DISCOURSE_BASE_URL`, `DISCOURSE_API_KEY`, `DISCOURSE_API_USER`, `DISCOURSE_CATEGORY_ID`가 설정되면 publish별 Discourse topic 생성과 post 작성/수정/삭제/like/bookmark proxy를 사용할 수 있다.
+
+### Kakao OAuth와 Auth 보안
+
+Auth는 password login/register 외에 Kakao OAuth callback을 제공한다.
+
+```text
+GET /api/auth/kakao/start
+GET /api/auth/kakao/callback
+POST /api/auth/kakao/callback
+POST /api/auth/refresh
+```
+
+Kakao OAuth는 `KAKAO_REST_API_KEY` 또는 `KAKAO_CLIENT_ID`, `KAKAO_REDIRECT_URI`, 선택 `KAKAO_CLIENT_SECRET`을 사용한다.
+Access token은 짧은 TTL JWT이며 `iss`, `aud`, `typ=access`, `sid`를 검증한다.
+Refresh token은 `JWT_REFRESH_SECRET`으로 분리 서명하고 DB에는 SHA-256 hash만 저장한다.
+Refresh 시 session id를 rotate하고 이전 refresh token 재사용이 감지되면 해당 사용자의 active session을 모두 revoke한다.
+Auth cookie는 `HttpOnly`, production `Secure`, production `SameSite=None`으로 내려가며, bearer token 호환은 legacy client/test를 위해 유지한다.
 
 ### 테스트 보강
 
@@ -349,9 +403,10 @@ GET /api/community/publishes/:publishId/embed
 - Studio facade가 authoring service를 직접 import하지 않고 dedicated service를 통하도록 하는 boundary test를 유지한다.
 - Feed/Channel public read가 projection service를 통해 동작하는 boundary test를 유지한다.
 - Studio 독립 route, members route, analytics tab deep link boundary test를 유지한다.
-- `TEST_DATABASE_URL`을 설정한 API integration test는 2026-05-06 기준 95개 통과 상태다.
+- `TEST_DATABASE_URL`을 설정한 API integration test는 2026-05-06 기준 97개 통과 상태다.
+- Admin app test는 2026-05-06 기준 4개 통과 상태다.
 - Web test는 2026-05-06 기준 171개 통과 상태다.
-- workspace `pnpm test`는 2026-05-06 기준 API non-integration 43개, Web 171개 통과 상태다.
+- workspace `pnpm test`는 2026-05-06 기준 API non-integration 43개, Admin 4개, Web 171개 통과 상태다.
 
 ## 4. 제외 범위
 

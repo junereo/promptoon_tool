@@ -160,6 +160,15 @@ interface DiscourseThreadSyncRow {
   last_synced_at: Date | null;
 }
 
+export interface ProductUserCommunityIdentity {
+  id: string;
+  loginId: string;
+  email: string | null;
+  displayName: string | null;
+  profileImageUrl: string | null;
+  discourseUsername: string | null;
+}
+
 export interface FeedProjectionInput {
   publish: Publish;
   feedItem: FeedItem;
@@ -1123,6 +1132,51 @@ export async function upsertDiscourseThreadSync(
   }
 
   return mapDiscourseThreadSync(result.rows[0]);
+}
+
+export async function getUserCommunityIdentity(db: DbExecutor, userId: string): Promise<ProductUserCommunityIdentity | null> {
+  const result = await db.query<{
+    id: string;
+    login_id: string;
+    email: string | null;
+    display_name: string | null;
+    profile_image_url: string | null;
+    discourse_username: string | null;
+  }>(
+    `SELECT id, login_id, email, display_name, profile_image_url, discourse_username
+     FROM users
+     WHERE id = $1`,
+    [userId]
+  );
+  const row = result.rows[0];
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    loginId: row.login_id,
+    email: row.email,
+    displayName: row.display_name,
+    profileImageUrl: row.profile_image_url,
+    discourseUsername: row.discourse_username
+  };
+}
+
+export async function updateUserDiscourseUsername(
+  db: DbExecutor,
+  input: {
+    userId: string;
+    discourseUsername: string;
+  }
+): Promise<void> {
+  await db.query(
+    `UPDATE users
+     SET discourse_username = $2,
+         updated_at = NOW()
+     WHERE id = $1`,
+    [input.userId, input.discourseUsername]
+  );
 }
 
 export async function listRelatedShortsForPublish(db: DbExecutor, publishId: string, limit = 8): Promise<RelatedShort[]> {

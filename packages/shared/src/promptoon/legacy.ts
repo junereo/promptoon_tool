@@ -340,6 +340,8 @@ export interface AuthUser {
 
 export interface AuthResponse {
   token: string;
+  refreshToken?: string;
+  session?: import('./auth').AuthSession;
   user: AuthUser;
 }
 

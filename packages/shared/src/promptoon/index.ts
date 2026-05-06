@@ -7,3 +7,4 @@ export * from './studio';
 export * from './community';
 export * from './analytics';
 export * from './auth';
+export * from './admin';

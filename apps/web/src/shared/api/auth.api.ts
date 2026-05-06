@@ -20,5 +20,15 @@ export const authApi = {
 
   async logout(): Promise<void> {
     await rootApiClient.post('/auth/logout');
+  },
+
+  async refresh(): Promise<AuthResponse> {
+    const { data } = await publicRootApiClient.post('/auth/refresh');
+    return data;
+  },
+
+  async getKakaoAuthorizationUrl(): Promise<string> {
+    const { data } = await publicRootApiClient.get<{ authorizationUrl: string }>('/auth/kakao/start');
+    return data.authorizationUrl;
   }
 };

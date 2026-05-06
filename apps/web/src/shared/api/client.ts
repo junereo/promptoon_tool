@@ -21,6 +21,7 @@ export class ApiError extends Error {
 function createApiClient(options: { attachAuthToken: boolean; redirectOnUnauthorized: boolean }) {
   const client = axios.create({
     baseURL: API_BASE_URL,
+    withCredentials: true,
     headers: {
       'Content-Type': 'application/json'
     }

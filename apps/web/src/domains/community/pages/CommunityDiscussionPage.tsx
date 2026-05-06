@@ -38,12 +38,28 @@ export function CommunityDiscussionPage() {
         </div>
 
         <div className="mt-6 rounded-[24px] border border-white/10 bg-black/25 p-5">
-          <p className="text-sm leading-7 text-zinc-300">
-            현재 MVP 댓글 embed는 Promptoon 내부 관리형 토론 공간으로 표시됩니다. Discourse 연결 시 같은 경로에서 외부 thread embed로 교체됩니다.
-          </p>
-          <div className="mt-5 rounded-2xl border border-dashed border-white/10 bg-black/25 p-5 text-sm text-zinc-400">
-            첫 댓글이 아직 없습니다.
-          </div>
+          {embed.provider === 'discourse' && embed.embedUrl ? (
+            <div className="space-y-4">
+              <p className="text-sm leading-7 text-zinc-300">Discourse 토론으로 연결된 댓글 공간입니다.</p>
+              <a
+                className="inline-flex rounded-full bg-editor-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-editor-accentSoft"
+                href={embed.embedUrl}
+                rel="noreferrer"
+                target="_blank"
+              >
+                Discourse에서 열기
+              </a>
+            </div>
+          ) : (
+            <>
+              <p className="text-sm leading-7 text-zinc-300">
+                현재 댓글 embed는 Promptoon 내부 관리형 토론 공간으로 표시됩니다. Discourse 연결 시 같은 경로에서 외부 thread embed로 교체됩니다.
+              </p>
+              <div className="mt-5 rounded-2xl border border-dashed border-white/10 bg-black/25 p-5 text-sm text-zinc-400">
+                첫 댓글이 아직 없습니다.
+              </div>
+            </>
+          )}
         </div>
 
         <div className="mt-6 flex flex-wrap gap-3">

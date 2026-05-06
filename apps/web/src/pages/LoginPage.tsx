@@ -3,6 +3,7 @@ import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 
 import { useLogin } from '../features/auth/hooks/use-auth-query';
 import { useAuthStore } from '../features/auth/store/use-auth-store';
+import { authService } from '../shared/api/auth.service';
 import { ApiError } from '../shared/api/client';
 
 function getValidationError(loginId: string, password: string): string | null {
@@ -66,6 +67,16 @@ export function LoginPage() {
     }
   }
 
+  async function handleKakaoLogin() {
+    try {
+      setErrorMessage(null);
+      const authorizationUrl = await authService.getKakaoAuthorizationUrl();
+      window.location.assign(authorizationUrl);
+    } catch (error) {
+      setErrorMessage(error instanceof ApiError ? error.message : '카카오 로그인을 시작할 수 없습니다.');
+    }
+  }
+
   return (
     <main className="flex min-h-screen items-center justify-center px-6 py-10">
       <div className="grid w-full max-w-5xl gap-8 overflow-hidden rounded-[36px] border border-editor-border bg-editor-panel/90 shadow-[0_32px_120px_rgba(0,0,0,0.45)] lg:grid-cols-[1.1fr_0.9fr]">
@@ -120,6 +131,14 @@ export function LoginPage() {
               {loginMutation.isPending ? 'Signing In...' : 'Sign In'}
             </button>
           </form>
+
+          <button
+            className="mt-4 w-full rounded-2xl bg-[#fee500] px-5 py-3 text-sm font-semibold text-zinc-950 transition hover:bg-[#ffdd00]"
+            onClick={handleKakaoLogin}
+            type="button"
+          >
+            Kakao로 로그인
+          </button>
 
           <p className="mt-6 text-sm text-zinc-400">
             계정이 없다면{' '}
