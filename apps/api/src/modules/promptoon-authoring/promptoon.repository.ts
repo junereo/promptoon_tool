@@ -1249,6 +1249,114 @@ export async function deleteCut(db: DbExecutor, cutId: string): Promise<boolean>
   return true;
 }
 
+export async function listLoopStateSettingCuts(db: DbExecutor, episodeId: string, groupId: string): Promise<Cut[]> {
+  const result = await db.query<CutRow>(
+    `SELECT *
+     FROM promptoon_cut
+     WHERE episode_id = $1
+       AND loop_metadata->>'kind' = 'exitLoop'
+       AND loop_metadata->>'groupId' = $2
+     ORDER BY order_index ASC, created_at ASC`,
+    [episodeId, groupId]
+  );
+
+  return result.rows.map(mapCut);
+}
+
+export async function deleteChoicesTargetingCuts(
+  db: DbExecutor,
+  input: {
+    episodeId: string;
+    cutIds: string[];
+  }
+): Promise<number> {
+  if (input.cutIds.length === 0) {
+    return 0;
+  }
+
+  const result = await db.query(
+    `DELETE FROM promptoon_choice AS choice
+     USING promptoon_cut AS source_cut
+     WHERE choice.cut_id = source_cut.id
+       AND source_cut.episode_id = $2
+       AND choice.next_cut_id::text = ANY($1::text[])
+       AND choice.cut_id::text <> ALL($1::text[])`,
+    [input.cutIds, input.episodeId]
+  );
+
+  return result.rowCount ?? 0;
+}
+
+export async function removeStateVariantsTargetingCuts(
+  db: DbExecutor,
+  input: {
+    episodeId: string;
+    cutIds: string[];
+  }
+): Promise<void> {
+  if (input.cutIds.length === 0) {
+    return;
+  }
+
+  await db.query(
+    `UPDATE promptoon_cut
+     SET state_variants = COALESCE(
+           (
+             SELECT jsonb_agg(state_variant.value)
+             FROM jsonb_array_elements(COALESCE(state_variants, '[]'::jsonb)) AS state_variant(value)
+             WHERE COALESCE(state_variant.value->>'variantCutId', '') <> ALL($1::text[])
+           ),
+           '[]'::jsonb
+         ),
+         updated_at = NOW()
+     WHERE episode_id = $2`,
+    [input.cutIds, input.episodeId]
+  );
+}
+
+export async function removeStateRoutesTargetingCuts(
+  db: DbExecutor,
+  input: {
+    episodeId: string;
+    cutIds: string[];
+  }
+): Promise<void> {
+  if (input.cutIds.length === 0) {
+    return;
+  }
+
+  await db.query(
+    `UPDATE promptoon_cut
+     SET state_routes = COALESCE(
+           (
+             SELECT jsonb_agg(state_route.value)
+             FROM jsonb_array_elements(COALESCE(state_routes, '[]'::jsonb)) AS state_route(value)
+             WHERE COALESCE(state_route.value->>'nextCutId', '') <> ALL($1::text[])
+           ),
+           '[]'::jsonb
+         ),
+         state_fallback_cut_id = CASE
+           WHEN state_fallback_cut_id::text = ANY($1::text[]) THEN NULL
+           ELSE state_fallback_cut_id
+         END,
+         updated_at = NOW()
+     WHERE episode_id = $2`,
+    [input.cutIds, input.episodeId]
+  );
+}
+
+export async function deleteLoopStateSettingCuts(db: DbExecutor, episodeId: string, groupId: string): Promise<number> {
+  const result = await db.query(
+    `DELETE FROM promptoon_cut
+     WHERE episode_id = $1
+       AND loop_metadata->>'kind' = 'exitLoop'
+       AND loop_metadata->>'groupId' = $2`,
+    [episodeId, groupId]
+  );
+
+  return result.rowCount ?? 0;
+}
+
 export async function reconnectChoicesTargetingCut(
   db: DbExecutor,
   input: {

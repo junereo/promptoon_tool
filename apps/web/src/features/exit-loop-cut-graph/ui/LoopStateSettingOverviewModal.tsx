@@ -1,5 +1,5 @@
 import type { Choice, Cut } from '@promptoon/shared';
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useState } from 'react';
 
 interface LoopStateSettingOverviewModalProps {
   choices: Choice[];
@@ -8,6 +8,8 @@ interface LoopStateSettingOverviewModalProps {
   isOpen: boolean;
   onClose: () => void;
   onCreateNew: (anchorCutId?: string | null) => void;
+  onDeleteGroup: (groupId: string) => Promise<void>;
+  onEditGroup: (groupId: string) => void;
   onSelectCut: (cutId: string) => void;
 }
 
@@ -199,8 +201,12 @@ export const LoopStateSettingOverviewModal = memo(function LoopStateSettingOverv
   isOpen,
   onClose,
   onCreateNew,
+  onDeleteGroup,
+  onEditGroup,
   onSelectCut
 }: LoopStateSettingOverviewModalProps) {
+  const [deletingGroupId, setDeletingGroupId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<{ groupId: string; message: string } | null>(null);
   const summaries = useMemo(() => buildLoopStateSettingSummaries(cuts, choices), [choices, cuts]);
   const initialAnchorCut = useMemo(
     () => (initialAnchorCutId ? cuts.find((cut) => cut.id === initialAnchorCutId) ?? null : null),
@@ -210,6 +216,28 @@ export const LoopStateSettingOverviewModal = memo(function LoopStateSettingOverv
   function handleSelectCut(cutId: string) {
     onSelectCut(cutId);
     onClose();
+  }
+
+  async function handleDeleteGroup(summary: LoopStateSettingSummary) {
+    setDeleteError(null);
+    const confirmed = window.confirm(
+      `${summary.groupLabel} LoopStateSetting을 삭제할까요?\n\nStage, Variant, Spacer, Result Router 컷과 이 루프로 들어오는 연결이 함께 삭제됩니다.`
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingGroupId(summary.groupId);
+    try {
+      await onDeleteGroup(summary.groupId);
+    } catch (error) {
+      setDeleteError({
+        groupId: summary.groupId,
+        message: error instanceof Error ? error.message : 'LoopStateSetting 삭제에 실패했습니다.'
+      });
+    } finally {
+      setDeletingGroupId(null);
+    }
   }
 
   if (!isOpen) {
@@ -273,24 +301,47 @@ export const LoopStateSettingOverviewModal = memo(function LoopStateSettingOverv
                       <p className="truncate text-base font-semibold text-zinc-50">{summary.groupLabel}</p>
                       <p className="mt-1 truncate text-xs text-zinc-500">{summary.groupId}</p>
                     </div>
-                    <div className="flex flex-wrap gap-1.5 text-[11px] text-zinc-400">
-                      <span className="rounded-full border border-lime-500/30 bg-lime-500/10 px-2 py-1 text-lime-100">
-                        Stage {summary.stageCuts.length}
-                      </span>
-                      <span className="rounded-full border border-teal-500/30 bg-teal-500/10 px-2 py-1 text-teal-100">
-                        Variant {summary.variantCount}
-                      </span>
-                      <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-cyan-100">
-                        Spacer {summary.spacerCount}
-                      </span>
-                      <span className="rounded-full border border-editor-border bg-black/25 px-2 py-1">
-                        Cut {summary.internalCutCount}
-                      </span>
-                      <span className="rounded-full border border-editor-border bg-black/25 px-2 py-1">
-                        탈출 {summary.exitLevelRequired ?? '-'}
-                      </span>
+                    <div className="flex flex-col items-start gap-2 md:items-end">
+                      <div className="flex flex-wrap gap-1.5 text-[11px] text-zinc-400 md:justify-end">
+                        <span className="rounded-full border border-lime-500/30 bg-lime-500/10 px-2 py-1 text-lime-100">
+                          Stage {summary.stageCuts.length}
+                        </span>
+                        <span className="rounded-full border border-teal-500/30 bg-teal-500/10 px-2 py-1 text-teal-100">
+                          Variant {summary.variantCount}
+                        </span>
+                        <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-cyan-100">
+                          Spacer {summary.spacerCount}
+                        </span>
+                        <span className="rounded-full border border-editor-border bg-black/25 px-2 py-1">
+                          Cut {summary.internalCutCount}
+                        </span>
+                        <span className="rounded-full border border-editor-border bg-black/25 px-2 py-1">
+                          탈출 {summary.exitLevelRequired ?? '-'}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-2 md:justify-end">
+                        <button
+                          className="min-h-10 rounded-full border border-editor-border bg-black/25 px-3 py-1.5 text-sm font-medium text-zinc-100 transition hover:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-60"
+                          disabled={deletingGroupId !== null}
+                          onClick={() => onEditGroup(summary.groupId)}
+                          type="button"
+                        >
+                          편집
+                        </button>
+                        <button
+                          className="min-h-10 rounded-full border border-red-400/30 bg-red-500/10 px-3 py-1.5 text-sm font-medium text-red-100 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                          disabled={deletingGroupId !== null}
+                          onClick={() => {
+                            void handleDeleteGroup(summary);
+                          }}
+                          type="button"
+                        >
+                          {deletingGroupId === summary.groupId ? '삭제 중' : '삭제'}
+                        </button>
+                      </div>
                     </div>
                   </div>
+                  {deleteError?.groupId === summary.groupId ? <p className="mt-3 text-xs text-red-200">{deleteError.message}</p> : null}
 
                   <div className="mt-4 grid gap-3 lg:grid-cols-3">
                     <section className="rounded-xl border border-editor-border/70 bg-black/10 p-3">

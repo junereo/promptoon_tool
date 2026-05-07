@@ -14,6 +14,7 @@ export const promptoonKeys = {
   uploadQueue: () => ['promptoon', 'studio', 'uploads'] as const,
   episodeDraft: (episodeId: string) => ['promptoon', 'episodes', episodeId, 'draft'] as const,
   latestPublishedEpisode: (episodeId: string) => ['promptoon', 'episodes', episodeId, 'published', 'latest'] as const,
+  episodeTestViewer: (episodeId: string) => ['promptoon', 'episodes', episodeId, 'test-viewer'] as const,
   publishedEpisode: (publishId: string) => ['promptoon', 'published', publishId] as const,
   viewerInteractionState: (publishId: string) => ['promptoon', 'viewer', publishId, 'state'] as const,
   communityEmbed: (publishId: string) => ['promptoon', 'community', publishId, 'embed'] as const,

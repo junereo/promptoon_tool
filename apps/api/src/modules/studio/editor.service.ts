@@ -14,6 +14,7 @@ import type {
   PatchEpisodeRequest,
   PatchEpisodeCutLayoutRequest,
   PatchEpisodeCutLayoutResponse,
+  ProductPublish,
   Publish,
   ReorderEpisodeCutsRequest,
   ReorderEpisodeCutsResponse,
@@ -41,6 +42,11 @@ export async function updateEpisode(episodeId: string, request: PatchEpisodeRequ
 export async function getLatestPublishedEpisode(episodeId: string, userId: string): Promise<Publish | null> {
   await authorizationService.ensureEpisodeProjectRole(episodeId, userId, authorizationService.PROJECT_READ_ROLES);
   return editorCoreService.getLatestPublishedEpisode(episodeId);
+}
+
+export async function getEpisodeTestViewerPublish(episodeId: string, userId: string): Promise<ProductPublish> {
+  await authorizationService.ensureEpisodeProjectRole(episodeId, userId, authorizationService.PROJECT_READ_ROLES);
+  return editorCoreService.getEpisodeTestViewerPublish(episodeId);
 }
 
 export async function createCut(episodeId: string, request: CreateCutRequest, userId: string): Promise<Cut> {
@@ -73,6 +79,21 @@ export async function createLoopStateSetting(
 ): Promise<CreateLoopStateSettingResponse> {
   await authorizationService.ensureEpisodeProjectRole(episodeId, userId, authorizationService.PROJECT_WRITE_ROLES);
   return editorCoreService.createLoopStateSetting(episodeId, request);
+}
+
+export async function deleteLoopStateSetting(episodeId: string, groupId: string, userId: string): Promise<EpisodeDraftResponse> {
+  await authorizationService.ensureEpisodeProjectRole(episodeId, userId, authorizationService.PROJECT_WRITE_ROLES);
+  return editorCoreService.deleteLoopStateSetting(episodeId, groupId);
+}
+
+export async function updateLoopStateSetting(
+  episodeId: string,
+  groupId: string,
+  request: CreateLoopStateSettingRequest,
+  userId: string
+): Promise<CreateLoopStateSettingResponse> {
+  await authorizationService.ensureEpisodeProjectRole(episodeId, userId, authorizationService.PROJECT_WRITE_ROLES);
+  return editorCoreService.updateLoopStateSetting(episodeId, groupId, request);
 }
 
 export async function updateCut(cutId: string, request: PatchCutRequest, userId: string): Promise<Cut> {

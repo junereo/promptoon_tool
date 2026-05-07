@@ -17,6 +17,7 @@ import type {
   PatchEpisodeRequest,
   PatchEpisodeCutLayoutRequest,
   PatchEpisodeCutLayoutResponse,
+  ProductPublish,
   Publish,
   ReorderEpisodeCutsRequest,
   ReorderEpisodeCutsResponse,
@@ -28,7 +29,7 @@ import {
 } from '@promptoon/shared';
 import { randomUUID } from 'node:crypto';
 
-import { db, withTransaction } from '../../db';
+import { db, withTransaction, type DbExecutor } from '../../db';
 import { HttpError } from '../../lib/http-error';
 import { validateEpisodeGraph } from '../promptoon-authoring/promptoon.validators';
 import * as repository from './editor.repository';
@@ -350,6 +351,40 @@ export async function getLatestPublishedEpisode(episodeId: string): Promise<Publ
   return publish ? publicationService.toPublicPublish(publicationService.normalizePublish(publish)) : null;
 }
 
+export async function getEpisodeTestViewerPublish(episodeId: string): Promise<ProductPublish> {
+  const { draft, validation } = await getValidatedDraft(episodeId);
+  if (!validation.isValid) {
+    throw new HttpError(409, 'Episode validation failed.', validation);
+  }
+
+  const project = assertExists(await repository.getProjectById(db, draft.episode.projectId), 'Project not found.');
+  const manifest = publicationService.buildManifest(
+    {
+      ...draft,
+      episode: {
+        ...draft.episode,
+        status: 'published'
+      }
+    },
+    {
+      ...project,
+      status: 'published'
+    }
+  );
+  const publish: Publish = {
+    id: `test:${episodeId}`,
+    projectId: project.id,
+    episodeId,
+    versionNo: 0,
+    status: 'published',
+    manifest,
+    createdBy: project.createdBy,
+    createdAt: new Date().toISOString()
+  };
+
+  return publicationService.toPublicPublish(publicationService.normalizePublish(publish)) as ProductPublish;
+}
+
 export async function createCut(episodeId: string, request: CreateCutRequest): Promise<Cut> {
   const stateVariants = normalizeCutStateVariants(request.stateVariants);
   const stateRoutes = normalizeCutStateRoutes(request.stateRoutes);
@@ -449,11 +484,12 @@ export async function updateEpisodeCutLayout(
   }
 }
 
-export async function createLoopStateSetting(
+async function createLoopStateSettingInTransaction(
+  client: DbExecutor,
   episodeId: string,
   request: CreateLoopStateSettingRequest
 ): Promise<CreateLoopStateSettingResponse> {
-  const draft = assertExists(await repository.getEpisodeDraft(db, episodeId), 'Episode not found.');
+  const draft = assertExists(await repository.getEpisodeDraft(client, episodeId), 'Episode not found.');
   const cutIds = new Set(draft.cuts.map((cut) => cut.id));
   const continuationCutId = request.continuationCutId ?? request.successCutId ?? null;
   const retryCutId = request.retryCutId ?? request.failureCutId ?? null;
@@ -480,13 +516,10 @@ export async function createLoopStateSetting(
   const stageCount = request.stages.length;
   const exitLevelRequired = request.exitLevelRequired ?? 5;
   const startOrderIndex = draft.cuts.length;
-  let loopStateSettingResponse: CreateLoopStateSettingResponse | null = null;
+  const stageCuts: Cut[] = [];
+  const spacerCuts: Cut[] = [];
 
-  await withTransaction(async (client) => {
-    const stageCuts: Cut[] = [];
-    const spacerCuts: Cut[] = [];
-
-    for (const [stageOffset, stage] of request.stages.entries()) {
+  for (const [stageOffset, stage] of request.stages.entries()) {
       const stageIndex = stageOffset + 1;
       const stageOrderIndex = startOrderIndex + stageOffset * 24;
       const stageLoopMetadata: NonNullable<Cut['loopMetadata']> = {
@@ -589,7 +622,7 @@ export async function createLoopStateSetting(
           })
         );
       }
-    }
+  }
 
     const firstStageCut = stageCuts[0];
     if (!firstStageCut) {
@@ -690,21 +723,97 @@ export async function createLoopStateSetting(
       });
     }
 
-    const nextDraft = assertExists(await repository.getEpisodeDraft(client, episodeId), 'Episode not found.');
-    loopStateSettingResponse = {
-      ...nextDraft,
-      groupId,
-      firstStageCutId: firstStageCut.id,
-      resultRouterCutId: resultRouterCut.id,
-      continuationCutId: continuationCut.id,
-      retryCutId: retryCut.id,
-      successCutId: continuationCut.id,
-      failureCutId: retryCut.id
-    };
+  const nextDraft = assertExists(await repository.getEpisodeDraft(client, episodeId), 'Episode not found.');
+  return {
+    ...nextDraft,
+    groupId,
+    firstStageCutId: firstStageCut.id,
+    resultRouterCutId: resultRouterCut.id,
+    continuationCutId: continuationCut.id,
+    retryCutId: retryCut.id,
+    successCutId: continuationCut.id,
+    failureCutId: retryCut.id
+  };
+}
+
+export async function createLoopStateSetting(
+  episodeId: string,
+  request: CreateLoopStateSettingRequest
+): Promise<CreateLoopStateSettingResponse> {
+  let loopStateSettingResponse: CreateLoopStateSettingResponse | null = null;
+  await withTransaction(async (client) => {
+    loopStateSettingResponse = await createLoopStateSettingInTransaction(client, episodeId, request);
   });
 
   if (!loopStateSettingResponse) {
     throw new HttpError(500, 'LoopStateSetting was not created.');
+  }
+
+  return loopStateSettingResponse;
+}
+
+async function deleteLoopStateSettingInTransaction(
+  client: DbExecutor,
+  episodeId: string,
+  groupId: string
+): Promise<EpisodeDraftResponse> {
+  const normalizedGroupId = groupId.trim();
+  if (!normalizedGroupId) {
+    throw new HttpError(400, 'LoopStateSetting group id is required.');
+  }
+
+  const groupCuts = await repository.listLoopStateSettingCuts(client, episodeId, normalizedGroupId);
+  if (groupCuts.length === 0) {
+    throw new HttpError(404, 'LoopStateSetting not found.');
+  }
+
+  const groupCutIds = groupCuts.map((cut) => cut.id);
+  await repository.deleteChoicesTargetingCuts(client, {
+    episodeId,
+    cutIds: groupCutIds
+  });
+  await repository.removeStateVariantsTargetingCuts(client, {
+    episodeId,
+    cutIds: groupCutIds
+  });
+  await repository.removeStateRoutesTargetingCuts(client, {
+    episodeId,
+    cutIds: groupCutIds
+  });
+
+  const deletedCount = await repository.deleteLoopStateSettingCuts(client, episodeId, normalizedGroupId);
+  if (deletedCount === 0) {
+    throw new HttpError(404, 'LoopStateSetting not found.');
+  }
+
+  return assertExists(await repository.getEpisodeDraft(client, episodeId), 'Episode not found.');
+}
+
+export async function deleteLoopStateSetting(episodeId: string, groupId: string): Promise<EpisodeDraftResponse> {
+  let nextDraft: EpisodeDraftResponse | null = null;
+  await withTransaction(async (client) => {
+    nextDraft = await deleteLoopStateSettingInTransaction(client, episodeId, groupId);
+  });
+  if (!nextDraft) {
+    throw new HttpError(500, 'LoopStateSetting was not deleted.');
+  }
+
+  return nextDraft;
+}
+
+export async function updateLoopStateSetting(
+  episodeId: string,
+  groupId: string,
+  request: CreateLoopStateSettingRequest
+): Promise<CreateLoopStateSettingResponse> {
+  let loopStateSettingResponse: CreateLoopStateSettingResponse | null = null;
+  await withTransaction(async (client) => {
+    await deleteLoopStateSettingInTransaction(client, episodeId, groupId);
+    loopStateSettingResponse = await createLoopStateSettingInTransaction(client, episodeId, request);
+  });
+
+  if (!loopStateSettingResponse) {
+    throw new HttpError(500, 'LoopStateSetting was not updated.');
   }
 
   return loopStateSettingResponse;

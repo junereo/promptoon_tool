@@ -20,6 +20,7 @@ describe('studioApi', () => {
       .mockResolvedValueOnce(backupResponse)
       .mockResolvedValueOnce(assetsResponse)
       .mockResolvedValueOnce(historyResponse);
+    const deleteSpy = vi.spyOn(rootApiClient, 'delete').mockResolvedValueOnce({ data: { episode: { id: 'episode-1' }, cuts: [], choices: [] } });
     const postSpy = vi.spyOn(rootApiClient, 'post')
       .mockResolvedValueOnce(projectResponse)
       .mockResolvedValueOnce(episodeResponse)
@@ -35,6 +36,8 @@ describe('studioApi', () => {
     await studioApi.patchProject('project-1', { title: 'Project 1A' });
     await studioApi.createEpisode('project-1', { title: 'Episode 1', episodeNo: 1 });
     await studioApi.patchEpisode('episode-1', { title: 'Episode 1A' });
+    await studioApi.deleteLoopStateSetting('episode-1', 'hotel loop/01');
+    await studioApi.updateLoopStateSetting('episode-1', 'hotel loop/01', { groupName: 'Hotel Loop', stages: [{ title: 'Stage 1' }] });
     await studioApi.publishMovingtoonEpisode('movingtoon-episode-1');
     await studioApi.unpublishMovingtoonEpisode('movingtoon-episode-1');
 
@@ -48,6 +51,11 @@ describe('studioApi', () => {
     expect(postSpy).toHaveBeenNthCalledWith(4, '/studio/movingtoon/episodes/movingtoon-episode-1/unpublish');
     expect(patchSpy).toHaveBeenCalledWith('/studio/projects/project-1', { title: 'Project 1A' });
     expect(patchSpy).toHaveBeenCalledWith('/studio/episodes/episode-1', { title: 'Episode 1A' });
+    expect(patchSpy).toHaveBeenCalledWith('/studio/episodes/episode-1/loop-state-setting/hotel%20loop%2F01', {
+      groupName: 'Hotel Loop',
+      stages: [{ title: 'Stage 1' }]
+    });
+    expect(deleteSpy).toHaveBeenCalledWith('/studio/episodes/episode-1/loop-state-setting/hotel%20loop%2F01');
   });
 
   it('uses the studio project member endpoints', async () => {

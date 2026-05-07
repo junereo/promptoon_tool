@@ -27,6 +27,11 @@ vi.mock('../src/features/viewer/hooks/use-published-episode', () => ({
     isLoading: false,
     isError: false,
     data: publishedEpisode
+  }),
+  useTestViewerEpisode: () => ({
+    isLoading: false,
+    isError: false,
+    data: publishedEpisode
   })
 }));
 

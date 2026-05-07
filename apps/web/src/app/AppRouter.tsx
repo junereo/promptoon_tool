@@ -87,6 +87,14 @@ function ViewerRoute() {
   );
 }
 
+function StudioTestViewerRoute() {
+  return (
+    <ProtectedRoute requireStudio>
+      <ViewerRoute />
+    </ProtectedRoute>
+  );
+}
+
 function AppShell() {
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
@@ -190,6 +198,8 @@ export function AppRouter() {
         <Route path="/overview" element={<PromptoonOverviewPage />} />
         <Route path="/v/:publishId" element={<ViewerRoute />} />
         <Route path="/v/:publishId/:episodeNo" element={<ViewerRoute />} />
+        <Route path="/promptoon/projects/:projectId/episodes/:episodeId/test-viewer" element={<StudioTestViewerRoute />} />
+        <Route path="/studio/projects/:projectId/episodes/:episodeId/test-viewer" element={<StudioTestViewerRoute />} />
         <Route path="/c/:channelSlug" element={<ChannelHomePage />} />
         <Route path="/c/:channelSlug/series" element={<ChannelHomePage />} />
         <Route path="/c/:channelSlug/shorts" element={<ChannelHomePage />} />

@@ -83,6 +83,18 @@ export const promptoonService = {
     return studioApi.createLoopStateSetting(episodeId, payload);
   },
 
+  async deleteLoopStateSetting(episodeId: string, groupId: string): Promise<EpisodeDraftResponse> {
+    return studioApi.deleteLoopStateSetting(episodeId, groupId);
+  },
+
+  async updateLoopStateSetting(
+    episodeId: string,
+    groupId: string,
+    payload: CreateLoopStateSettingRequest
+  ): Promise<CreateLoopStateSettingResponse> {
+    return studioApi.updateLoopStateSetting(episodeId, groupId, payload);
+  },
+
   async publishEpisode(projectId: string, episodeId: string): Promise<Publish> {
     return studioApi.publishProject(projectId, episodeId);
   },

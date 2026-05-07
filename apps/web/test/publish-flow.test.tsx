@@ -32,6 +32,8 @@ const unpublishMutate = vi.fn<(_: { projectId: string; episodeId: string }) => P
 const uploadMutate = vi.fn<(_: { projectId: string; file: File }) => Promise<{ assetUrl: string }>>();
 const createCutMutate = vi.fn();
 const createLoopStateSettingMutate = vi.fn();
+const deleteLoopStateSettingMutate = vi.fn();
+const updateLoopStateSettingMutate = vi.fn();
 const createChoiceMutate = vi.fn();
 const reorderCutsMutate = vi.fn();
 const saveCutLayoutMutate = vi.fn();
@@ -79,6 +81,14 @@ vi.mock('../src/features/editor/hooks/use-episode-query', () => ({
   useCreateLoopStateSetting: () => ({
     isPending: false,
     mutateAsync: createLoopStateSettingMutate
+  }),
+  useDeleteLoopStateSetting: () => ({
+    isPending: false,
+    mutateAsync: deleteLoopStateSettingMutate
+  }),
+  useUpdateLoopStateSetting: () => ({
+    isPending: false,
+    mutateAsync: updateLoopStateSettingMutate
   }),
   useDeleteChoice: () => ({
     mutateAsync: vi.fn()
@@ -137,6 +147,8 @@ beforeEach(() => {
   uploadMutate.mockReset();
   createCutMutate.mockReset();
   createLoopStateSettingMutate.mockReset();
+  deleteLoopStateSettingMutate.mockReset();
+  updateLoopStateSettingMutate.mockReset();
   createChoiceMutate.mockReset();
   reorderCutsMutate.mockReset();
   saveCutLayoutMutate.mockReset();
@@ -724,6 +736,9 @@ describe('publish flow', () => {
     });
 
     renderPage();
+    expect(screen.getByRole('link', { name: 'Test Viewer' }).getAttribute('href')).toBe(
+      '/studio/projects/project-1/episodes/episode-1/test-viewer'
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
 
     expect(await screen.findByRole('button', { name: '바로 발행하기' })).toBeTruthy();

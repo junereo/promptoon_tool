@@ -100,6 +100,7 @@ export function EpisodeEditorShell({
   isValidating,
   highlightSaveOrder,
   publishedViewerPath,
+  testViewerPath,
   toolbarNotice,
   onBack,
   onTabChange,
@@ -151,6 +152,7 @@ export function EpisodeEditorShell({
   isValidating: boolean;
   highlightSaveOrder: boolean;
   publishedViewerPath: string | null;
+  testViewerPath?: string | null;
   toolbarNotice: string | null;
   onBack: () => void;
   onTabChange: (tab: 'editor' | 'analytics') => void;
@@ -329,6 +331,7 @@ export function EpisodeEditorShell({
         onToggleViewMode={onToggleViewMode}
         onValidate={onValidate}
         publishedViewerPath={publishedViewerPath}
+        testViewerPath={testViewerPath}
         toolbarNotice={toolbarNotice}
         viewMode={viewMode}
       />

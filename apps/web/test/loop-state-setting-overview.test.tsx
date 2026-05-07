@@ -1,12 +1,13 @@
 import type { Choice, Cut } from '@promptoon/shared';
 import { DEFAULT_CUT_EFFECT_DURATION_MS } from '@promptoon/shared';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { LoopStateSettingOverviewModal } from '../src/features/exit-loop-cut-graph/ui/LoopStateSettingOverviewModal';
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
 });
 
 function buildCut(id: string, overrides?: Partial<Cut>): Cut {
@@ -55,6 +56,8 @@ describe('LoopStateSettingOverviewModal', () => {
   it('shows existing loop state connections and opens the create flow with the selected anchor', () => {
     const onClose = vi.fn();
     const onCreateNew = vi.fn();
+    const onDeleteGroup = vi.fn().mockResolvedValue(undefined);
+    const onEditGroup = vi.fn();
     const onSelectCut = vi.fn();
     const intro = buildCut('intro', { title: 'Intro' });
     const stage = buildCut('stage-1', {
@@ -122,6 +125,8 @@ describe('LoopStateSettingOverviewModal', () => {
         isOpen
         onClose={onClose}
         onCreateNew={onCreateNew}
+        onDeleteGroup={onDeleteGroup}
+        onEditGroup={onEditGroup}
         onSelectCut={onSelectCut}
       />
     );
@@ -139,5 +144,64 @@ describe('LoopStateSettingOverviewModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Hotel Stage 01 Stage 1' }));
     expect(onSelectCut).toHaveBeenCalledWith(stage.id);
     expect(onClose).toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: '편집' }));
+    expect(onEditGroup).toHaveBeenCalledWith('hotel-loop-12345678');
+  });
+
+  it('confirms and deletes a loop state setting group from the overview', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const onClose = vi.fn();
+    const onCreateNew = vi.fn();
+    const onDeleteGroup = vi.fn().mockResolvedValue(undefined);
+    const onEditGroup = vi.fn();
+    const onSelectCut = vi.fn();
+    const stage = buildCut('stage-1', {
+      kind: 'loopStage',
+      loopMetadata: {
+        kind: 'exitLoop',
+        groupId: 'hotel-loop-12345678',
+        groupLabel: 'Hotel Loop',
+        role: 'stageBase',
+        stageIndex: 1,
+        stageCount: 1,
+        variantCutIds: [],
+        exitLevelRequired: 5
+      },
+      title: 'Hotel Stage 01'
+    });
+    const resultRouter = buildCut('router', {
+      kind: 'stateRouter',
+      loopMetadata: {
+        kind: 'exitLoop',
+        groupId: 'hotel-loop-12345678',
+        groupLabel: 'Hotel Loop',
+        role: 'resultRouter',
+        stageCount: 1,
+        exitLevelRequired: 5
+      },
+      title: 'Hotel Result Router'
+    });
+
+    render(
+      <LoopStateSettingOverviewModal
+        choices={[]}
+        cuts={[stage, resultRouter]}
+        initialAnchorCutId={null}
+        isOpen
+        onClose={onClose}
+        onCreateNew={onCreateNew}
+        onDeleteGroup={onDeleteGroup}
+        onEditGroup={onEditGroup}
+        onSelectCut={onSelectCut}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '삭제' }));
+
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('Hotel Loop LoopStateSetting을 삭제할까요?'));
+    await waitFor(() => {
+      expect(onDeleteGroup).toHaveBeenCalledWith('hotel-loop-12345678');
+    });
   });
 });

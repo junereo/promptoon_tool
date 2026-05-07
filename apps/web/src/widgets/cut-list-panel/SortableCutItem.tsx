@@ -2,9 +2,10 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { Cut } from '@promptoon/shared';
 
-import { CutItem } from './CutItem';
+import { CutItem, type CutCardSize } from './CutItem';
 
 export function SortableCutItem({
+  cardSize,
   cut,
   indentLevel,
   rank,
@@ -16,6 +17,7 @@ export function SortableCutItem({
   onDelete,
   onSelect
 }: {
+  cardSize?: CutCardSize;
   cut: Cut;
   createAfterDisabled?: boolean;
   dragDisabled?: boolean;
@@ -44,6 +46,7 @@ export function SortableCutItem({
       className={isDragging ? 'opacity-75' : ''}
     >
       <CutItem
+        cardSize={cardSize}
         cut={cut}
         createAfterDisabled={createAfterDisabled}
         dragDisabled={dragDisabled}

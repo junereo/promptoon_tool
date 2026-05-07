@@ -26,7 +26,7 @@ export function useViewerTelemetry({
   const viewedCutIdsRef = useRef<Set<string>>(new Set());
 
   function sendSessionTelemetryEvent(payload: Omit<TelemetryEventRequest, 'anonymousId' | 'publishId' | 'sessionId'>) {
-    if (!anonymousIdRef.current || !sessionIdRef.current) {
+    if (!publishId || !anonymousIdRef.current || !sessionIdRef.current) {
       return;
     }
 

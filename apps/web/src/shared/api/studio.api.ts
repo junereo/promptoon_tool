@@ -26,6 +26,7 @@ import type {
   PatchProjectMemberRequest,
   ProjectAssetListResponse,
   ProjectAnalyticsResponse,
+  ProductPublish,
   Publish,
   Project,
   ProjectMemberListResponse,
@@ -184,6 +185,20 @@ export const studioApi = {
     return data;
   },
 
+  async deleteLoopStateSetting(episodeId: string, groupId: string): Promise<EpisodeDraftResponse> {
+    const { data } = await rootApiClient.delete(`/studio/episodes/${episodeId}/loop-state-setting/${encodeURIComponent(groupId)}`);
+    return data;
+  },
+
+  async updateLoopStateSetting(
+    episodeId: string,
+    groupId: string,
+    payload: CreateLoopStateSettingRequest
+  ): Promise<CreateLoopStateSettingResponse> {
+    const { data } = await rootApiClient.patch(`/studio/episodes/${episodeId}/loop-state-setting/${encodeURIComponent(groupId)}`, payload);
+    return data;
+  },
+
   async publishProject(projectId: string, episodeId: string): Promise<Publish> {
     const { data } = await rootApiClient.post(`/studio/projects/${projectId}/publish`, { episodeId });
     return data;
@@ -200,6 +215,11 @@ export const studioApi = {
 
   async getLatestPublishedEpisode(episodeId: string): Promise<Publish | null> {
     const { data } = await rootApiClient.get(`/studio/episodes/${episodeId}/published/latest`);
+    return data;
+  },
+
+  async getEpisodeTestViewer(episodeId: string): Promise<ProductPublish> {
+    const { data } = await rootApiClient.get(`/studio/episodes/${episodeId}/test-viewer`);
     return data;
   },
 

@@ -1163,6 +1163,10 @@ maybeDescribe('promptoon api integration', () => {
     const domainFeed = await request(app).get('/api/feed/mixed?limit=5');
     const legacyDraft = await withAuth(request(app).get(`/api/promptoon/episodes/${fixture.episode.body.id}/draft`), fixture.auth.token);
     const studioDraft = await withAuth(request(app).get(`/api/studio/episodes/${fixture.episode.body.id}/draft`), fixture.auth.token);
+    const studioTestViewer = await withAuth(
+      request(app).get(`/api/studio/episodes/${fixture.episode.body.id}/test-viewer`),
+      fixture.auth.token
+    );
     const channelHome = await request(app).get(`/api/channels/${fixture.channelSlug}/home`);
     const commentsMeta = await request(app).get(`/api/community/publishes/${fixture.publish.body.id}/comments-meta`);
 
@@ -1175,6 +1179,11 @@ maybeDescribe('promptoon api integration', () => {
     );
     expect(studioDraft.status).toBe(200);
     expect(studioDraft.body.episode.id).toBe(legacyDraft.body.episode.id);
+    expect(studioTestViewer.status).toBe(200);
+    expect(studioTestViewer.body.id).toBe(`test:${fixture.episode.body.id}`);
+    expect(studioTestViewer.body.projectId).not.toBe(fixture.project.body.id);
+    expect(studioTestViewer.body.manifest.episode.status).toBe('published');
+    expect(studioTestViewer.body.manifest.episode.startCutId).toBe(fixture.startCut.body.id);
     expect(channelHome.status).toBe(200);
     expect(channelHome.body.profile.slug).toBe(fixture.channelSlug);
     expect(commentsMeta.status).toBe(200);
@@ -2137,6 +2146,26 @@ maybeDescribe('promptoon api integration', () => {
     expect(studioLoop.body.cuts.filter((cut: { loopMetadata?: { role?: string } | null }) => cut.loopMetadata?.role === 'stageVariant')).toHaveLength(2);
     expect(studioLoop.body.cuts.filter((cut: { loopMetadata?: { role?: string } | null }) => cut.loopMetadata?.role === 'spacer')).toHaveLength(1);
     expect(studioLoop.body.cuts.filter((cut: { loopMetadata?: { role?: string } | null }) => cut.loopMetadata?.role === 'resultRouter')).toHaveLength(1);
+
+    const legacyDelete = await withAuth(
+      request(app).delete(`/api/promptoon/episodes/${legacySeed.episodeId}/loop-state-setting/${encodeURIComponent(legacyLoop.body.groupId)}`),
+      auth.token
+    );
+    const studioDelete = await withAuth(
+      request(app).delete(`/api/studio/episodes/${studioSeed.episodeId}/loop-state-setting/${encodeURIComponent(studioLoop.body.groupId)}`),
+      auth.token
+    );
+
+    expect(legacyDelete.status).toBe(200);
+    expect(studioDelete.status).toBe(200);
+    for (const responseBody of [legacyDelete.body, studioDelete.body] as Array<{
+      choices: Array<{ label: string; nextCutId: string | null }>;
+      cuts: Array<{ loopMetadata?: { groupId?: string } | null }>;
+    }>) {
+      expect(responseBody.cuts.every((cut) => cut.loopMetadata?.groupId !== legacyLoop.body.groupId && cut.loopMetadata?.groupId !== studioLoop.body.groupId)).toBe(true);
+      expect(responseBody.choices.some((choice) => choice.label === 'Station Exit')).toBe(false);
+      expect(responseBody.choices.some((choice) => choice.nextCutId === legacyLoop.body.firstStageCutId || choice.nextCutId === studioLoop.body.firstStageCutId)).toBe(false);
+    }
   });
 
   it('creates public projections, community metadata, and telemetry when publishing', async () => {

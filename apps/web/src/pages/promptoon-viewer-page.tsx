@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { useAuthStore } from '../features/auth/store/use-auth-store';
-import { usePublishedEpisode } from '../features/viewer/hooks/use-published-episode';
+import { usePublishedEpisode, useTestViewerEpisode } from '../features/viewer/hooks/use-published-episode';
 import { useViewerTelemetry } from '../features/viewer/hooks/use-viewer-telemetry';
 import { useViewerStore } from '../features/viewer/store/use-viewer-store';
 import { communityApi } from '../shared/api/community.api';
@@ -165,9 +165,14 @@ function resolveViewerPathSteps(
 export function PromptoonViewerPage() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { publishId = '' } = useParams();
+  const { publishId = '', projectId = '', episodeId = '' } = useParams();
   const [searchParams] = useSearchParams();
-  const publishedEpisode = usePublishedEpisode(publishId);
+  const isTestViewer = Boolean(episodeId) && !publishId;
+  const publicPublishId = isTestViewer ? '' : publishId;
+  const viewerSessionId = isTestViewer ? `test:${episodeId}` : publishId;
+  const publishedEpisode = usePublishedEpisode(publishId, { enabled: !isTestViewer });
+  const testViewerEpisode = useTestViewerEpisode(episodeId, { enabled: isTestViewer });
+  const viewerEpisode = isTestViewer ? testViewerEpisode : publishedEpisode;
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const currentCutId = useViewerStore((state) => state.currentCutId);
   const hideChrome = useViewerStore((state) => state.hideChrome);
@@ -195,7 +200,7 @@ export function PromptoonViewerPage() {
     pathStartCutId: null
   });
 
-  const manifest = publishedEpisode.data?.manifest ?? null;
+  const manifest = viewerEpisode.data?.manifest ?? null;
   const startCutId = useMemo(() => (manifest ? getStartCutId(manifest) : null), [manifest]);
   const cutsById = useMemo(() => new Map(manifest?.cuts.map((cut) => [cut.id, cut]) ?? []), [manifest]);
   const startChoiceId = searchParams.get('startChoice');
@@ -231,7 +236,7 @@ export function PromptoonViewerPage() {
   const visibleCuts = useMemo(() => pathSteps.map((step) => step.cut), [pathSteps]);
   const terminalCut = pathSteps[pathSteps.length - 1]?.cut ?? null;
   const { startNewSession, trackChoiceClick, trackEndingShare } = useViewerTelemetry({
-    publishId,
+    publishId: publicPublishId,
     visibleCuts
   });
   const shareBanner =
@@ -240,38 +245,38 @@ export function PromptoonViewerPage() {
       : null;
 
   useEffect(() => {
-    if (publishId && startCutId && manifest) {
-      const storedViewerState = sanitizePromptoonViewerStateForManifest(readPromptoonViewerState(publishId), manifest);
-      writePromptoonViewerState(publishId, storedViewerState);
+    if (viewerSessionId && startCutId && manifest) {
+      const storedViewerState = sanitizePromptoonViewerStateForManifest(readPromptoonViewerState(viewerSessionId), manifest);
+      writePromptoonViewerState(viewerSessionId, storedViewerState);
       if (feedEntryCutId) {
         const nextViewerState = feedEntryChoice
           ? applyChoiceStateWrites(storedViewerState, feedEntryChoice)
           : storedViewerState;
         setViewerState(nextViewerState);
-        writePromptoonViewerState(publishId, nextViewerState);
-        initializeFromFeed(publishId, startCutId, feedEntryCutId);
+        writePromptoonViewerState(viewerSessionId, nextViewerState);
+        initializeFromFeed(viewerSessionId, startCutId, feedEntryCutId);
         return;
       }
 
       setViewerState(storedViewerState);
-      initialize(publishId, startCutId);
+      initialize(viewerSessionId, startCutId);
     }
-  }, [feedEntryChoice, feedEntryCutId, initialize, initializeFromFeed, manifest, publishId, startCutId]);
+  }, [feedEntryChoice, feedEntryCutId, initialize, initializeFromFeed, manifest, startCutId, viewerSessionId]);
 
   useEffect(() => {
     setShareBannerDismissed(false);
-  }, [publishId, sharedEndingCut?.id]);
+  }, [sharedEndingCut?.id, viewerSessionId]);
 
   useEffect(() => {
     setUserName('');
-  }, [publishId]);
+  }, [viewerSessionId]);
 
   useEffect(() => {
     preloadConnectedAssets(terminalCut, cutsById, viewerState);
   }, [cutsById, terminalCut, viewerState]);
 
   useEffect(() => {
-    if (!publishId) {
+    if (!publicPublishId) {
       setRelatedShorts([]);
       setCommentsMeta(null);
       return;
@@ -280,8 +285,8 @@ export function PromptoonViewerPage() {
     let isCancelled = false;
 
     void Promise.allSettled([
-      viewerApi.getRelatedShorts(publishId),
-      communityApi.getCommentsMeta(publishId)
+      viewerApi.getRelatedShorts(publicPublishId),
+      communityApi.getCommentsMeta(publicPublishId)
     ]).then(([shortsResult, commentsResult]) => {
       if (isCancelled) {
         return;
@@ -294,17 +299,17 @@ export function PromptoonViewerPage() {
     return () => {
       isCancelled = true;
     };
-  }, [publishId]);
+  }, [publicPublishId]);
 
   useEffect(() => {
-    if (!publishId || !isAuthenticated) {
+    if (!publicPublishId || !isAuthenticated) {
       setInteractionState(null);
       return;
     }
 
     let isCancelled = false;
 
-    void viewerApi.getInteractionState(publishId)
+    void viewerApi.getInteractionState(publicPublishId)
       .then((state) => {
         if (!isCancelled) {
           setInteractionState(state);
@@ -319,7 +324,7 @@ export function PromptoonViewerPage() {
     return () => {
       isCancelled = true;
     };
-  }, [isAuthenticated, publishId]);
+  }, [isAuthenticated, publicPublishId]);
 
   useEffect(() => {
     if (!activeCut) {
@@ -332,10 +337,10 @@ export function PromptoonViewerPage() {
         return current;
       }
 
-      writePromptoonViewerState(publishId, nextViewerState);
+      writePromptoonViewerState(viewerSessionId, nextViewerState);
       return nextViewerState;
     });
-  }, [activeCut, cutsById, publishId]);
+  }, [activeCut, cutsById, viewerSessionId]);
 
   useEffect(() => {
     const resetPrefix =
@@ -359,10 +364,10 @@ export function PromptoonViewerPage() {
         return current;
       }
 
-      writePromptoonViewerState(publishId, nextViewerState);
+      writePromptoonViewerState(viewerSessionId, nextViewerState);
       return nextViewerState;
     });
-  }, [activeCut?.id, activeCut?.loopMetadata, publishId]);
+  }, [activeCut?.id, activeCut?.loopMetadata, viewerSessionId]);
 
   useEffect(() => {
     if (!activeCut || activeCut.kind !== 'stateRouter') {
@@ -456,7 +461,7 @@ export function PromptoonViewerPage() {
 
     setViewerState((current) => {
       const nextViewerState = applyChoiceStateWrites(current, choice);
-      writePromptoonViewerState(publishId, nextViewerState);
+      writePromptoonViewerState(viewerSessionId, nextViewerState);
       return nextViewerState;
     });
     trackChoiceClick(choice, cutId);
@@ -479,6 +484,11 @@ export function PromptoonViewerPage() {
         ? ((window.history.state as { idx: number }).idx ?? 0)
         : 0;
 
+    if (isTestViewer && projectId && episodeId) {
+      navigate(`/studio/projects/${projectId}/episodes/${episodeId}`);
+      return;
+    }
+
     if (historyIndex > 0) {
       navigate(-1);
       return;
@@ -487,28 +497,33 @@ export function PromptoonViewerPage() {
     navigate('/', { replace: true });
   }
 
-  if (publishedEpisode.isLoading) {
+  if (viewerEpisode.isLoading) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-black text-zinc-400">
-        발행된 에피소드를 불러오는 중입니다.
+        {isTestViewer ? '테스트 뷰어를 준비하는 중입니다.' : '발행된 에피소드를 불러오는 중입니다.'}
       </div>
     );
   }
 
-  if (publishedEpisode.isError || !manifest || !startCutId || !activeCut || !terminalCut) {
+  if (viewerEpisode.isError || !manifest || !startCutId || !activeCut || !terminalCut) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-black px-6 text-center text-zinc-400">
-        발행된 에피소드를 찾을 수 없습니다.
+        {isTestViewer ? '테스트 뷰어를 만들 수 없습니다. 에피소드 검증 상태를 확인해 주세요.' : '발행된 에피소드를 찾을 수 없습니다.'}
       </div>
     );
   }
 
   async function handleShare() {
+    if (isTestViewer) {
+      setShareNotice('테스트 뷰어에서는 공유할 수 없습니다.');
+      return;
+    }
+
     if (!manifest || !isPromptoonEndingCut(terminalCut)) {
       return;
     }
 
-    const shareUrl = `${window.location.origin}/api/viewer/publishes/${publishId}/share?e=${encodeURIComponent(terminalCut.id)}`;
+    const shareUrl = `${window.location.origin}/api/viewer/publishes/${publicPublishId}/share?e=${encodeURIComponent(terminalCut.id)}`;
     const shareTitle = `${manifest.episode.title} - 나는 "${terminalCut.title}" 엔딩을 봤어!`;
     const shareText = `${shareTitle} 넌 어떤 엔딩이 나올까?`;
 
@@ -549,15 +564,20 @@ export function PromptoonViewerPage() {
   }
 
   async function refreshInteractionState() {
-    if (!publishId || !isAuthenticated) {
+    if (!publicPublishId || !isAuthenticated) {
       return;
     }
 
-    const nextState = await viewerApi.getInteractionState(publishId);
+    const nextState = await viewerApi.getInteractionState(publicPublishId);
     setInteractionState(nextState);
   }
 
   async function handleLike() {
+    if (isTestViewer) {
+      setShareNotice('테스트 뷰어에서는 좋아요를 사용할 수 없습니다.');
+      return;
+    }
+
     if (!isAuthenticated) {
       redirectToLogin();
       return;
@@ -566,9 +586,9 @@ export function PromptoonViewerPage() {
     setIsInteractionPending(true);
     try {
       if (interactionState?.liked) {
-        await feedApi.unlikePublish(publishId);
+        await feedApi.unlikePublish(publicPublishId);
       } else {
-        await feedApi.likePublish(publishId);
+        await feedApi.likePublish(publicPublishId);
       }
       await refreshInteractionState();
     } catch {
@@ -579,6 +599,11 @@ export function PromptoonViewerPage() {
   }
 
   async function handleBookmark() {
+    if (isTestViewer) {
+      setShareNotice('테스트 뷰어에서는 북마크를 사용할 수 없습니다.');
+      return;
+    }
+
     if (!isAuthenticated) {
       redirectToLogin();
       return;
@@ -587,9 +612,9 @@ export function PromptoonViewerPage() {
     setIsInteractionPending(true);
     try {
       if (interactionState?.bookmarked) {
-        await feedApi.unbookmarkPublish(publishId);
+        await feedApi.unbookmarkPublish(publicPublishId);
       } else {
-        await feedApi.bookmarkPublish(publishId);
+        await feedApi.bookmarkPublish(publicPublishId);
       }
       await refreshInteractionState();
     } catch {
@@ -616,7 +641,7 @@ export function PromptoonViewerPage() {
       onInteraction={() => showChrome()}
       onReset={() => {
         clearPendingTransition();
-        clearPromptoonViewerState(publishId);
+        clearPromptoonViewerState(viewerSessionId);
         setViewerState({});
         startNewSession();
         reset(startCutId);
@@ -637,6 +662,11 @@ export function PromptoonViewerPage() {
         void handleBookmark();
       }}
       onComment={() => {
+        if (isTestViewer) {
+          setShareNotice('테스트 뷰어에서는 댓글을 사용할 수 없습니다.');
+          return;
+        }
+
         if (commentsMeta?.discussionUrl) {
           navigate(commentsMeta.discussionUrl);
         }

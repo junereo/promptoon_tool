@@ -114,6 +114,26 @@ export const router: AppRouter = createBrowserRouter([
     )
   },
   {
+    path: '/promptoon/projects/:projectId/episodes/:episodeId/test-viewer',
+    element: (
+      <ProtectedRoute requireStudio>
+        <Suspense fallback={<div className="min-h-dvh bg-black" />}>
+          <PromptoonViewerPage />
+        </Suspense>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: '/studio/projects/:projectId/episodes/:episodeId/test-viewer',
+    element: (
+      <ProtectedRoute requireStudio>
+        <Suspense fallback={<div className="min-h-dvh bg-black" />}>
+          <PromptoonViewerPage />
+        </Suspense>
+      </ProtectedRoute>
+    )
+  },
+  {
     path: '/',
     element: <FeedHomePage />
   },

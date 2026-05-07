@@ -162,6 +162,30 @@ export function useCreateLoopStateSetting(episodeId: string) {
   });
 }
 
+export function useDeleteLoopStateSetting(episodeId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation<EpisodeDraftResponse, Error, string>({
+    mutationFn: (groupId) => studioApi.deleteLoopStateSetting(episodeId, groupId),
+    onSuccess: async (response) => {
+      queryClient.setQueryData<EpisodeDraftResponse | undefined>(promptoonKeys.episodeDraft(episodeId), response);
+      await queryClient.invalidateQueries({ queryKey: promptoonKeys.episodeDraft(episodeId) });
+    }
+  });
+}
+
+export function useUpdateLoopStateSetting(episodeId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation<CreateLoopStateSettingResponse, Error, { groupId: string; payload: CreateLoopStateSettingRequest }>({
+    mutationFn: ({ groupId, payload }) => studioApi.updateLoopStateSetting(episodeId, groupId, payload),
+    onSuccess: async (response) => {
+      queryClient.setQueryData<EpisodeDraftResponse | undefined>(promptoonKeys.episodeDraft(episodeId), response);
+      await queryClient.invalidateQueries({ queryKey: promptoonKeys.episodeDraft(episodeId) });
+    }
+  });
+}
+
 export function useDeleteCut(episodeId: string) {
   const queryClient = useQueryClient();
 

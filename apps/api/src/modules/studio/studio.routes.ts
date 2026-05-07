@@ -314,6 +314,12 @@ export function createStudioRouter(): Router {
     );
   }));
 
+  router.get('/episodes/:episodeId/test-viewer', asyncHandler(async (request, response) => {
+    response.json(
+      await service.getEpisodeTestViewerPublish(getParam(request.params.episodeId, 'episodeId'), getRequiredAuthUser(request).sub)
+    );
+  }));
+
   router.post('/episodes/:episodeId/cuts', asyncHandler(async (request, response) => {
     const body = createCutSchema.parse(request.body);
     response.status(201).json(
@@ -339,6 +345,28 @@ export function createStudioRouter(): Router {
     const body = createLoopStateSettingSchema.parse(request.body);
     response.status(201).json(
       await service.createLoopStateSetting(getParam(request.params.episodeId, 'episodeId'), body, getRequiredAuthUser(request).sub)
+    );
+  }));
+
+  router.delete('/episodes/:episodeId/loop-state-setting/:groupId', asyncHandler(async (request, response) => {
+    response.json(
+      await service.deleteLoopStateSetting(
+        getParam(request.params.episodeId, 'episodeId'),
+        getParam(request.params.groupId, 'groupId'),
+        getRequiredAuthUser(request).sub
+      )
+    );
+  }));
+
+  router.patch('/episodes/:episodeId/loop-state-setting/:groupId', asyncHandler(async (request, response) => {
+    const body = createLoopStateSettingSchema.parse(request.body);
+    response.json(
+      await service.updateLoopStateSetting(
+        getParam(request.params.episodeId, 'episodeId'),
+        getParam(request.params.groupId, 'groupId'),
+        body,
+        getRequiredAuthUser(request).sub
+      )
     );
   }));
 

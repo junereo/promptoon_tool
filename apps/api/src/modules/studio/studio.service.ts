@@ -73,6 +73,9 @@ export const updateEpisode = editorService.updateEpisode;
 export const getLatestPublishedEpisode = (episodeId: string, userId: string) =>
   editorService.getLatestPublishedEpisode(episodeId, userId);
 
+export const getEpisodeTestViewerPublish = (episodeId: string, userId: string) =>
+  editorService.getEpisodeTestViewerPublish(episodeId, userId);
+
 export const createCut = editorService.createCut;
 
 export const reorderEpisodeCuts = editorService.reorderEpisodeCuts;
@@ -80,6 +83,10 @@ export const reorderEpisodeCuts = editorService.reorderEpisodeCuts;
 export const updateEpisodeCutLayout = editorService.updateEpisodeCutLayout;
 
 export const createLoopStateSetting = editorService.createLoopStateSetting;
+
+export const deleteLoopStateSetting = editorService.deleteLoopStateSetting;
+
+export const updateLoopStateSetting = editorService.updateLoopStateSetting;
 
 export const updateCut = editorService.updateCut;
 

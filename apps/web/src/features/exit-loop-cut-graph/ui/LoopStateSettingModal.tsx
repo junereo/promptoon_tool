@@ -1,8 +1,30 @@
 import type { CreateLoopStateSettingRequest, CreateLoopStateSettingStageInput, Cut } from '@promptoon/shared';
 import type { ChangeEvent, FormEvent } from 'react';
-import { memo, useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 
 type StageTruth = CreateLoopStateSettingStageInput['truth'];
+
+export interface LoopStateSettingInitialVariant {
+  assetUrl: string;
+  title: string;
+  truth: NonNullable<StageTruth>;
+}
+
+export interface LoopStateSettingInitialStage {
+  baseAssetUrl: string;
+  spacerAssetUrl: string;
+  title: string;
+  variants: LoopStateSettingInitialVariant[];
+}
+
+export interface LoopStateSettingInitialValues {
+  attachAfterCutId: string;
+  continuationCutId: string;
+  exitLevelRequired: number;
+  groupName: string;
+  retryCutId: string;
+  stages: LoopStateSettingInitialStage[];
+}
 
 interface VariantDraft {
   assetUrl: string;
@@ -19,9 +41,12 @@ interface StageDraft {
 
 interface LoopStateSettingModalProps {
   cuts: Cut[];
+  excludedTargetCutIds?: string[];
   initialAttachAfterCutId: string | null;
+  initialValues?: LoopStateSettingInitialValues | null;
   isOpen: boolean;
   isCreating: boolean;
+  mode?: 'create' | 'edit';
   onClose: () => void;
   onCreateLoopState: (payload: CreateLoopStateSettingRequest) => Promise<void>;
   onUploadAsset: (file: File) => Promise<string>;
@@ -77,6 +102,7 @@ function UploadableAssetInput({
   value: string;
 }) {
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0] ?? null;
@@ -85,9 +111,12 @@ function UploadableAssetInput({
       return;
     }
 
+    setUploadError(null);
     setIsUploading(true);
     try {
       onChange(await onUploadAsset(file));
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : '이미지 업로드에 실패했습니다.');
     } finally {
       setIsUploading(false);
     }
@@ -108,6 +137,7 @@ function UploadableAssetInput({
         <label className="inline-flex h-10 cursor-pointer items-center rounded-xl border border-editor-border bg-black/20 px-3 text-sm text-zinc-200 transition hover:border-zinc-500">
           {isUploading ? '업로드' : '파일'}
           <input
+            aria-label={`${label} 파일 업로드`}
             accept="image/*"
             className="sr-only"
             disabled={disabled || isUploading}
@@ -118,15 +148,19 @@ function UploadableAssetInput({
           />
         </label>
       </div>
+      {uploadError ? <p className="text-xs text-red-200">{uploadError}</p> : null}
     </div>
   );
 }
 
 export const LoopStateSettingModal = memo(function LoopStateSettingModal({
   cuts,
+  excludedTargetCutIds = [],
   initialAttachAfterCutId,
+  initialValues = null,
   isOpen,
   isCreating,
+  mode = 'create',
   onClose,
   onCreateLoopState,
   onUploadAsset
@@ -139,9 +173,11 @@ export const LoopStateSettingModal = memo(function LoopStateSettingModal({
   const [retryCutId, setRetryCutId] = useState('');
   const [stageDrafts, setStageDrafts] = useState<StageDraft[]>(() => createStageDrafts(4));
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const hasInitializedOpenSessionRef = useRef(false);
+  const excludedTargetCutIdSet = useMemo(() => new Set(excludedTargetCutIds), [excludedTargetCutIds]);
   const selectableTargetCuts = useMemo(
-    () => cuts.filter((cut) => cut.kind !== 'loopVariant' && cut.kind !== 'loopSpacer'),
-    [cuts]
+    () => cuts.filter((cut) => cut.kind !== 'loopVariant' && cut.kind !== 'loopSpacer' && !excludedTargetCutIdSet.has(cut.id)),
+    [cuts, excludedTargetCutIdSet]
   );
   const loopGroupCount = useMemo(
     () => new Set(cuts.map((cut) => cut.loopMetadata?.groupId).filter((groupId): groupId is string => Boolean(groupId))).size,
@@ -150,21 +186,32 @@ export const LoopStateSettingModal = memo(function LoopStateSettingModal({
 
   useEffect(() => {
     if (!isOpen) {
+      hasInitializedOpenSessionRef.current = false;
       return;
     }
 
-    const canUseInitialAnchor =
-      initialAttachAfterCutId !== null &&
-      cuts.some((cut) => cut.id === initialAttachAfterCutId && cut.kind !== 'loopVariant' && cut.kind !== 'loopSpacer');
-    setGroupName(getDefaultGroupName(loopGroupCount));
-    setStageCount(4);
-    setExitLevelRequired(5);
-    setAttachAfterCutId(canUseInitialAnchor ? initialAttachAfterCutId : '');
-    setContinuationCutId('');
-    setRetryCutId('');
-    setStageDrafts(createStageDrafts(4));
+    if (hasInitializedOpenSessionRef.current) {
+      return;
+    }
+    hasInitializedOpenSessionRef.current = true;
+
+    const initialStages = initialValues?.stages && initialValues.stages.length > 0
+      ? initialValues.stages
+      : null;
+    const initialStageCount = initialStages ? clampStageCount(initialStages.length) : 4;
+    const canUseInitialAnchor = initialValues
+      ? initialValues.attachAfterCutId.length > 0
+      : initialAttachAfterCutId !== null &&
+        cuts.some((cut) => cut.id === initialAttachAfterCutId && cut.kind !== 'loopVariant' && cut.kind !== 'loopSpacer');
+    setGroupName(initialValues?.groupName.trim() || getDefaultGroupName(loopGroupCount));
+    setStageCount(initialStageCount);
+    setExitLevelRequired(initialValues?.exitLevelRequired ?? 5);
+    setAttachAfterCutId(initialValues ? initialValues.attachAfterCutId : canUseInitialAnchor ? initialAttachAfterCutId ?? '' : '');
+    setContinuationCutId(initialValues?.continuationCutId ?? '');
+    setRetryCutId(initialValues?.retryCutId ?? '');
+    setStageDrafts(initialStages ? initialStages.map((stage) => ({ ...stage, variants: [...stage.variants] })) : createStageDrafts(4));
     setStatusMessage(null);
-  }, [cuts, initialAttachAfterCutId, isOpen, loopGroupCount]);
+  }, [cuts, initialAttachAfterCutId, initialValues, isOpen, loopGroupCount]);
 
   useEffect(() => {
     setStageDrafts((current) => {
@@ -270,7 +317,7 @@ export const LoopStateSettingModal = memo(function LoopStateSettingModal({
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="font-display text-lg font-semibold text-zinc-50" id="loop-state-setting-title">
-                LoopStateSetting
+                {mode === 'edit' ? 'LoopStateSetting 편집' : 'LoopStateSetting'}
               </p>
               <p className="mt-1 text-xs text-zinc-500">
                 판정 route cut
@@ -301,7 +348,7 @@ export const LoopStateSettingModal = memo(function LoopStateSettingModal({
                 form="loop-state-setting-form"
                 type="submit"
               >
-                {isCreating ? '생성 중' : '생성'}
+                {isCreating ? (mode === 'edit' ? '저장 중' : '생성 중') : mode === 'edit' ? '저장' : '생성'}
               </button>
             </div>
           </div>

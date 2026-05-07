@@ -1613,6 +1613,49 @@ export async function createLoopStateSetting(
   return loopStateSettingResponse;
 }
 
+export async function deleteLoopStateSetting(episodeId: string, groupId: string, userId: string): Promise<EpisodeDraftResponse> {
+  await ensureEpisodeOwnedByUser(episodeId, userId);
+  const normalizedGroupId = groupId.trim();
+  if (!normalizedGroupId) {
+    throw new HttpError(400, 'LoopStateSetting group id is required.');
+  }
+
+  const groupCuts = await repository.listLoopStateSettingCuts(db, episodeId, normalizedGroupId);
+  if (groupCuts.length === 0) {
+    throw new HttpError(404, 'LoopStateSetting not found.');
+  }
+
+  let nextDraft: EpisodeDraftResponse | null = null;
+  await withTransaction(async (client) => {
+    const groupCutIds = groupCuts.map((cut) => cut.id);
+    await repository.deleteChoicesTargetingCuts(client, {
+      episodeId,
+      cutIds: groupCutIds
+    });
+    await repository.removeStateVariantsTargetingCuts(client, {
+      episodeId,
+      cutIds: groupCutIds
+    });
+    await repository.removeStateRoutesTargetingCuts(client, {
+      episodeId,
+      cutIds: groupCutIds
+    });
+
+    const deletedCount = await repository.deleteLoopStateSettingCuts(client, episodeId, normalizedGroupId);
+    if (deletedCount === 0) {
+      throw new HttpError(404, 'LoopStateSetting not found.');
+    }
+
+    nextDraft = assertExists(await repository.getEpisodeDraft(client, episodeId), 'Episode not found.');
+  });
+
+  if (!nextDraft) {
+    throw new HttpError(500, 'LoopStateSetting was not deleted.');
+  }
+
+  return nextDraft;
+}
+
 export async function createCut(episodeId: string, request: CreateCutRequest, userId: string): Promise<Cut> {
   await ensureEpisodeOwnedByUser(episodeId, userId);
   const stateVariants = normalizeCutStateVariants(request.stateVariants);

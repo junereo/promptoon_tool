@@ -168,6 +168,16 @@ export function createPromptoonRouter(): Router {
     );
   }));
 
+  protectedRouter.delete('/episodes/:episodeId/loop-state-setting/:groupId', asyncHandler(async (request, response) => {
+    response.json(
+      await service.deleteLoopStateSetting(
+        getParam(request.params.episodeId, 'episodeId'),
+        getParam(request.params.groupId, 'groupId'),
+        getRequiredAuthUser(request).sub
+      )
+    );
+  }));
+
   protectedRouter.patch('/episodes/:episodeId/cuts/reorder', asyncHandler(async (request, response) => {
     const body = reorderEpisodeCutsSchema.parse(request.body);
     response.json(

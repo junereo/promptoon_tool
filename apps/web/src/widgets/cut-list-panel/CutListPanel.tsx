@@ -9,7 +9,7 @@ import {
   getDeleteCutReconnectCandidates,
   getIncomingChoiceCount
 } from '../../shared/lib/cut-delete';
-import { CutItem } from './CutItem';
+import { CutItem, type CutCardSize } from './CutItem';
 import { DeleteCutConfirmModal } from './DeleteCutConfirmModal';
 import { SortableCutItem } from './SortableCutItem';
 
@@ -39,6 +39,12 @@ interface StoredFoldState {
   branchGroupKeys: Set<string>;
   choiceSectionKeys: Set<string>;
 }
+
+const CUT_CARD_SIZE_OPTIONS: Array<{ label: string; value: CutCardSize }> = [
+  { label: 'Small', value: 'small' },
+  { label: 'Normal', value: 'normal' },
+  { label: 'Large', value: 'large' }
+];
 
 function createEmptyFoldState(): StoredFoldState {
   return {
@@ -92,6 +98,27 @@ function writeStoredFoldState(storageKey: string | null, branchGroupKeys: Set<st
       choiceSectionKeys: [...choiceSectionKeys]
     })
   );
+}
+
+function isCutCardSize(value: unknown): value is CutCardSize {
+  return value === 'small' || value === 'normal' || value === 'large';
+}
+
+function readStoredCutCardSize(storageKey: string | null): CutCardSize {
+  if (!storageKey || typeof window === 'undefined') {
+    return 'normal';
+  }
+
+  const storedSize = window.localStorage.getItem(storageKey);
+  return isCutCardSize(storedSize) ? storedSize : 'normal';
+}
+
+function writeStoredCutCardSize(storageKey: string | null, cardSize: CutCardSize) {
+  if (!storageKey || typeof window === 'undefined') {
+    return;
+  }
+
+  window.localStorage.setItem(storageKey, cardSize);
 }
 
 function getCompressedRank(rank: string): string {
@@ -203,10 +230,13 @@ export function CutListPanel({
     })
   );
   const foldStorageKey = cuts[0]?.episodeId ? `promptoon:cut-list-fold:${cuts[0].episodeId}` : null;
+  const cardSizeStorageKey = cuts[0]?.episodeId ? `promptoon:cut-list-card-size:${cuts[0].episodeId}` : null;
   const initialFoldState = readStoredFoldState(foldStorageKey);
   const skipNextFoldPersistRef = useRef(false);
+  const skipNextCardSizePersistRef = useRef(false);
   const [pendingDeleteCut, setPendingDeleteCut] = useState<Cut | null>(null);
   const [isDeletePending, setIsDeletePending] = useState(false);
+  const [cutCardSize, setCutCardSize] = useState<CutCardSize>(() => readStoredCutCardSize(cardSizeStorageKey));
   const [collapsedBranchGroupKeys, setCollapsedBranchGroupKeys] = useState<Set<string>>(() => initialFoldState.branchGroupKeys);
   const [collapsedChoiceSectionKeys, setCollapsedChoiceSectionKeys] = useState<Set<string>>(() => initialFoldState.choiceSectionKeys);
   const [reconnectToCutId, setReconnectToCutId] = useState<string | null>(null);
@@ -246,6 +276,20 @@ export function CutListPanel({
 
     writeStoredFoldState(foldStorageKey, collapsedBranchGroupKeys, collapsedChoiceSectionKeys);
   }, [collapsedBranchGroupKeys, collapsedChoiceSectionKeys, foldStorageKey]);
+
+  useEffect(() => {
+    skipNextCardSizePersistRef.current = true;
+    setCutCardSize(readStoredCutCardSize(cardSizeStorageKey));
+  }, [cardSizeStorageKey]);
+
+  useEffect(() => {
+    if (skipNextCardSizePersistRef.current) {
+      skipNextCardSizePersistRef.current = false;
+      return;
+    }
+
+    writeStoredCutCardSize(cardSizeStorageKey, cutCardSize);
+  }, [cardSizeStorageKey, cutCardSize]);
 
   function handleDragEnd(event: DragEndEvent) {
     if (!event.over || event.active.id === event.over.id) {
@@ -325,8 +369,26 @@ export function CutListPanel({
           </div>
         </div>
 
-        <div className="mt-2 rounded-xl border border-editor-border bg-black/10 px-3 py-1.5 text-xs uppercase tracking-[0.2em] text-zinc-500">
-          {cuts.length} cut{cuts.length === 1 ? '' : 's'}
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-editor-border bg-black/10 px-3 py-1.5">
+          <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+            {cuts.length} cut{cuts.length === 1 ? '' : 's'}
+          </span>
+          <div className="inline-flex rounded-full border border-editor-border bg-black/20 p-0.5" aria-label="Cut card size">
+            {CUT_CARD_SIZE_OPTIONS.map((option) => (
+              <button
+                aria-pressed={cutCardSize === option.value}
+                className={[
+                  'rounded-full px-2.5 py-1 text-[11px] font-medium transition',
+                  cutCardSize === option.value ? 'bg-zinc-100 text-zinc-950' : 'text-zinc-400 hover:text-zinc-100'
+                ].join(' ')}
+                key={option.value}
+                onClick={() => setCutCardSize(option.value)}
+                type="button"
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="mt-2 min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1" data-testid="cut-list-scroll">
@@ -388,6 +450,7 @@ export function CutListPanel({
                                   {group.key}
                                 </div>
                                 <CutItem
+                                  cardSize={cutCardSize}
                                   cut={group.contextNode.cut}
                                   createAfterDisabled={!canCreateAfterCut(group.contextNode.cut)}
                                   dragDisabled
@@ -442,6 +505,7 @@ export function CutListPanel({
                                     <div className="space-y-2">
                                       {section.nodes.map((node) => (
                                         <SortableCutItem
+                                          cardSize={cutCardSize}
                                           key={node.cut.id}
                                           cut={node.cut}
                                           createAfterDisabled={!canCreateAfterCut(node.cut)}

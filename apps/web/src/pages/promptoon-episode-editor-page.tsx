@@ -34,19 +34,21 @@ import {
   useCreateLoopStateSetting,
   useDeleteChoice,
   useDeleteCut,
+  useDeleteLoopStateSetting,
   useEpisodeDraft,
   useLatestPublishedEpisode,
   usePublishEpisode,
   useReorderCuts,
   useSaveCutLayout,
   useUnpublishEpisode,
+  useUpdateLoopStateSetting,
   useUpdatePublishedEpisode,
   useUploadAsset,
   useUpdateChoice,
   useUpdateCut,
   useValidateEpisode
 } from '../features/editor/hooks/use-episode-query';
-import { LoopStateSettingModal } from '../features/exit-loop-cut-graph/ui/LoopStateSettingModal';
+import { LoopStateSettingModal, type LoopStateSettingInitialValues } from '../features/exit-loop-cut-graph/ui/LoopStateSettingModal';
 import { LoopStateSettingOverviewModal } from '../features/exit-loop-cut-graph/ui/LoopStateSettingOverviewModal';
 import { useEditorStore } from '../features/editor/store/use-editor-store';
 import { AnalyticsDashboard } from '../widgets/analytics-dashboard/AnalyticsDashboard';
@@ -136,6 +138,8 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
   const resetEpisodeAnalytics = useResetEpisodeAnalytics(episodeId);
   const createCut = useCreateCut(episodeId);
   const createLoopStateSetting = useCreateLoopStateSetting(episodeId);
+  const deleteLoopStateSetting = useDeleteLoopStateSetting(episodeId);
+  const updateLoopStateSetting = useUpdateLoopStateSetting(episodeId);
   const deleteCut = useDeleteCut(episodeId);
   const createChoice = useCreateChoice(episodeId);
   const deleteChoice = useDeleteChoice(episodeId);
@@ -182,6 +186,8 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
   const [isLoopStateSettingOverviewOpen, setIsLoopStateSettingOverviewOpen] = useState(false);
   const [isLoopStateSettingOpen, setIsLoopStateSettingOpen] = useState(false);
   const [loopStateSettingInitialAnchorCutId, setLoopStateSettingInitialAnchorCutId] = useState<string | null>(null);
+  const [loopStateSettingEditGroupId, setLoopStateSettingEditGroupId] = useState<string | null>(null);
+  const [loopStateSettingInitialValues, setLoopStateSettingInitialValues] = useState<LoopStateSettingInitialValues | null>(null);
 
   function handleTabChange(tab: 'editor' | 'analytics') {
     if (tab === activeTab) {
@@ -215,6 +221,8 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
     setIsLoopStateSettingOverviewOpen(false);
     setIsLoopStateSettingOpen(false);
     setLoopStateSettingInitialAnchorCutId(null);
+    setLoopStateSettingEditGroupId(null);
+    setLoopStateSettingInitialValues(null);
   }, [episodeId, resetForEpisode]);
 
   useEffect(() => {
@@ -487,18 +495,123 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
     setIsLoopStateSettingOverviewOpen(true);
   }
 
+  function getLoopStateSettingCutIds(groupId: string): string[] {
+    return orderedCuts
+      .filter((cut) => cut.loopMetadata?.kind === 'exitLoop' && cut.loopMetadata.groupId === groupId)
+      .map((cut) => cut.id);
+  }
+
+  function getLoopStateSettingInitialValues(groupId: string): LoopStateSettingInitialValues | null {
+    if (!draftQuery.data) {
+      return null;
+    }
+
+    const groupCuts = orderedCuts.filter((cut) => cut.loopMetadata?.kind === 'exitLoop' && cut.loopMetadata.groupId === groupId);
+    if (groupCuts.length === 0) {
+      return null;
+    }
+
+    const groupCutIds = new Set(groupCuts.map((cut) => cut.id));
+    const stageCuts = groupCuts
+      .filter((cut) => cut.loopMetadata?.role === 'stageBase')
+      .sort((left, right) => (left.loopMetadata?.stageIndex ?? 0) - (right.loopMetadata?.stageIndex ?? 0));
+    const resultRouterCut = groupCuts.find((cut) => cut.loopMetadata?.role === 'resultRouter') ?? null;
+    const firstStageCut = stageCuts[0] ?? null;
+    const incomingChoice = draftQuery.data.choices.find(
+      (choice) => choice.nextCutId && groupCutIds.has(choice.nextCutId) && !groupCutIds.has(choice.cutId)
+    );
+    const continuationCutId = resultRouterCut?.stateRoutes?.find((route) => route.nextCutId && !groupCutIds.has(route.nextCutId))?.nextCutId ?? '';
+    const retryCutId =
+      resultRouterCut?.stateFallbackCutId &&
+      resultRouterCut.stateFallbackCutId !== firstStageCut?.id &&
+      !groupCutIds.has(resultRouterCut.stateFallbackCutId)
+        ? resultRouterCut.stateFallbackCutId
+        : '';
+    const groupName = groupCuts.find((cut) => cut.loopMetadata?.groupLabel)?.loopMetadata?.groupLabel?.trim() || groupId;
+    const exitLevelRequired =
+      stageCuts.find((cut) => typeof cut.loopMetadata?.exitLevelRequired === 'number')?.loopMetadata?.exitLevelRequired ??
+      resultRouterCut?.loopMetadata?.exitLevelRequired ??
+      5;
+
+    return {
+      attachAfterCutId: incomingChoice?.cutId ?? '',
+      continuationCutId,
+      exitLevelRequired,
+      groupName,
+      retryCutId,
+      stages: stageCuts.map((stageCut) => {
+        const stageIndex = stageCut.loopMetadata?.stageIndex ?? 0;
+        const spacerCut = groupCuts.find((cut) => cut.loopMetadata?.role === 'spacer' && cut.loopMetadata.stageIndex === stageIndex);
+        const variants = groupCuts
+          .filter(
+            (cut) =>
+              cut.loopMetadata?.role === 'stageVariant' &&
+              (cut.loopMetadata.baseCutId === stageCut.id || cut.loopMetadata.stageIndex === stageIndex)
+          )
+          .sort((left, right) => left.orderIndex - right.orderIndex || left.createdAt.localeCompare(right.createdAt))
+          .map((variantCut) => ({
+            assetUrl: variantCut.assetUrl ?? '',
+            title: variantCut.title,
+            truth: variantCut.loopMetadata?.truth ?? 'real_anomaly'
+          }));
+
+        return {
+          baseAssetUrl: stageCut.assetUrl ?? '',
+          spacerAssetUrl: spacerCut?.assetUrl ?? '',
+          title: stageCut.title,
+          variants
+        };
+      })
+    };
+  }
+
   function handleCreateNewLoopStateSetting(anchorCutId?: string | null) {
     setLoopStateSettingInitialAnchorCutId(getLoopStateSettingAnchorCutId(anchorCutId));
+    setLoopStateSettingEditGroupId(null);
+    setLoopStateSettingInitialValues(null);
+    setIsLoopStateSettingOverviewOpen(false);
+    setIsLoopStateSettingOpen(true);
+  }
+
+  function handleEditLoopStateSetting(groupId: string) {
+    const initialValues = getLoopStateSettingInitialValues(groupId);
+    if (!initialValues) {
+      setToolbarNotice('편집할 LoopStateSetting을 찾을 수 없습니다');
+      return;
+    }
+
+    setLoopStateSettingEditGroupId(groupId);
+    setLoopStateSettingInitialValues(initialValues);
+    setLoopStateSettingInitialAnchorCutId(initialValues.attachAfterCutId || null);
     setIsLoopStateSettingOverviewOpen(false);
     setIsLoopStateSettingOpen(true);
   }
 
   async function handleCreateLoopStateSetting(payload: CreateLoopStateSettingRequest) {
-    const response = await createLoopStateSetting.mutateAsync(payload);
+    const response = loopStateSettingEditGroupId
+      ? await updateLoopStateSetting.mutateAsync({ groupId: loopStateSettingEditGroupId, payload })
+      : await createLoopStateSetting.mutateAsync(payload);
     hydrateFromDraft(response);
     replaceLocalCutOrder(getServerCutOrder(response.cuts));
     setSelected({ type: 'cut', id: response.firstStageCutId });
-    setToolbarNotice('LoopStateSetting으로 루프 컷 그룹을 생성했습니다');
+    setLoopStateSettingEditGroupId(null);
+    setLoopStateSettingInitialValues(null);
+    setToolbarNotice(loopStateSettingEditGroupId ? 'LoopStateSetting 그룹을 저장했습니다' : 'LoopStateSetting으로 루프 컷 그룹을 생성했습니다');
+  }
+
+  async function handleDeleteLoopStateSetting(groupId: string) {
+    const response = await deleteLoopStateSetting.mutateAsync(groupId);
+    hydrateFromDraft(response);
+    replaceLocalCutOrder(getServerCutOrder(response.cuts));
+
+    const selectedCutStillExists =
+      selected.type === 'cut' && response.cuts.some((cut) => cut.id === selected.id);
+    const nextSelectedCut = response.cuts.find((cut) => cut.id === response.episode.startCutId) ?? response.cuts[0] ?? null;
+    if (!selectedCutStillExists) {
+      setSelected(nextSelectedCut ? { type: 'cut', id: nextSelectedCut.id } : { type: 'none' });
+    }
+
+    setToolbarNotice('LoopStateSetting 그룹을 삭제했습니다');
   }
 
   async function handleCommitCut(cutId: string, patch: PatchCutRequest) {
@@ -969,6 +1082,7 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
         previewCut={previewCut}
         previewSelectedChoiceId={previewSelectedChoiceId}
         publishedViewerPath={lastPublished ? `/v/${lastPublished.id}` : latestPublishedEpisode ? `/v/${latestPublishedEpisode.id}` : null}
+        testViewerPath={`/studio/projects/${projectId}/episodes/${episodeId}/test-viewer`}
         selectedChoice={selectedChoice}
         selectedCut={selectedCut}
         toolbarNotice={toolbarNotice}
@@ -981,18 +1095,25 @@ function EpisodeEditorPageContent({ projectId, episodeId }: { projectId: string;
         isOpen={isLoopStateSettingOverviewOpen}
         onClose={() => setIsLoopStateSettingOverviewOpen(false)}
         onCreateNew={handleCreateNewLoopStateSetting}
+        onDeleteGroup={handleDeleteLoopStateSetting}
+        onEditGroup={handleEditLoopStateSetting}
         onSelectCut={(cutId) => setSelected({ type: 'cut', id: cutId })}
       />
       <LoopStateSettingModal
         cuts={orderedCuts}
+        excludedTargetCutIds={loopStateSettingEditGroupId ? getLoopStateSettingCutIds(loopStateSettingEditGroupId) : []}
         initialAttachAfterCutId={loopStateSettingInitialAnchorCutId}
-        isCreating={createLoopStateSetting.isPending}
+        initialValues={loopStateSettingInitialValues}
+        isCreating={createLoopStateSetting.isPending || updateLoopStateSetting.isPending}
         isOpen={isLoopStateSettingOpen}
+        mode={loopStateSettingEditGroupId ? 'edit' : 'create'}
         onClose={() => {
-          if (createLoopStateSetting.isPending) {
+          if (createLoopStateSetting.isPending || updateLoopStateSetting.isPending) {
             return;
           }
 
+          setLoopStateSettingEditGroupId(null);
+          setLoopStateSettingInitialValues(null);
           setIsLoopStateSettingOpen(false);
         }}
         onCreateLoopState={handleCreateLoopStateSetting}
