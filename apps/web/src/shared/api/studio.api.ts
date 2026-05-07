@@ -6,6 +6,8 @@ import type {
   AssetUploadResponse,
   Choice,
   CreateEpisodeRequest,
+  CreateMovingtoonEpisodeRequest,
+  CreateMovingtoonEpisodeResponse,
   CreateChoiceRequest,
   CreateCutRequest,
   CreateLoopStateSettingRequest,
@@ -34,6 +36,8 @@ import type {
   ReorderEpisodeCutsRequest,
   ReorderEpisodeCutsResponse,
   ResetEpisodeAnalyticsRequest,
+  MovingtoonEpisodeSummary,
+  MovingtoonProcessingJobSummary,
   UpsertProjectMemberRequest,
   ValidateEpisodeResponse
 } from '@promptoon/shared';
@@ -74,6 +78,42 @@ export const studioApi = {
   async createEpisode(projectId: string, payload: CreateEpisodeRequest): Promise<Episode> {
     const { data } = await rootApiClient.post(`/studio/projects/${projectId}/episodes`, payload);
     return data;
+  },
+
+  async createMovingtoonEpisode(
+    projectId: string,
+    payload: CreateMovingtoonEpisodeRequest & { file: File }
+  ): Promise<CreateMovingtoonEpisodeResponse> {
+    const formData = new FormData();
+    formData.append('file', payload.file);
+    formData.append('title', payload.title);
+    formData.append('episodeNumber', String(payload.episodeNumber));
+    formData.append('aspectRatio', payload.aspectRatio);
+    if (payload.description) {
+      formData.append('description', payload.description);
+    }
+
+    const { data } = await rootApiClient.post(`/studio/projects/${projectId}/movingtoon/episodes`, formData);
+    return data;
+  },
+
+  async listUploadQueue(): Promise<{ jobs: MovingtoonProcessingJobSummary[] }> {
+    const { data } = await rootApiClient.get('/studio/uploads');
+    return data;
+  },
+
+  async reprocessMovingtoonEpisode(episodeId: string): Promise<MovingtoonProcessingJobSummary> {
+    const { data } = await rootApiClient.post(`/studio/movingtoon/episodes/${episodeId}/reprocess`);
+    return data;
+  },
+
+  async publishMovingtoonEpisode(episodeId: string): Promise<MovingtoonEpisodeSummary> {
+    const { data } = await rootApiClient.post(`/studio/movingtoon/episodes/${episodeId}/publish`);
+    return data;
+  },
+
+  async unpublishMovingtoonEpisode(episodeId: string): Promise<void> {
+    await rootApiClient.post(`/studio/movingtoon/episodes/${episodeId}/unpublish`);
   },
 
   async patchEpisode(episodeId: string, payload: PatchEpisodeRequest): Promise<Episode> {

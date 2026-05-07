@@ -31,14 +31,17 @@ function parsePublishIds(value: unknown): string[] {
 export function createFeedRouter(): Router {
   const router = Router();
 
-  async function getFeed(request: Request, response: Response) {
+  async function getFeed(request: Request, response: Response, itemTypes?: string[]) {
     const query = feedQuerySchema.parse(request.query);
-    response.json(await service.getEpisodeFeed(query));
+    response.json(await service.getEpisodeFeed({ ...query, itemTypes }));
   }
 
-  router.get('/mixed', asyncHandler(getFeed));
-  router.get('/episodes', asyncHandler(getFeed));
-  router.get('/shorts', asyncHandler(getFeed));
+  router.get('/mixed', asyncHandler(async (request, response) => getFeed(request, response)));
+  router.get('/episodes', asyncHandler(async (request, response) => getFeed(request, response, ['promptoon', 'webtoon_episode'])));
+  router.get('/shorts', asyncHandler(async (request, response) => getFeed(request, response, ['short_drama'])));
+  router.get('/shorts/:publishId', asyncHandler(async (request, response) => {
+    response.json(await service.getFeedItemByPublishId(uuidSchema.parse(getParam(request.params.publishId, 'publishId'))));
+  }));
 
   router.get('/state', requireAuth, asyncHandler(async (request, response) => {
     response.json(

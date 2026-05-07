@@ -5,6 +5,7 @@ import { ChannelHomePage } from '../domains/channel/pages/ChannelHomePage';
 import { ChannelPage } from '../domains/channel/pages/ChannelPage';
 import { CommunityDiscussionPage } from '../domains/community/pages/CommunityDiscussionPage';
 import { FeedHomePage } from '../domains/feed/pages/FeedHomePage';
+import { MovingtoonShortViewerPage } from '../domains/feed/pages/MovingtoonShortViewerPage';
 import { StudioAssetLibraryPage } from '../domains/studio/pages/StudioAssetLibraryPage';
 import { StudioAnalyticsPage } from '../domains/studio/pages/StudioAnalyticsPage';
 import { StudioCommunityModerationPage } from '../domains/studio/pages/StudioCommunityModerationPage';
@@ -121,6 +122,10 @@ export const router: AppRouter = createBrowserRouter([
     element: <FeedHomePage />
   },
   {
+    path: '/shorts/:publishId',
+    element: <MovingtoonShortViewerPage />
+  },
+  {
     path: '/channel/:channelId',
     element: <ChannelPage />
   },
@@ -138,6 +143,10 @@ export const router: AppRouter = createBrowserRouter([
   },
   {
     path: '/c/:channelSlug/shorts',
+    element: <ChannelHomePage />
+  },
+  {
+    path: '/c/:channelSlug/promptoons',
     element: <ChannelHomePage />
   },
   {

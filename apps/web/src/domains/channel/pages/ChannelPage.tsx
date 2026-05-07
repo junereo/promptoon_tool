@@ -6,6 +6,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuthStore } from '../../../features/auth/store/use-auth-store';
 import { channelApi } from '../../../shared/api/channel.api';
 import { promptoonKeys } from '../../../shared/api/query-keys';
+import { formatChannelHandle } from '../lib/format-channel-handle';
 
 function formatCompact(value: number) {
   return new Intl.NumberFormat('ko-KR', {
@@ -99,7 +100,7 @@ function ShortCard({ short }: { short: ChannelShort }) {
   );
 }
 
-export function ChannelPage() {
+function LegacyChannelPage() {
   const { channelId = '' } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
@@ -193,7 +194,7 @@ export function ChannelPage() {
                 {profile.avatarUrl ? <img alt="" className="h-full w-full object-cover" src={profile.avatarUrl} /> : profile.displayName.slice(0, 1)}
               </div>
               <div className="min-w-0">
-                <p className="text-sm text-white/62">{profile.handle ?? `@${profile.slug}`}</p>
+                <p className="text-sm text-white/62">{formatChannelHandle(profile.handle ?? profile.slug)}</p>
                 <h1 className="truncate font-display text-5xl font-semibold tracking-tight text-white">{profile.displayName}</h1>
                 {profile.bio ? <p className="mt-3 max-w-2xl text-sm leading-6 text-white/72">{profile.bio}</p> : null}
               </div>
@@ -300,3 +301,5 @@ export function ChannelPage() {
     </main>
   );
 }
+
+export { CreatorChannelPage as ChannelPage } from './CreatorChannelPage';

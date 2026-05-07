@@ -142,7 +142,7 @@ interface PublishRow {
   project_id: string;
   episode_id: string;
   version_no: number;
-  status: 'published';
+  status: Publish['status'];
   manifest: PublishManifest;
   created_by: string;
   created_at: Date;
@@ -154,7 +154,7 @@ interface ProjectPublishHistoryRow {
   episode_title: string;
   episode_no: number;
   version_no: number;
-  status: 'published';
+  status: Publish['status'];
   created_at: Date;
   channel_id: string | null;
   series_id: string | null;
@@ -1484,6 +1484,7 @@ export async function getLatestPublishByEpisodeId(db: DbExecutor, episodeId: str
     `SELECT *
        FROM promptoon_publish
       WHERE episode_id = $1
+        AND status = 'published'
       ORDER BY version_no DESC, created_at DESC
       LIMIT 1`,
     [episodeId]
@@ -1518,6 +1519,7 @@ export async function listLatestPublishesForFeed(
            ORDER BY publish.version_no DESC, publish.created_at DESC, publish.id DESC
          ) AS publish_rank
        FROM promptoon_publish AS publish
+       WHERE publish.status = 'published'
      )
      SELECT
        id,
@@ -1549,6 +1551,7 @@ export async function listLatestPublishesForProjectionRebuild(db: DbExecutor): P
            ORDER BY publish.version_no DESC, publish.created_at DESC, publish.id DESC
          ) AS publish_rank
        FROM promptoon_publish AS publish
+       WHERE publish.status = 'published'
      )
      SELECT
        id,
@@ -1586,7 +1589,7 @@ interface ChannelOwnerRow {
 }
 
 function getChannelOwnerDisplayName(owner: ChannelOwnerRow): string {
-  return owner.display_name?.trim() || owner.login_id.trim() || 'channel';
+  return owner.display_name?.trim() || 'Promptoon Creator';
 }
 
 export async function ensureDefaultChannelForProject(db: DbExecutor, project: Project, ownerUserId: string): Promise<ChannelRow> {
@@ -2637,12 +2640,14 @@ export async function updateLatestPublishForEpisode(
          series_id = $4,
          manifest = $5,
          created_by = $6,
+         status = 'published',
          created_at = NOW()
      WHERE id = (
        SELECT id
        FROM promptoon_publish
        WHERE project_id = $1
          AND episode_id = $2
+         AND status = 'published'
        ORDER BY version_no DESC, created_at DESC, id DESC
        LIMIT 1
      )
@@ -2710,6 +2715,19 @@ export async function markEpisodeDraft(db: DbExecutor, episodeId: string): Promi
   );
 }
 
+export async function markPublishesUnpublishedForEpisode(db: DbExecutor, projectId: string, episodeId: string): Promise<number> {
+  const result = await db.query(
+    `UPDATE promptoon_publish
+     SET status = 'unpublished'
+     WHERE project_id = $1
+       AND episode_id = $2
+       AND status = 'published'`,
+    [projectId, episodeId]
+  );
+
+  return result.rowCount ?? 0;
+}
+
 export async function deletePublishesForEpisode(db: DbExecutor, projectId: string, episodeId: string): Promise<number> {
   const result = await db.query(
     `DELETE FROM promptoon_publish
@@ -2727,6 +2745,7 @@ export async function projectHasPublishedEpisodes(db: DbExecutor, projectId: str
        SELECT 1
        FROM promptoon_publish
        WHERE project_id = $1
+         AND status = 'published'
      )::boolean AS exists`,
     [projectId]
   );

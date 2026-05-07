@@ -223,10 +223,12 @@ function sortPostsLatestFirst(posts: CommunityDiscoursePost[]): CommunityDiscour
 }
 
 async function ensurePublishModeratableByUser(publishId: string, userId: string): Promise<void> {
-  const publish = assertExists(await repository.getPublishById(db, publishId), 'Published episode not found.');
-  const ownerId = await repository.getProjectOwnerId(db, publish.projectId);
+  const promptoonPublish = await repository.getPublishById(db, publishId);
+  const movingtoonPublish = promptoonPublish ? null : await repository.getMovingtoonPublishProjectionContext(db, publishId);
+  const projectId = assertExists(promptoonPublish?.projectId ?? movingtoonPublish?.project_id ?? null, 'Published content not found.');
+  const ownerId = await repository.getProjectOwnerId(db, projectId);
   const role = await repository.getProjectMemberRole(db, {
-    projectId: publish.projectId,
+    projectId,
     userId
   });
 
@@ -272,11 +274,12 @@ export function getCommentsMeta(publishId: string): Promise<CommentsMetaResponse
 }
 
 export async function getCommunityEmbed(publishId: string): Promise<CommunityEmbedResponse> {
-  const [publish, meta, threadSync] = await Promise.all([
-    projectionService.getPublishedEpisode(publishId),
+  const [feedItem, meta, threadSync] = await Promise.all([
+    repository.getFeedItemByPublicPublishId(db, publishId),
     projectionService.getCommentsMeta(publishId),
     repository.getDiscourseThreadSync(db, publishId)
   ]);
+  const publish = feedItem ? null : await repository.getPublishById(db, publishId);
 
   const discourseTopicId = threadSync?.status === 'synced' ? threadSync.discourseTopicId : null;
   const discourseUrl = discourseTopicId ? discourseService.getDiscourseTopicUrl(discourseTopicId) : null;
@@ -284,7 +287,7 @@ export async function getCommunityEmbed(publishId: string): Promise<CommunityEmb
   return {
     ...meta,
     provider: discourseTopicId ? 'discourse' : 'promptoon',
-    title: `${publish.manifest.episode.title} 댓글`,
+    title: `${feedItem?.episodeTitle ?? publish?.manifest.episode.title ?? '콘텐츠'} 댓글`,
     ...(discourseTopicId
       ? {
           discourseTopicId,
@@ -296,7 +299,10 @@ export async function getCommunityEmbed(publishId: string): Promise<CommunityEmb
 }
 
 export async function listComments(publishId: string): Promise<CommunityCommentListResponse> {
-  assertExists(await repository.getPublishById(db, publishId), 'Published episode not found.');
+  assertExists(
+    (await repository.getPublishById(db, publishId)) ?? (await repository.getMovingtoonPublishProjectionContext(db, publishId)),
+    'Published content not found.'
+  );
 
   return {
     publishId,
@@ -305,11 +311,17 @@ export async function listComments(publishId: string): Promise<CommunityCommentL
 }
 
 export async function createComment(publishId: string, body: string, userId: string): Promise<CommunityComment> {
-  const publish = assertExists(await repository.getPublishById(db, publishId), 'Published episode not found.');
-  await repository.ensureEpisodeDiscussion(db, {
-    episodeId: publish.episodeId,
-    publishId: publish.id
-  });
+  const promptoonPublish = await repository.getPublishById(db, publishId);
+  const movingtoonPublish = promptoonPublish ? null : await repository.getMovingtoonPublishProjectionContext(db, publishId);
+  const projectId = assertExists(promptoonPublish?.projectId ?? movingtoonPublish?.project_id ?? null, 'Published content not found.');
+  const episodeId = promptoonPublish?.episodeId ?? movingtoonPublish?.episode_id;
+
+  if (promptoonPublish) {
+    await repository.ensureEpisodeDiscussion(db, {
+      episodeId: promptoonPublish.episodeId,
+      publishId: promptoonPublish.id
+    });
+  }
 
   const comment = await repository.createCommunityComment(db, {
     publishId,
@@ -320,8 +332,8 @@ export async function createComment(publishId: string, body: string, userId: str
   await repository.insertTelemetryEvent(db, {
     eventName: 'community_comment_created',
     userId,
-    projectId: publish.projectId,
-    episodeId: publish.episodeId,
+    projectId,
+    episodeId,
     publishId,
     payload: {
       commentId: comment.id

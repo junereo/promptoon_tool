@@ -14,6 +14,8 @@ import type {
   Publish,
   PublishManifest,
   RelatedShort,
+  StudioProjectKind,
+  StudioProjectStatus,
   TelemetryEventPayload,
   TelemetryEventType,
   ViewerInteractionStateResponse
@@ -27,7 +29,8 @@ interface ProjectRow {
   title: string;
   description: string | null;
   thumbnail_url: string | null;
-  status: 'draft' | 'published';
+  kind: StudioProjectKind;
+  status: StudioProjectStatus;
   created_by: string;
   created_at: Date;
   updated_at: Date;
@@ -38,7 +41,7 @@ interface PublishRow {
   project_id: string;
   episode_id: string;
   version_no: number;
-  status: 'published';
+  status: Publish['status'];
   manifest: PublishManifest;
   created_by: string;
   created_at: Date;
@@ -82,11 +85,12 @@ interface FeedCursorInput {
 
 interface FeedItemProjectionRow {
   id: string;
-  publish_id: string;
+  publish_id: string | null;
+  movingtoon_publish_id: string | null;
   project_id: string;
   channel_id: string | null;
   series_id: string | null;
-  episode_id: string;
+  episode_id: string | null;
   metrics_json: FeedItemMetrics | null;
   payload_json: FeedItem;
   published_at: Date;
@@ -94,6 +98,7 @@ interface FeedItemProjectionRow {
 
 interface ContentInteractionStateRow {
   publish_id: string;
+  content_type: 'promptoon' | 'short_drama';
   liked: boolean;
   bookmarked: boolean;
   metrics_json: FeedItemMetrics | null;
@@ -105,6 +110,15 @@ interface ViewerInteractionStateRow extends ContentInteractionStateRow {
 }
 
 export interface ProductPublishProjectionContextRow {
+  publish_id: string;
+  project_id: string;
+  channel_id: string | null;
+  series_id: string | null;
+  episode_id: string;
+  feed_item_id: string | null;
+}
+
+export interface MovingtoonPublishProjectionContextRow {
   publish_id: string;
   project_id: string;
   channel_id: string | null;
@@ -134,6 +148,7 @@ interface RelatedShortRow {
   thumbnail_url: string | null;
   duration_sec: number;
   publish_id: string | null;
+  movingtoon_publish_id: string | null;
   channel_slug: string | null;
 }
 
@@ -143,7 +158,8 @@ interface ViewerEventInsertRow {
 
 interface CommunityCommentRow {
   id: string;
-  publish_id: string;
+  publish_id: string | null;
+  movingtoon_publish_id: string | null;
   discussion_id: string | null;
   user_id: string | null;
   body: string;
@@ -227,6 +243,7 @@ function mapProject(row: ProjectRow): Project {
     title: row.title,
     description: row.description,
     thumbnailUrl: row.thumbnail_url,
+    kind: row.kind,
     status: row.status,
     createdBy: row.created_by,
     createdAt: toIsoString(row.created_at),
@@ -250,7 +267,7 @@ function mapPublish(row: PublishRow): Publish {
 function mapCommunityComment(row: CommunityCommentRow): CommunityComment {
   return {
     id: row.id,
-    publishId: row.publish_id,
+    publishId: row.publish_id ?? row.movingtoon_publish_id ?? '',
     discussionId: row.discussion_id,
     userId: row.user_id,
     body: row.body,
@@ -300,6 +317,7 @@ function mapChannelProfile(row: ProductChannelRow, counts?: Partial<ChannelProfi
   return {
     id: row.id,
     slug: row.slug,
+    ownerLoginId: counts?.ownerLoginId ?? null,
     displayName: row.display_name,
     handle: row.handle,
     avatarUrl: row.avatar_url,
@@ -342,7 +360,7 @@ interface ChannelOwnerRow {
 }
 
 function getChannelOwnerDisplayName(owner: ChannelOwnerRow): string {
-  return owner.display_name?.trim() || owner.login_id.trim() || 'channel';
+  return owner.display_name?.trim() || 'Promptoon Creator';
 }
 
 export async function getProjectById(db: DbExecutor, projectId: string): Promise<Project | null> {
@@ -409,6 +427,7 @@ export async function listLatestPublishesForProjectionRebuild(db: DbExecutor): P
            ORDER BY publish.version_no DESC, publish.created_at DESC, publish.id DESC
          ) AS publish_rank
        FROM promptoon_publish AS publish
+       WHERE publish.status = 'published'
      )
      SELECT
        id,
@@ -469,6 +488,136 @@ export async function ensureDefaultChannelForProject(
   );
 
   return result.rows[0];
+}
+
+export async function ensureDefaultChannelForOwner(db: DbExecutor, ownerUserId: string): Promise<ProductChannelRow> {
+  const existing = await db.query<ProductChannelRow>(
+    `SELECT *
+     FROM promptoon_channel
+     WHERE owner_user_id = $1 AND is_default = TRUE
+     ORDER BY created_at ASC
+     LIMIT 1`,
+    [ownerUserId]
+  );
+  if (existing.rows[0]) {
+    return existing.rows[0];
+  }
+
+  const ownerResult = await db.query<ChannelOwnerRow>(
+    'SELECT id, login_id, display_name, profile_image_url FROM users WHERE id = $1',
+    [ownerUserId]
+  );
+  const owner = ownerResult.rows[0];
+  const displayName = owner ? getChannelOwnerDisplayName(owner) : 'Promptoon Creator';
+  const avatarUrl = owner?.profile_image_url ?? null;
+  const slug = slugify(displayName, ownerUserId);
+  const result = await db.query<ProductChannelRow>(
+    `INSERT INTO promptoon_channel (project_id, owner_user_id, slug, display_name, handle, avatar_url, bio, is_default)
+     VALUES (NULL, $1, $2, $3, $4, $5, NULL, TRUE)
+     ON CONFLICT (slug) DO UPDATE
+       SET project_id = NULL,
+           owner_user_id = EXCLUDED.owner_user_id,
+           display_name = EXCLUDED.display_name,
+           handle = EXCLUDED.handle,
+           avatar_url = COALESCE(promptoon_channel.avatar_url, EXCLUDED.avatar_url),
+           is_default = TRUE,
+           updated_at = NOW()
+     RETURNING *`,
+    [ownerUserId, slug, displayName, `@${slug}`, avatarUrl]
+  );
+
+  return result.rows[0];
+}
+
+export async function updateChannelBannerUrl(
+  db: DbExecutor,
+  input: {
+    channelId: string;
+    bannerUrl: string | null;
+  }
+): Promise<ProductChannelRow | null> {
+  const result = await db.query<ProductChannelRow>(
+    `UPDATE promptoon_channel
+     SET banner_url = $2,
+         updated_at = NOW()
+     WHERE id = $1
+     RETURNING *`,
+    [input.channelId, input.bannerUrl]
+  );
+
+  return result.rows[0] ?? null;
+}
+
+export async function updateChannelAvatarUrl(
+  db: DbExecutor,
+  input: {
+    channelId: string;
+    avatarUrl: string | null;
+  }
+): Promise<ProductChannelRow | null> {
+  const result = await db.query<ProductChannelRow>(
+    `UPDATE promptoon_channel
+     SET avatar_url = $2,
+         updated_at = NOW()
+     WHERE id = $1
+     RETURNING *`,
+    [input.channelId, input.avatarUrl]
+  );
+
+  return result.rows[0] ?? null;
+}
+
+export async function updateChannelProfile(
+  db: DbExecutor,
+  input: {
+    bio: string | null;
+    channelId: string;
+    displayName: string;
+  }
+): Promise<ProductChannelRow | null> {
+  const result = await db.query<ProductChannelRow>(
+    `UPDATE promptoon_channel
+     SET display_name = $2,
+         bio = $3,
+         updated_at = NOW()
+     WHERE id = $1
+     RETURNING *`,
+    [input.channelId, input.displayName, input.bio]
+  );
+
+  return result.rows[0] ?? null;
+}
+
+export async function updateUserProfileImageUrl(db: DbExecutor, input: { profileImageUrl: string | null; userId: string }): Promise<void> {
+  await db.query(
+    `UPDATE users
+     SET profile_image_url = $2,
+         updated_at = NOW()
+     WHERE id = $1`,
+    [input.userId, input.profileImageUrl]
+  );
+}
+
+export async function syncFeedItemChannelProfilePayload(db: DbExecutor, channelId: string): Promise<void> {
+  await db.query(
+    `UPDATE promptoon_feed_item AS item
+     SET payload_json = jsonb_set(
+           jsonb_set(
+             item.payload_json,
+             '{channelName}',
+             to_jsonb(channel.display_name),
+             true
+           ),
+           '{channelAvatarUrl}',
+           COALESCE(to_jsonb(channel.avatar_url), 'null'::jsonb),
+           true
+         ),
+         updated_at = NOW()
+     FROM promptoon_channel AS channel
+     WHERE item.channel_id = channel.id
+       AND channel.id = $1`,
+    [channelId]
+  );
 }
 
 export async function ensureDefaultSeriesForProject(
@@ -577,23 +726,28 @@ export async function listFeedItemProjections(
   db: DbExecutor,
   input: {
     cursor?: FeedCursorInput;
+    itemTypes?: string[];
     limit: number;
   }
 ): Promise<Array<{ id: string; publishedAt: string; item: FeedItem }>> {
   const values: unknown[] = [];
-  const cursorClause = input.cursor
-    ? (() => {
-        values.push(input.cursor.createdAt, input.cursor.publishId);
-        return `WHERE (published_at, id) < ($${values.length - 1}::timestamptz, $${values.length}::uuid)`;
-      })()
-    : '';
+  const whereClauses: string[] = [];
+  if (input.cursor) {
+    values.push(input.cursor.createdAt, input.cursor.publishId);
+    whereClauses.push(`(published_at, id) < ($${values.length - 1}::timestamptz, $${values.length}::uuid)`);
+  }
+  if (input.itemTypes && input.itemTypes.length > 0) {
+    values.push(input.itemTypes);
+    whereClauses.push(`item_type = ANY($${values.length}::text[])`);
+  }
+  const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
   values.push(input.limit);
 
   const result = await db.query<FeedItemProjectionRow>(
-    `SELECT id, publish_id, project_id, channel_id, series_id, episode_id, metrics_json, payload_json, published_at
+    `SELECT id, publish_id, movingtoon_publish_id, project_id, channel_id, series_id, episode_id, metrics_json, payload_json, published_at
      FROM promptoon_feed_item
-     ${cursorClause}
+     ${whereClause}
      ORDER BY published_at DESC, id DESC
      LIMIT $${values.length}`,
     values
@@ -609,6 +763,25 @@ export async function listFeedItemProjections(
   }));
 }
 
+export async function getFeedItemByPublicPublishId(db: DbExecutor, publishId: string): Promise<FeedItem | null> {
+  const result = await db.query<FeedItemProjectionRow>(
+    `SELECT id, publish_id, movingtoon_publish_id, project_id, channel_id, series_id, episode_id, metrics_json, payload_json, published_at
+     FROM promptoon_feed_item
+     WHERE publish_id = $1 OR movingtoon_publish_id = $1
+     LIMIT 1`,
+    [publishId]
+  );
+  const row = result.rows[0];
+  if (!row) {
+    return null;
+  }
+
+  return {
+    ...row.payload_json,
+    metrics: normalizeFeedMetrics(row.metrics_json ?? row.payload_json.metrics)
+  };
+}
+
 export async function getPublishProjectionContext(db: DbExecutor, publishId: string): Promise<ProductPublishProjectionContextRow | null> {
   const result = await db.query<ProductPublishProjectionContextRow>(
     `SELECT
@@ -620,6 +793,27 @@ export async function getPublishProjectionContext(db: DbExecutor, publishId: str
        item.id AS feed_item_id
      FROM promptoon_publish AS publish
      LEFT JOIN promptoon_feed_item AS item ON item.publish_id = publish.id
+     WHERE publish.id = $1`,
+    [publishId]
+  );
+
+  return result.rows[0] ?? null;
+}
+
+export async function getMovingtoonPublishProjectionContext(
+  db: DbExecutor,
+  publishId: string
+): Promise<MovingtoonPublishProjectionContextRow | null> {
+  const result = await db.query<MovingtoonPublishProjectionContextRow>(
+    `SELECT
+       publish.id AS publish_id,
+       publish.project_id,
+       publish.channel_id,
+       publish.series_id,
+       publish.episode_id,
+       item.id AS feed_item_id
+     FROM promptoon_movingtoon_publish AS publish
+     LEFT JOIN promptoon_feed_item AS item ON item.movingtoon_publish_id = publish.id
      WHERE publish.id = $1`,
     [publishId]
   );
@@ -644,28 +838,51 @@ export async function listContentInteractionStates(
      )
      SELECT
        requested.publish_id::text AS publish_id,
-       EXISTS (
-         SELECT 1
-         FROM promptoon_user_like AS user_like
-         WHERE user_like.user_id = $2
-           AND user_like.publish_id = requested.publish_id
-       ) AS liked,
-       EXISTS (
-         SELECT 1
-         FROM promptoon_user_bookmark AS bookmark
-         WHERE bookmark.user_id = $2
-           AND bookmark.publish_id = requested.publish_id
-       ) AS bookmarked,
+       CASE WHEN promptoon_publish.id IS NOT NULL THEN 'promptoon' ELSE 'short_drama' END AS content_type,
+       CASE
+         WHEN promptoon_publish.id IS NOT NULL THEN EXISTS (
+           SELECT 1
+           FROM promptoon_user_like AS user_like
+           WHERE user_like.user_id = $2
+             AND user_like.publish_id = requested.publish_id
+         )
+         ELSE EXISTS (
+           SELECT 1
+           FROM promptoon_user_movingtoon_like AS user_like
+           WHERE user_like.user_id = $2
+             AND user_like.movingtoon_publish_id = requested.publish_id
+         )
+       END AS liked,
+       CASE
+         WHEN promptoon_publish.id IS NOT NULL THEN EXISTS (
+           SELECT 1
+           FROM promptoon_user_bookmark AS bookmark
+           WHERE bookmark.user_id = $2
+             AND bookmark.publish_id = requested.publish_id
+         )
+         ELSE EXISTS (
+           SELECT 1
+           FROM promptoon_user_movingtoon_bookmark AS bookmark
+           WHERE bookmark.user_id = $2
+             AND bookmark.movingtoon_publish_id = requested.publish_id
+         )
+       END AS bookmarked,
        COALESCE(item.metrics_json, item.payload_json->'metrics', '{"views":0,"likes":0,"comments":0,"shares":0}'::jsonb) AS metrics_json
      FROM requested
-     JOIN promptoon_publish AS publish ON publish.id = requested.publish_id
-     LEFT JOIN promptoon_feed_item AS item ON item.publish_id = requested.publish_id
+     LEFT JOIN promptoon_publish ON promptoon_publish.id = requested.publish_id
+     LEFT JOIN promptoon_movingtoon_publish AS movingtoon_publish ON movingtoon_publish.id = requested.publish_id
+     LEFT JOIN promptoon_feed_item AS item
+       ON item.publish_id = requested.publish_id
+       OR item.movingtoon_publish_id = requested.publish_id
+     WHERE promptoon_publish.id IS NOT NULL
+        OR movingtoon_publish.id IS NOT NULL
      ORDER BY array_position($1::uuid[], requested.publish_id)`,
     [input.publishIds, input.userId]
   );
 
   return result.rows.map((row) => ({
     publishId: row.publish_id,
+    contentType: row.content_type,
     liked: row.liked,
     bookmarked: row.bookmarked,
     metrics: normalizeFeedMetrics(row.metrics_json)
@@ -775,6 +992,22 @@ export async function deleteUserLike(db: DbExecutor, publishId: string, userId: 
   await db.query('DELETE FROM promptoon_user_like WHERE user_id = $1 AND publish_id = $2', [userId, publishId]);
 }
 
+export async function upsertUserMovingtoonLike(db: DbExecutor, publishId: string, userId: string): Promise<void> {
+  await db.query(
+    `INSERT INTO promptoon_user_movingtoon_like (user_id, movingtoon_publish_id)
+     VALUES ($1, $2)
+     ON CONFLICT (user_id, movingtoon_publish_id) DO NOTHING`,
+    [userId, publishId]
+  );
+}
+
+export async function deleteUserMovingtoonLike(db: DbExecutor, publishId: string, userId: string): Promise<void> {
+  await db.query('DELETE FROM promptoon_user_movingtoon_like WHERE user_id = $1 AND movingtoon_publish_id = $2', [
+    userId,
+    publishId
+  ]);
+}
+
 export async function upsertUserBookmark(db: DbExecutor, publishId: string, userId: string): Promise<void> {
   await db.query(
     `INSERT INTO promptoon_user_bookmark (user_id, publish_id)
@@ -786,6 +1019,22 @@ export async function upsertUserBookmark(db: DbExecutor, publishId: string, user
 
 export async function deleteUserBookmark(db: DbExecutor, publishId: string, userId: string): Promise<void> {
   await db.query('DELETE FROM promptoon_user_bookmark WHERE user_id = $1 AND publish_id = $2', [userId, publishId]);
+}
+
+export async function upsertUserMovingtoonBookmark(db: DbExecutor, publishId: string, userId: string): Promise<void> {
+  await db.query(
+    `INSERT INTO promptoon_user_movingtoon_bookmark (user_id, movingtoon_publish_id)
+     VALUES ($1, $2)
+     ON CONFLICT (user_id, movingtoon_publish_id) DO NOTHING`,
+    [userId, publishId]
+  );
+}
+
+export async function deleteUserMovingtoonBookmark(db: DbExecutor, publishId: string, userId: string): Promise<void> {
+  await db.query('DELETE FROM promptoon_user_movingtoon_bookmark WHERE user_id = $1 AND movingtoon_publish_id = $2', [
+    userId,
+    publishId
+  ]);
 }
 
 export async function refreshFeedItemLikeMetrics(db: DbExecutor, publishId: string): Promise<ProductPublishProjectionContextRow | null> {
@@ -827,6 +1076,48 @@ export async function refreshFeedItemLikeMetrics(db: DbExecutor, publishId: stri
   return context;
 }
 
+export async function refreshMovingtoonFeedItemLikeMetrics(
+  db: DbExecutor,
+  publishId: string
+): Promise<MovingtoonPublishProjectionContextRow | null> {
+  const context = await getMovingtoonPublishProjectionContext(db, publishId);
+  if (!context) {
+    return null;
+  }
+
+  const countResult = await db.query<{ count: string }>(
+    'SELECT COUNT(*)::text AS count FROM promptoon_user_movingtoon_like WHERE movingtoon_publish_id = $1',
+    [publishId]
+  );
+  const likeCount = Number(countResult.rows[0]?.count ?? 0);
+
+  await db.query(
+    `UPDATE promptoon_feed_item
+     SET metrics_json = jsonb_set(
+           COALESCE(metrics_json, '{"views":0,"likes":0,"comments":0,"shares":0}'::jsonb),
+           '{likes}',
+           to_jsonb($2::integer),
+           true
+         ),
+         payload_json = jsonb_set(
+           jsonb_set(
+             payload_json,
+             '{metrics}',
+             COALESCE(payload_json->'metrics', metrics_json, '{"views":0,"likes":0,"comments":0,"shares":0}'::jsonb),
+             true
+           ),
+           '{metrics,likes}',
+           to_jsonb($2::integer),
+           true
+         ),
+         updated_at = NOW()
+     WHERE movingtoon_publish_id = $1`,
+    [publishId, likeCount]
+  );
+
+  return context;
+}
+
 export async function getChannelBySlug(db: DbExecutor, slug: string): Promise<ProductChannelRow | null> {
   const result = await db.query<ProductChannelRow>('SELECT * FROM promptoon_channel WHERE slug = $1 AND visibility = $2', [slug, 'public']);
   return result.rows[0] ?? null;
@@ -854,7 +1145,13 @@ export async function getChannelHomeProjection(db: DbExecutor, channelId: string
 }
 
 export async function buildChannelHomeFromPublicTables(db: DbExecutor, channelId: string): Promise<ChannelHome | null> {
-  const channelResult = await db.query<ProductChannelRow>('SELECT * FROM promptoon_channel WHERE id = $1', [channelId]);
+  const channelResult = await db.query<ProductChannelRow & { owner_login_id: string | null }>(
+    `SELECT channel.*, users.login_id AS owner_login_id
+     FROM promptoon_channel AS channel
+     LEFT JOIN users ON users.id = channel.owner_user_id
+     WHERE channel.id = $1`,
+    [channelId]
+  );
   const channel = channelResult.rows[0];
   if (!channel) {
     return null;
@@ -926,8 +1223,9 @@ export async function buildChannelHomeFromPublicTables(db: DbExecutor, channelId
     video_url: string | null;
     duration_sec: number;
     publish_id: string | null;
+    movingtoon_publish_id: string | null;
   }>(
-    `SELECT id, title, thumbnail_url, video_url, duration_sec, publish_id
+    `SELECT id, title, thumbnail_url, video_url, duration_sec, publish_id, movingtoon_publish_id
      FROM promptoon_short_clip
      WHERE channel_id = $1 AND status = 'published'
      ORDER BY published_at DESC NULLS LAST, created_at DESC
@@ -936,6 +1234,7 @@ export async function buildChannelHomeFromPublicTables(db: DbExecutor, channelId
   );
 
   const profile = mapChannelProfile(channel, {
+    ownerLoginId: channel.owner_login_id,
     subscriberCount: Number(countRow?.subscriber_count ?? 0),
     likeCount: Number(countRow?.like_count ?? 0),
     seriesCount: Number(countRow?.series_count ?? 0),
@@ -968,7 +1267,7 @@ export async function buildChannelHomeFromPublicTables(db: DbExecutor, channelId
       thumbnailUrl: short.thumbnail_url,
       videoUrl: short.video_url,
       durationSec: short.duration_sec,
-      publishId: short.publish_id
+      publishId: short.movingtoon_publish_id ?? short.publish_id
     })),
     communityMeta: {
       commentCount: Number(countRow?.comment_count ?? 0),
@@ -1027,7 +1326,20 @@ export async function getCommentsMetaByPublishId(db: DbExecutor, publishId: stri
   const result = await db.query<ProductCommentsMetaRow>(
     `SELECT publish_id, comment_count, latest_comment_at, discussion_url
      FROM promptoon_episode_discussion
-     WHERE publish_id = $1`,
+     WHERE publish_id = $1
+     UNION ALL
+     SELECT
+       movingtoon.id AS publish_id,
+       COUNT(comment.id)::integer AS comment_count,
+       MAX(comment.created_at) AS latest_comment_at,
+       '/community/publishes/' || movingtoon.id::text AS discussion_url
+     FROM promptoon_movingtoon_publish AS movingtoon
+     LEFT JOIN promptoon_comment AS comment
+       ON comment.movingtoon_publish_id = movingtoon.id
+      AND comment.status = 'visible'
+     WHERE movingtoon.id = $1
+     GROUP BY movingtoon.id
+     LIMIT 1`,
     [publishId]
   );
 
@@ -1036,9 +1348,9 @@ export async function getCommentsMetaByPublishId(db: DbExecutor, publishId: stri
 
 export async function listCommunityComments(db: DbExecutor, publishId: string): Promise<CommunityComment[]> {
   const result = await db.query<CommunityCommentRow>(
-    `SELECT id, publish_id, discussion_id, user_id, body, status, moderation_reason, created_at, updated_at
+    `SELECT id, publish_id, movingtoon_publish_id, discussion_id, user_id, body, status, moderation_reason, created_at, updated_at
      FROM promptoon_comment
-     WHERE publish_id = $1
+     WHERE (publish_id = $1 OR movingtoon_publish_id = $1)
        AND status = 'visible'
      ORDER BY created_at ASC, id ASC`,
     [publishId]
@@ -1049,7 +1361,7 @@ export async function listCommunityComments(db: DbExecutor, publishId: string): 
 
 export async function getCommunityCommentById(db: DbExecutor, commentId: string): Promise<CommunityComment | null> {
   const result = await db.query<CommunityCommentRow>(
-    `SELECT id, publish_id, discussion_id, user_id, body, status, moderation_reason, created_at, updated_at
+    `SELECT id, publish_id, movingtoon_publish_id, discussion_id, user_id, body, status, moderation_reason, created_at, updated_at
      FROM promptoon_comment
      WHERE id = $1`,
     [commentId]
@@ -1067,14 +1379,22 @@ export async function createCommunityComment(
   }
 ): Promise<CommunityComment> {
   const result = await db.query<CommunityCommentRow>(
-    `INSERT INTO promptoon_comment (publish_id, discussion_id, user_id, body)
-     VALUES (
-       $1,
-       (SELECT id FROM promptoon_episode_discussion WHERE publish_id = $1 LIMIT 1),
+    `WITH target AS (
+       SELECT
+         $1::uuid AS id,
+         EXISTS (SELECT 1 FROM promptoon_publish WHERE id = $1) AS is_promptoon,
+         EXISTS (SELECT 1 FROM promptoon_movingtoon_publish WHERE id = $1) AS is_movingtoon
+     )
+     INSERT INTO promptoon_comment (publish_id, movingtoon_publish_id, discussion_id, user_id, body)
+     SELECT
+       CASE WHEN is_promptoon THEN id ELSE NULL END,
+       CASE WHEN is_movingtoon THEN id ELSE NULL END,
+       CASE WHEN is_promptoon THEN (SELECT id FROM promptoon_episode_discussion WHERE publish_id = target.id LIMIT 1) ELSE NULL END,
        $2,
        $3
-     )
-     RETURNING id, publish_id, discussion_id, user_id, body, status, moderation_reason, created_at, updated_at`,
+     FROM target
+     WHERE is_promptoon OR is_movingtoon
+     RETURNING id, publish_id, movingtoon_publish_id, discussion_id, user_id, body, status, moderation_reason, created_at, updated_at`,
     [input.publishId, input.userId, input.body]
   );
 
@@ -1094,7 +1414,7 @@ export async function updateCommunityCommentBody(
          updated_at = NOW()
      WHERE id = $1
        AND status <> 'deleted'
-     RETURNING id, publish_id, discussion_id, user_id, body, status, moderation_reason, created_at, updated_at`,
+     RETURNING id, publish_id, movingtoon_publish_id, discussion_id, user_id, body, status, moderation_reason, created_at, updated_at`,
     [input.commentId, input.body]
   );
 
@@ -1116,21 +1436,24 @@ export async function moderateCommunityComment(
          body = CASE WHEN $2 = 'deleted' THEN '' ELSE body END,
          updated_at = NOW()
      WHERE id = $1
-     RETURNING id, publish_id, discussion_id, user_id, body, status, moderation_reason, created_at, updated_at`,
+     RETURNING id, publish_id, movingtoon_publish_id, discussion_id, user_id, body, status, moderation_reason, created_at, updated_at`,
     [input.commentId, input.status, input.reason ?? null]
   );
 
   return result.rows[0] ? mapCommunityComment(result.rows[0]) : null;
 }
 
-export async function refreshCommunityCommentMetrics(db: DbExecutor, publishId: string): Promise<ProductPublishProjectionContextRow | null> {
-  const context = await getPublishProjectionContext(db, publishId);
+export async function refreshCommunityCommentMetrics(
+  db: DbExecutor,
+  publishId: string
+): Promise<ProductPublishProjectionContextRow | MovingtoonPublishProjectionContextRow | null> {
+  const context = (await getPublishProjectionContext(db, publishId)) ?? (await getMovingtoonPublishProjectionContext(db, publishId));
 
   const countResult = await db.query<{ comment_count: string; latest_comment_at: Date | null }>(
     `SELECT COUNT(*)::text AS comment_count,
             MAX(created_at) AS latest_comment_at
      FROM promptoon_comment
-     WHERE publish_id = $1
+     WHERE (publish_id = $1 OR movingtoon_publish_id = $1)
        AND status = 'visible'`,
     [publishId]
   );
@@ -1166,7 +1489,7 @@ export async function refreshCommunityCommentMetrics(db: DbExecutor, publishId: 
            true
          ),
          updated_at = NOW()
-     WHERE publish_id = $1`,
+     WHERE publish_id = $1 OR movingtoon_publish_id = $1`,
     [publishId, commentCount]
   );
 
@@ -1452,6 +1775,7 @@ export async function listRelatedShortsForPublish(db: DbExecutor, publishId: str
        short.thumbnail_url,
        short.duration_sec,
        short.publish_id,
+       short.movingtoon_publish_id,
        channel.slug AS channel_slug
      FROM promptoon_short_clip AS short
      JOIN target_publish AS target ON
@@ -1474,7 +1798,13 @@ export async function listRelatedShortsForPublish(db: DbExecutor, publishId: str
     title: row.title,
     thumbnailUrl: row.thumbnail_url,
     durationSec: row.duration_sec,
-    href: row.publish_id ? `/v/${row.publish_id}` : row.channel_slug ? `/c/${row.channel_slug}/shorts` : '/feed'
+    href: row.movingtoon_publish_id
+      ? `/shorts/${row.movingtoon_publish_id}`
+      : row.publish_id
+        ? `/v/${row.publish_id}`
+        : row.channel_slug
+          ? `/c/${row.channel_slug}/shorts`
+          : '/feed'
   }));
 }
 

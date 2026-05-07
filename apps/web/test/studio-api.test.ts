@@ -22,7 +22,9 @@ describe('studioApi', () => {
       .mockResolvedValueOnce(historyResponse);
     const postSpy = vi.spyOn(rootApiClient, 'post')
       .mockResolvedValueOnce(projectResponse)
-      .mockResolvedValueOnce(episodeResponse);
+      .mockResolvedValueOnce(episodeResponse)
+      .mockResolvedValueOnce(episodeResponse)
+      .mockResolvedValueOnce({ data: {} });
     const patchSpy = vi.spyOn(rootApiClient, 'patch').mockResolvedValue(episodeResponse);
 
     await studioApi.getProjects();
@@ -33,6 +35,8 @@ describe('studioApi', () => {
     await studioApi.patchProject('project-1', { title: 'Project 1A' });
     await studioApi.createEpisode('project-1', { title: 'Episode 1', episodeNo: 1 });
     await studioApi.patchEpisode('episode-1', { title: 'Episode 1A' });
+    await studioApi.publishMovingtoonEpisode('movingtoon-episode-1');
+    await studioApi.unpublishMovingtoonEpisode('movingtoon-episode-1');
 
     expect(getSpy).toHaveBeenNthCalledWith(1, '/studio/projects');
     expect(getSpy).toHaveBeenNthCalledWith(2, '/studio/backup/export');
@@ -40,6 +44,8 @@ describe('studioApi', () => {
     expect(getSpy).toHaveBeenNthCalledWith(4, '/studio/projects/project-1/publishes');
     expect(postSpy).toHaveBeenNthCalledWith(1, '/studio/projects', { title: 'Project 1' });
     expect(postSpy).toHaveBeenNthCalledWith(2, '/studio/projects/project-1/episodes', { title: 'Episode 1', episodeNo: 1 });
+    expect(postSpy).toHaveBeenNthCalledWith(3, '/studio/movingtoon/episodes/movingtoon-episode-1/publish');
+    expect(postSpy).toHaveBeenNthCalledWith(4, '/studio/movingtoon/episodes/movingtoon-episode-1/unpublish');
     expect(patchSpy).toHaveBeenCalledWith('/studio/projects/project-1', { title: 'Project 1A' });
     expect(patchSpy).toHaveBeenCalledWith('/studio/episodes/episode-1', { title: 'Episode 1A' });
   });

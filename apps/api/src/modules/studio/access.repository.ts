@@ -104,6 +104,11 @@ export async function getEpisodeProjectId(db: DbExecutor, episodeId: string): Pr
   return result.rows[0]?.project_id ?? null;
 }
 
+export async function getMovingtoonEpisodeProjectId(db: DbExecutor, episodeId: string): Promise<string | null> {
+  const result = await db.query<{ project_id: string }>('SELECT project_id FROM promptoon_movingtoon_episode WHERE id = $1', [episodeId]);
+  return result.rows[0]?.project_id ?? null;
+}
+
 export async function getCutProjectId(db: DbExecutor, cutId: string): Promise<string | null> {
   const result = await db.query<{ project_id: string }>(
     `SELECT episode.project_id

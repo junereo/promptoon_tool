@@ -7,7 +7,11 @@ import {
   useUnpublishEpisode,
   useUpdatePublishedEpisode
 } from '../../../features/editor/hooks/use-episode-query';
-import { useProjects } from '../../../features/project/hooks/use-project-query';
+import {
+  useProjects,
+  usePublishMovingtoonEpisode,
+  useUnpublishMovingtoonEpisode
+} from '../../../features/project/hooks/use-project-query';
 
 export function StudioPublishPage() {
   const { projectId } = useParams();
@@ -15,6 +19,8 @@ export function StudioPublishPage() {
   const publishEpisode = usePublishEpisode();
   const updatePublishedEpisode = useUpdatePublishedEpisode();
   const unpublishEpisode = useUnpublishEpisode();
+  const publishMovingtoonEpisode = usePublishMovingtoonEpisode();
+  const unpublishMovingtoonEpisode = useUnpublishMovingtoonEpisode();
   const [notice, setNotice] = useState<string | null>(null);
   const project = projectsQuery.data?.find((item) => item.id === projectId) ?? null;
 
@@ -38,6 +44,17 @@ export function StudioPublishPage() {
     setNotice('에피소드가 비공개 처리되었습니다.');
   }
 
+  async function runMovingtoonPublishAction(action: 'publish' | 'unpublish', episodeId: string) {
+    setNotice(null);
+    if (action === 'publish') {
+      await publishMovingtoonEpisode.mutateAsync(episodeId);
+      setNotice('무빙툰 에피소드가 발행되었습니다.');
+      return;
+    }
+    await unpublishMovingtoonEpisode.mutateAsync(episodeId);
+    setNotice('무빙툰 에피소드가 draft로 변경되었습니다.');
+  }
+
   if (projectsQuery.isLoading) {
     return <main className="p-8 text-zinc-300">발행 상태를 불러오고 있습니다.</main>;
   }
@@ -46,7 +63,13 @@ export function StudioPublishPage() {
     return <main className="p-8 text-red-200">프로젝트를 찾을 수 없습니다.</main>;
   }
 
-  const isMutating = publishEpisode.isPending || updatePublishedEpisode.isPending || unpublishEpisode.isPending;
+  const movingtoonEpisodes = project.movingtoonEpisodes ?? [];
+  const isMutating =
+    publishEpisode.isPending ||
+    updatePublishedEpisode.isPending ||
+    unpublishEpisode.isPending ||
+    publishMovingtoonEpisode.isPending ||
+    unpublishMovingtoonEpisode.isPending;
 
   return (
     <main className="flex w-full flex-col gap-6 px-4 py-8 sm:px-6">
@@ -65,9 +88,10 @@ export function StudioPublishPage() {
       </section>
 
       <section className="grid gap-3">
+        <h2 className="font-display text-2xl font-semibold text-zinc-50">프롬툰 발행</h2>
         {project.episodes.length === 0 ? (
           <div className="rounded-[28px] border border-dashed border-editor-border bg-black/10 p-8 text-zinc-500">
-            발행할 에피소드가 없습니다.
+            발행할 프롬툰 에피소드가 없습니다.
           </div>
         ) : (
           project.episodes.map((episode) => (
@@ -117,6 +141,66 @@ export function StudioPublishPage() {
           ))
         )}
       </section>
+
+      {movingtoonEpisodes.length > 0 ? (
+        <section className="grid gap-3">
+          <h2 className="font-display text-2xl font-semibold text-zinc-50">무빙툰 발행</h2>
+          {movingtoonEpisodes
+            .slice()
+            .sort((first, second) => first.episodeNumber - second.episodeNumber)
+            .map((episode) => {
+              const canPublish = episode.processingStatus === 'ready' && episode.publishStatus !== 'published';
+              const canUnpublish = episode.publishStatus === 'published';
+              return (
+                <article className="rounded-[24px] border border-editor-border bg-editor-panel/75 p-5" key={episode.id}>
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-zinc-100">
+                        EP.{episode.episodeNumber} {episode.title}
+                      </p>
+                      <p className="mt-1 text-xs text-zinc-500">
+                        처리: {episode.processingStatus} · 발행: {episode.publishStatus}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {canPublish ? (
+                        <button
+                          className="inline-flex items-center gap-2 rounded-xl bg-editor-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-editor-accentSoft disabled:opacity-60"
+                          disabled={isMutating}
+                          onClick={() => {
+                            void runMovingtoonPublishAction('publish', episode.id);
+                          }}
+                          type="button"
+                        >
+                          <Rocket className="h-4 w-4" />
+                          발행
+                        </button>
+                      ) : null}
+                      {canUnpublish ? (
+                        <button
+                          className="inline-flex items-center gap-2 rounded-xl border border-editor-border px-4 py-2 text-sm text-zinc-200 transition hover:border-red-400/60 hover:text-red-100 disabled:opacity-60"
+                          disabled={isMutating}
+                          onClick={() => {
+                            void runMovingtoonPublishAction('unpublish', episode.id);
+                          }}
+                          type="button"
+                        >
+                          <RotateCcw className="h-4 w-4" />
+                          Unpublish
+                        </button>
+                      ) : null}
+                      {!canPublish && !canUnpublish ? (
+                        <span className="inline-flex items-center rounded-xl border border-editor-border px-4 py-2 text-sm text-zinc-500">
+                          처리 완료 후 발행 가능
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+        </section>
+      ) : null}
     </main>
   );
 }

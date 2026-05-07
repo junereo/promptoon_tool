@@ -3,6 +3,76 @@ import type { Publish } from './legacy';
 export type StudioRole = 'studio_admin' | 'producer' | 'writer' | 'viewer';
 export type ProjectRole = 'owner' | 'producer' | 'writer' | 'viewer';
 
+export type StudioProjectKind = 'promptoon' | 'movingtoon' | 'hybrid';
+export type StudioProjectStatus = 'draft' | 'in_review' | 'published' | 'archived';
+export type MovingtoonProcessingStatus = 'empty' | 'uploading' | 'processing' | 'ready' | 'failed';
+export type StudioContentPublishStatus = 'draft' | 'scheduled' | 'published' | 'unpublished';
+export type MovingtoonAspectRatio = '9:16' | '16:9' | '1:1';
+
+export interface MovingtoonEpisodeSummary {
+  id: string;
+  projectId: string;
+  title: string;
+  description: string | null;
+  episodeNumber: number;
+  originalVideoUrl: string | null;
+  videoAssetId: string | null;
+  videoUrl: string | null;
+  thumbnailUrl: string | null;
+  durationSec: number | null;
+  aspectRatio: MovingtoonAspectRatio;
+  processingStatus: MovingtoonProcessingStatus;
+  publishStatus: StudioContentPublishStatus;
+  publishedAt: string | null;
+  updatedAt: string;
+}
+
+export interface MovingtoonProcessingJobSummary {
+  id: string;
+  episodeId: string;
+  projectId: string;
+  projectTitle: string;
+  episodeTitle: string;
+  status: MovingtoonProcessingStatus;
+  errorMessage: string | null;
+  attempts: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StudioProjectSummary {
+  id: string;
+  title: string;
+  description: string | null;
+  kind: StudioProjectKind;
+  status: StudioProjectStatus;
+  posterUrl: string | null;
+  episodeCount: number;
+  draftCount: number;
+  publishedCount: number;
+  movingtoonProcessingCount: number;
+  movingtoonReadyCount: number;
+  movingtoonFailedCount: number;
+  updatedAt: string;
+}
+
+export interface StudioDashboardResponse {
+  projects: StudioProjectSummary[];
+  uploadQueue: MovingtoonProcessingJobSummary[];
+}
+
+export interface CreateMovingtoonEpisodeRequest {
+  title: string;
+  description?: string;
+  episodeNumber: number;
+  aspectRatio: MovingtoonAspectRatio;
+}
+
+export interface CreateMovingtoonEpisodeResponse {
+  episode: MovingtoonEpisodeSummary;
+  job: MovingtoonProcessingJobSummary | null;
+}
+
 export interface StudioMember {
   userId: string;
   role: StudioRole;
@@ -42,7 +112,7 @@ export interface RebuildPublicProjectionsResponse {
   discussions: number;
 }
 
-export type ProjectAssetSource = 'project_thumbnail' | 'episode_cover' | 'cut_asset' | 'upload';
+export type ProjectAssetSource = 'project_thumbnail' | 'episode_cover' | 'cut_asset' | 'movingtoon_video' | 'movingtoon_thumbnail' | 'upload';
 
 export type ProjectAssetStatus = 'active' | 'deleted' | 'replaced';
 
@@ -84,7 +154,7 @@ export interface ProjectPublishHistoryItem {
   episodeTitle: string;
   episodeNo: number;
   versionNo: number;
-  status: 'published';
+  status: 'published' | 'unpublished';
   createdAt: string;
   channelId?: string | null;
   seriesId?: string | null;

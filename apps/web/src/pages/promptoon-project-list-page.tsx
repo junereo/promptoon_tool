@@ -36,7 +36,7 @@ function downloadBackupJson(backup: PromptoonBackupExport): void {
   anchor.remove();
 }
 
-export function PromptoonProjectListPage() {
+function LegacyPromptoonProjectListPage() {
   const navigate = useNavigate();
   const projectsQuery = useProjects();
   const createProject = useCreateProject();
@@ -376,3 +376,5 @@ export function PromptoonProjectListPage() {
     </main>
   );
 }
+
+export { StudioProjectDashboardPage as PromptoonProjectListPage } from '../domains/studio/pages/StudioProjectDashboardPage';

@@ -6,6 +6,7 @@ import { useAuthStore } from '../../../features/auth/store/use-auth-store';
 import { channelApi } from '../../../shared/api/channel.api';
 import { promptoonKeys } from '../../../shared/api/query-keys';
 import { telemetryApi } from '../../../shared/api/telemetry.api';
+import { formatChannelHandle } from '../lib/format-channel-handle';
 
 type ChannelTab = 'home' | 'series' | 'shorts' | 'community';
 
@@ -39,7 +40,7 @@ function getActiveChannelTab(pathname: string): ChannelTab {
   return 'home';
 }
 
-export function ChannelHomePage() {
+function LegacyChannelHomePage() {
   const { channelSlug = '' } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
@@ -134,7 +135,7 @@ export function ChannelHomePage() {
                 {profile.avatarUrl ? <img alt="" className="h-full w-full object-cover" src={profile.avatarUrl} /> : profile.displayName.slice(0, 1)}
               </div>
               <div className="min-w-0">
-                <p className="text-sm text-white/65">{profile.handle ?? `@${profile.slug}`}</p>
+                <p className="text-sm text-white/65">{formatChannelHandle(profile.handle ?? profile.slug)}</p>
                 <h1 className="truncate font-display text-4xl font-semibold tracking-tight">{profile.displayName}</h1>
                 {profile.bio ? <p className="mt-2 max-w-2xl text-sm leading-6 text-white/70">{profile.bio}</p> : null}
               </div>
@@ -266,3 +267,5 @@ export function ChannelHomePage() {
     </main>
   );
 }
+
+export { CreatorChannelPage as ChannelHomePage } from './CreatorChannelPage';

@@ -19,6 +19,8 @@ import type {
   PromptoonEpisodeMode,
   Publish,
   PublishManifest,
+  StudioProjectKind,
+  StudioProjectStatus,
   TelemetryEventType
 } from '@promptoon/shared';
 import {
@@ -37,7 +39,8 @@ interface ProjectRow {
   title: string;
   description: string | null;
   thumbnail_url: string | null;
-  status: 'draft' | 'published';
+  kind: StudioProjectKind;
+  status: StudioProjectStatus;
   created_by: string;
   created_at: Date;
   updated_at: Date;
@@ -45,6 +48,7 @@ interface ProjectRow {
 
 interface ProjectWithEpisodesRow extends ProjectRow {
   episodes: Episode[];
+  movingtoon_episodes: import('@promptoon/shared').MovingtoonEpisodeSummary[];
 }
 
 interface ProjectAssetRow {
@@ -63,7 +67,7 @@ interface ProjectPublishHistoryRow {
   episode_title: string;
   episode_no: number;
   version_no: number;
-  status: 'published';
+  status: ProjectPublishHistoryItem['status'];
   created_at: Date;
   channel_id: string | null;
   series_id: string | null;
@@ -140,7 +144,7 @@ interface PublishRow {
   project_id: string;
   episode_id: string;
   version_no: number;
-  status: 'published';
+  status: 'published' | 'unpublished';
   manifest: PublishManifest;
   created_by: string;
   created_at: Date;
@@ -169,6 +173,7 @@ function mapProject(row: ProjectRow): Project {
     title: row.title,
     description: row.description,
     thumbnailUrl: row.thumbnail_url,
+    kind: row.kind,
     status: row.status,
     createdBy: row.created_by,
     createdAt: toIsoString(row.created_at),
@@ -311,53 +316,83 @@ export async function listProjectsWithEpisodes(db: DbExecutor, userId?: string):
        project.title,
        project.description,
        project.thumbnail_url,
+       project.kind,
        project.status,
        project.created_by,
        project.created_at,
        project.updated_at,
-       COALESCE(
-         jsonb_agg(
-           jsonb_build_object(
-             'id', episode.id,
-             'projectId', episode.project_id,
-             'title', episode.title,
-             'episodeNo', episode.episode_no,
-             'coverImageUrl', episode.cover_image_url,
-             'startCutId', episode.start_cut_id,
-             'mode', episode.mode,
-             'exitLoopMetadata', episode.exit_loop_metadata,
-             'status', episode.status,
-             'createdAt', episode.created_at,
-             'updatedAt', episode.updated_at
-           )
-           ORDER BY episode.episode_no ASC
-         ) FILTER (WHERE episode.id IS NOT NULL),
-         '[]'::jsonb
-       ) AS episodes
+       (
+         SELECT COALESCE(
+           jsonb_agg(
+             jsonb_build_object(
+               'id', episode.id,
+               'projectId', episode.project_id,
+               'title', episode.title,
+               'episodeNo', episode.episode_no,
+               'coverImageUrl', episode.cover_image_url,
+               'startCutId', episode.start_cut_id,
+               'mode', episode.mode,
+               'exitLoopMetadata', episode.exit_loop_metadata,
+               'status', episode.status,
+               'createdAt', episode.created_at,
+               'updatedAt', episode.updated_at
+             )
+             ORDER BY episode.episode_no ASC
+           ),
+           '[]'::jsonb
+         )
+         FROM promptoon_episode AS episode
+         WHERE episode.project_id = project.id
+       ) AS episodes,
+       (
+         SELECT COALESCE(
+           jsonb_agg(
+             jsonb_build_object(
+               'id', movingtoon.id,
+               'projectId', movingtoon.project_id,
+               'title', movingtoon.title,
+               'description', movingtoon.description,
+               'episodeNumber', movingtoon.episode_no,
+               'originalVideoUrl', movingtoon.original_video_url,
+               'videoAssetId', movingtoon.id,
+               'videoUrl', movingtoon.video_url,
+               'thumbnailUrl', movingtoon.thumbnail_url,
+               'durationSec', movingtoon.duration_sec,
+               'aspectRatio', movingtoon.aspect_ratio,
+               'processingStatus', movingtoon.processing_status,
+               'publishStatus', movingtoon.publish_status,
+               'publishedAt', movingtoon.published_at,
+               'updatedAt', movingtoon.updated_at
+             )
+             ORDER BY movingtoon.episode_no ASC
+           ),
+           '[]'::jsonb
+         )
+         FROM promptoon_movingtoon_episode AS movingtoon
+         WHERE movingtoon.project_id = project.id
+       ) AS movingtoon_episodes
      FROM promptoon_project AS project
-     LEFT JOIN promptoon_episode AS episode
-       ON episode.project_id = project.id
      ${accessFilter}
-     GROUP BY project.id
      ORDER BY project.updated_at DESC`,
     values
   );
 
   return result.rows.map((row) => ({
     ...mapProject(row),
-    episodes: row.episodes
+    episodes: row.episodes,
+    movingtoonEpisodes: row.movingtoon_episodes
   }));
 }
 
 export async function createProject(
   db: DbExecutor,
-  input: { title: string; description?: string; createdBy: string }
+  input: { title: string; description?: string; kind?: StudioProjectKind; createdBy: string }
 ): Promise<Project> {
   const result = await db.query<ProjectRow>(
-    `INSERT INTO promptoon_project (id, title, description, created_by)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO promptoon_project (id, title, description, kind, created_by)
+     VALUES ($1, $2, $3, $4, $5)
      RETURNING *`,
-    [randomUUID(), input.title, input.description ?? null, input.createdBy]
+    [randomUUID(), input.title, input.description ?? null, input.kind ?? 'promptoon', input.createdBy]
   );
 
   return mapProject(result.rows[0]);
@@ -371,7 +406,7 @@ export async function getProjectById(db: DbExecutor, projectId: string): Promise
 export async function updateProject(
   db: DbExecutor,
   projectId: string,
-  patch: { title?: string; description?: string | null; thumbnailUrl?: string | null }
+  patch: { title?: string; description?: string | null; thumbnailUrl?: string | null; kind?: StudioProjectKind; status?: StudioProjectStatus }
 ): Promise<Project | null> {
   const existing = await getProjectById(db, projectId);
   if (!existing) {
@@ -383,6 +418,8 @@ export async function updateProject(
      SET title = $2,
          description = $3,
          thumbnail_url = $4,
+         kind = $5,
+         status = $6,
          updated_at = now()
      WHERE id = $1
      RETURNING *`,
@@ -390,7 +427,9 @@ export async function updateProject(
       projectId,
       Object.prototype.hasOwnProperty.call(patch, 'title') ? patch.title : existing.title,
       Object.prototype.hasOwnProperty.call(patch, 'description') ? patch.description ?? null : existing.description,
-      Object.prototype.hasOwnProperty.call(patch, 'thumbnailUrl') ? patch.thumbnailUrl ?? null : existing.thumbnailUrl
+      Object.prototype.hasOwnProperty.call(patch, 'thumbnailUrl') ? patch.thumbnailUrl ?? null : existing.thumbnailUrl,
+      Object.prototype.hasOwnProperty.call(patch, 'kind') ? patch.kind : existing.kind ?? 'promptoon',
+      Object.prototype.hasOwnProperty.call(patch, 'status') ? patch.status : existing.status
     ]
   );
 

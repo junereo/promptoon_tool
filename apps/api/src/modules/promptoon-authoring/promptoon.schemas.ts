@@ -18,6 +18,9 @@ const dialogAnchorYSchema = z.enum(['top', 'upper', 'center', 'lower', 'bottom']
 const bindingKeySchema = z.enum(['userName']);
 const resultCardThemeSchema = z.enum(['blue', 'gold', 'violet', 'red']);
 const episodeModeSchema = z.enum(['standard', 'exit_loop']);
+const studioProjectKindSchema = z.enum(['promptoon', 'movingtoon', 'hybrid']);
+const studioProjectStatusSchema = z.enum(['draft', 'in_review', 'published', 'archived']);
+export const movingtoonAspectRatioSchema = z.enum(['9:16', '16:9', '1:1']);
 const exitLoopMetadataSchema: z.ZodType<ExitLoopEpisodeMetadata> = z
   .object({
     enabled: z.boolean().optional(),
@@ -168,15 +171,25 @@ const cutEffectDurationSchema = z.number().int().min(0).max(10000);
 
 export const createProjectSchema = z.object({
   title: z.string().trim().min(1),
-  description: z.string().trim().optional()
+  description: z.string().trim().optional(),
+  kind: studioProjectKindSchema.optional()
 });
 
 export const patchProjectSchema = z.object({
   title: z.string().trim().min(1).optional(),
   description: z.string().trim().nullable().optional(),
-  thumbnailUrl: z.string().trim().nullable().optional()
+  thumbnailUrl: z.string().trim().nullable().optional(),
+  kind: studioProjectKindSchema.optional(),
+  status: studioProjectStatusSchema.optional()
 }).refine((value) => Object.keys(value).length > 0, {
   message: 'At least one project field is required.'
+});
+
+export const createMovingtoonEpisodeSchema = z.object({
+  title: z.string().trim().min(1),
+  description: z.string().trim().optional(),
+  episodeNumber: z.coerce.number().int().positive(),
+  aspectRatio: movingtoonAspectRatioSchema.default('9:16')
 });
 
 export const createEpisodeSchema = z.object({

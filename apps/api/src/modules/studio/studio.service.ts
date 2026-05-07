@@ -1,6 +1,7 @@
 import * as analyticsService from './analytics.service';
 import * as editorService from './editor.service';
 import * as memberService from './member.service';
+import * as movingtoonService from './movingtoon.service';
 import * as publishService from './publish.service';
 import * as projectService from './project.service';
 
@@ -51,6 +52,16 @@ export const exportUserBackup = (userId: string) =>
   projectService.exportUserBackup(userId);
 
 export const uploadAsset = projectService.uploadAsset;
+
+export const createMovingtoonEpisode = movingtoonService.createMovingtoonEpisode;
+
+export const listUploadQueue = movingtoonService.listUploadQueue;
+
+export const reprocessMovingtoonEpisode = movingtoonService.reprocessMovingtoonEpisode;
+
+export const publishMovingtoonEpisode = movingtoonService.publishMovingtoonEpisode;
+
+export const unpublishMovingtoonEpisode = movingtoonService.unpublishMovingtoonEpisode;
 
 export const createEpisode = editorService.createEpisode;
 

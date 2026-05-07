@@ -91,6 +91,15 @@ function assertExists<T>(value: T | null, message: string): T {
   return value;
 }
 
+function assertPublicPublish(value: Publish | null, message: string): Publish {
+  const publish = assertExists(value, message);
+  if (publish.status !== 'published') {
+    throw new HttpError(404, message);
+  }
+
+  return publish;
+}
+
 interface SharePageMeta {
   title: string;
   description: string;
@@ -112,6 +121,7 @@ interface ProjectionChannelInput {
   id: string;
   slug: string;
   display_name: string;
+  avatar_url: string | null;
 }
 
 interface ProjectionSeriesInput {
@@ -1066,6 +1076,7 @@ function buildProjectedFeedItem(input: {
     channelId: input.channel.id,
     channelSlug: input.channel.slug,
     channelName: input.channel.display_name,
+    channelAvatarUrl: input.channel.avatar_url,
     metrics: {
       views: 0,
       likes: 0,
@@ -1820,7 +1831,7 @@ export async function validateEpisode(episodeId: string, userId: string): Promis
 }
 
 export async function getPublishedEpisode(publishId: string): Promise<Publish> {
-  return toPublicPublish(normalizePublish(assertExists(await repository.getPublishById(db, publishId), 'Published episode not found.')));
+  return toPublicPublish(normalizePublish(assertPublicPublish(await repository.getPublishById(db, publishId), 'Published episode not found.')));
 }
 
 export async function getEpisodeFeed(input: { cursor?: string; limit: number }): Promise<FeedResponse> {
@@ -1856,7 +1867,7 @@ export async function getChannelHome(channelSlug: string): Promise<ChannelHome> 
 }
 
 export async function getRelatedShorts(publishId: string): Promise<RelatedShort[]> {
-  assertExists(await repository.getPublishById(db, publishId), 'Published episode not found.');
+  assertPublicPublish(await repository.getPublishById(db, publishId), 'Published episode not found.');
   return repository.listRelatedShortsForPublish(db, publishId);
 }
 
@@ -2106,7 +2117,7 @@ export async function renderSharePage(
 }
 
 export async function trackViewerEvent(request: TelemetryEventRequest): Promise<void> {
-  const publish = assertExists(await repository.getPublishById(db, request.publishId), 'Published episode not found.');
+  const publish = assertPublicPublish(await repository.getPublishById(db, request.publishId), 'Published episode not found.');
   const cutsById = new Map(publish.manifest.cuts.map((cut) => [cut.id, cut]));
   const targetCut = cutsById.get(request.cutId);
 
@@ -2410,7 +2421,8 @@ export async function unpublishProject(projectId: string, request: PublishReques
     const project = assertExists(await repository.getProjectById(client, projectId), 'Project not found.');
     const channel = await repository.ensureDefaultChannelForProject(client, project, userId);
 
-    await repository.deletePublishesForEpisode(client, projectId, request.episodeId);
+    await repository.markPublishesUnpublishedForEpisode(client, projectId, request.episodeId);
+    await repository.deleteFeedItemProjectionForEpisode(client, request.episodeId);
     await repository.markEpisodeDraft(client, request.episodeId);
 
     const hasPublishedEpisodes = await repository.projectHasPublishedEpisodes(client, projectId);

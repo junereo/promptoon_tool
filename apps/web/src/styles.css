@@ -62,6 +62,22 @@ select {
   font: inherit;
 }
 
+.studio-primary-button {
+  @apply inline-flex h-10 items-center justify-center gap-2 rounded-md bg-editor-accent px-4 text-sm font-semibold text-white transition hover:bg-editor-accentSoft disabled:cursor-not-allowed disabled:opacity-60;
+}
+
+.studio-secondary-button {
+  @apply inline-flex h-10 items-center justify-center gap-2 rounded-md border border-editor-border bg-black/20 px-4 text-sm font-medium text-zinc-100 transition hover:border-zinc-500 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-60;
+}
+
+.studio-ghost-button {
+  @apply inline-flex h-10 items-center justify-center gap-2 rounded-md px-3 text-sm font-medium text-zinc-300 transition hover:bg-white/5 hover:text-white disabled:cursor-not-allowed disabled:opacity-60;
+}
+
+.studio-input {
+  @apply w-full rounded-md border border-editor-border bg-black/25 px-3 py-2.5 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-editor-accentSoft;
+}
+
 select {
   background-color: #050506;
   color: #f4f4f5;
@@ -245,27 +261,49 @@ select option:disabled {
   }
 }
 
+.feed-page {
+  --feed-header-height: calc(max(env(safe-area-inset-top), 1rem) + 2.5rem);
+  --feed-available-height: calc(100dvh - var(--feed-header-height));
+  --feed-frame-height: min(var(--feed-available-height), calc(100vw * 16 / 9));
+  --feed-frame-width: min(100vw, calc(var(--feed-frame-height) * 9 / 16));
+}
+
+@media (min-width: 1280px) {
+  .feed-page {
+    --feed-header-height: 3.5rem;
+  }
+}
+
+.feed-snap-scroller {
+  height: var(--feed-available-height, 100dvh);
+  margin-top: var(--feed-header-height, 0px);
+}
+
+.feed-snap-slide {
+  height: var(--feed-available-height, 100dvh);
+}
+
 .feed-viewport-frame {
   aspect-ratio: 9 / 16;
-  height: calc(100vw * 16 / 9);
-  width: 100vw;
+  height: var(--feed-frame-height, calc(100vw * 16 / 9));
+  width: var(--feed-frame-width, 100vw);
 }
 
 @media (min-width: 1280px) {
   .feed-viewport-frame {
-    height: min(100dvh, calc(100vw * 16 / 9));
-    width: min(100vw, calc(100dvh * 9 / 16));
+    height: var(--feed-frame-height, min(100dvh, calc(100vw * 16 / 9)));
+    width: var(--feed-frame-width, min(100vw, calc(100dvh * 9 / 16)));
   }
 }
 
 .feed-desktop-side-panel {
-  height: min(100dvh, calc(100vw * 16 / 9));
+  height: var(--feed-frame-height, min(100dvh, calc(100vw * 16 / 9)));
 }
 
 .feed-desktop-info-panel {
-  right: calc(50% + (min(100vw, calc(100dvh * 9 / 16)) / 2) + 24px);
+  right: calc(50% + (var(--feed-frame-width, min(100vw, calc(100dvh * 9 / 16))) / 2) + 24px);
 }
 
 .feed-desktop-action-panel {
-  left: calc(50% + (min(100vw, calc(100dvh * 9 / 16)) / 2) + 4px);
+  left: calc(50% + (var(--feed-frame-width, min(100vw, calc(100dvh * 9 / 16))) / 2) + 4px);
 }

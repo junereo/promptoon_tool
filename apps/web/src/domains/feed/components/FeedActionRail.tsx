@@ -21,6 +21,7 @@ interface FeedAction {
 
 export function FeedActionRail({
   bookmarked,
+  channelAvatarUrl,
   channelInitial,
   channelName,
   channelPath,
@@ -33,6 +34,7 @@ export function FeedActionRail({
   onShare
 }: {
   bookmarked?: boolean;
+  channelAvatarUrl?: string | null;
   channelInitial?: string;
   channelName?: string;
   channelPath?: string | null;
@@ -106,18 +108,26 @@ export function FeedActionRail({
         channelPath ? (
           <Link
             aria-label={`${channelName ?? '채널'} 채널로 이동`}
-            className="mt-1 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-sm font-semibold text-white ring-2 ring-white/45 transition hover:bg-white/18"
+            className="mt-1 flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-white/10 text-sm font-semibold text-white ring-2 ring-white/45 transition hover:bg-white/18"
             to={channelPath}
           >
-            {channelInitial}
+            {channelAvatarUrl ? (
+              <img alt="" className="h-full w-full object-cover" src={channelAvatarUrl} />
+            ) : (
+              channelInitial
+            )}
           </Link>
         ) : (
           <div
             aria-label={channelName ?? '채널'}
-            className="mt-1 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-sm font-semibold text-white ring-2 ring-white/45"
+            className="mt-1 flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-white/10 text-sm font-semibold text-white ring-2 ring-white/45"
             role="img"
           >
-            {channelInitial}
+            {channelAvatarUrl ? (
+              <img alt="" className="h-full w-full object-cover" src={channelAvatarUrl} />
+            ) : (
+              channelInitial
+            )}
           </div>
         )
       ) : null}

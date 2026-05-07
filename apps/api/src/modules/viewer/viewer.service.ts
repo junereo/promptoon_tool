@@ -14,6 +14,15 @@ function assertExists<T>(value: T | null, message: string): T {
   return value;
 }
 
+function assertPublicPublish(value: Publish | null, message: string): Publish {
+  const publish = assertExists(value, message);
+  if (publish.status !== 'published') {
+    throw new HttpError(404, message);
+  }
+
+  return publish;
+}
+
 function isEndingLikeCut(cut: { isEnding?: boolean; kind: string }): boolean {
   return Boolean(cut.isEnding) || cut.kind === 'ending' || cut.kind === 'resultCard';
 }
@@ -51,7 +60,7 @@ export async function trackTelemetryEvent(payload: import('@promptoon/shared').T
 }
 
 export async function trackViewerEvent(request: TelemetryEventRequest): Promise<void> {
-  const publish = assertExists(await repository.getPublishById(db, request.publishId), 'Published episode not found.');
+  const publish = assertPublicPublish(await repository.getPublishById(db, request.publishId), 'Published episode not found.');
   const cutsById = new Map(publish.manifest.cuts.map((cut) => [cut.id, cut]));
   const targetCut = cutsById.get(request.cutId);
 

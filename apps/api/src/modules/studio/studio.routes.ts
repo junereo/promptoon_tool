@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import { mkdirSync } from 'node:fs';
+import path from 'node:path';
 import multer from 'multer';
 import { z } from 'zod';
 
@@ -11,6 +13,7 @@ import {
   createCutSchema,
   createEpisodeSchema,
   createLoopStateSettingSchema,
+  createMovingtoonEpisodeSchema,
   createProjectSchema,
   deleteCutSchema,
   patchChoiceSchema,
@@ -24,6 +27,8 @@ import {
   resetEpisodeAnalyticsSchema,
   upsertProjectMemberSchema
 } from '../promptoon-authoring/promptoon.schemas';
+import { env } from '../../lib/env';
+import { resolveFromApiRoot, resolveFromWorkspaceRoot } from '../../lib/workspace-paths';
 import * as service from './studio.service';
 
 const patchProjectAssetSchema = z.object({
@@ -42,12 +47,60 @@ function getBackupFileName(): string {
   return `promptoon-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
 }
 
+function isWritablePathError(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && ['EACCES', 'EPERM', 'EROFS'].includes(String(error.code));
+}
+
+function toError(error: unknown, fallbackMessage: string): Error {
+  return error instanceof Error ? error : new Error(fallbackMessage);
+}
+
+function getMovingtoonTempDirectory(): string {
+  const directoryCandidates = [
+    resolveFromWorkspaceRoot('.data/tmp/movingtoon'),
+    resolveFromApiRoot('.data/tmp/movingtoon')
+  ];
+  let lastError: unknown = null;
+
+  for (const directory of directoryCandidates) {
+    try {
+      mkdirSync(directory, { recursive: true });
+      return directory;
+    } catch (error) {
+      lastError = error;
+      if (!isWritablePathError(error)) {
+        throw error;
+      }
+    }
+  }
+
+  throw toError(lastError, 'Unable to create movingtoon upload directory.');
+}
+
 export function createStudioRouter(): Router {
   const router = Router();
   const upload = multer({
     storage: multer.memoryStorage(),
     limits: {
       fileSize: 10 * 1024 * 1024
+    }
+  });
+  const videoUpload = multer({
+    storage: multer.diskStorage({
+      destination: (_request, _file, callback) => {
+        try {
+          callback(null, getMovingtoonTempDirectory());
+        } catch (error) {
+          callback(toError(error, 'Unable to create movingtoon upload directory.'), '');
+        }
+      },
+      filename: (_request, file, callback) => {
+        const extension = path.extname(file.originalname).toLowerCase() || '.bin';
+        callback(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${extension}`);
+      }
+    }),
+    limits: {
+      fileSize: env.movingtoon.maxUploadBytes
     }
   });
 
@@ -64,6 +117,12 @@ export function createStudioRouter(): Router {
 
   router.get('/projects', asyncHandler(async (request, response) => {
     response.json(await service.listProjects(getRequiredAuthUser(request).sub));
+  }));
+
+  router.get('/uploads', asyncHandler(async (request, response) => {
+    response.json({
+      jobs: await service.listUploadQueue(getRequiredAuthUser(request).sub)
+    });
   }));
 
   router.post('/projects', asyncHandler(async (request, response) => {
@@ -201,6 +260,43 @@ export function createStudioRouter(): Router {
     response.status(201).json(
       await service.createEpisode(getParam(request.params.projectId, 'projectId'), body, getRequiredAuthUser(request).sub)
     );
+  }));
+
+  router.post(
+    '/projects/:projectId/movingtoon/episodes',
+    videoUpload.single('file'),
+    asyncHandler(async (request, response) => {
+      if (!request.file) {
+        throw new HttpError(400, 'Video file is required.');
+      }
+
+      const body = createMovingtoonEpisodeSchema.parse(request.body);
+      response.status(201).json(
+        await service.createMovingtoonEpisode(
+          getParam(request.params.projectId, 'projectId'),
+          body,
+          request.file,
+          getRequiredAuthUser(request).sub
+        )
+      );
+    })
+  );
+
+  router.post('/movingtoon/episodes/:episodeId/reprocess', asyncHandler(async (request, response) => {
+    response.json(
+      await service.reprocessMovingtoonEpisode(getParam(request.params.episodeId, 'episodeId'), getRequiredAuthUser(request).sub)
+    );
+  }));
+
+  router.post('/movingtoon/episodes/:episodeId/publish', asyncHandler(async (request, response) => {
+    response.status(201).json(
+      await service.publishMovingtoonEpisode(getParam(request.params.episodeId, 'episodeId'), getRequiredAuthUser(request).sub)
+    );
+  }));
+
+  router.post('/movingtoon/episodes/:episodeId/unpublish', asyncHandler(async (request, response) => {
+    await service.unpublishMovingtoonEpisode(getParam(request.params.episodeId, 'episodeId'), getRequiredAuthUser(request).sub);
+    response.status(204).send();
   }));
 
   router.get('/episodes/:episodeId/draft', asyncHandler(async (request, response) => {

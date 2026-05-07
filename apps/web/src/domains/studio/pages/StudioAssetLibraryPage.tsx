@@ -8,6 +8,8 @@ const SOURCE_LABELS = {
   project_thumbnail: '프로젝트 대표 이미지',
   episode_cover: '에피소드 커버',
   cut_asset: '컷 이미지',
+  movingtoon_video: '무빙툰 비디오',
+  movingtoon_thumbnail: '무빙툰 썸네일',
   upload: '업로드 에셋'
 } satisfies Record<ProjectAssetSource, string>;
 

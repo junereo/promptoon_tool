@@ -17,8 +17,12 @@ function normalizeInteractionPublishIds(publishIds: string[]): string[] {
   return Array.from(new Set(publishIds.map((publishId) => publishId.trim()).filter(Boolean))).slice(0, 100);
 }
 
-export function getEpisodeFeed(input: { cursor?: string; limit: number }): Promise<FeedResponse> {
+export function getEpisodeFeed(input: { cursor?: string; itemTypes?: string[]; limit: number }): Promise<FeedResponse> {
   return projectionService.getEpisodeFeed(input);
+}
+
+export async function getFeedItemByPublishId(publishId: string) {
+  return assertExists(await repository.getFeedItemByPublicPublishId(db, publishId), 'Published content not found.');
 }
 
 export async function getContentInteractionStates(
@@ -36,21 +40,26 @@ export async function getContentInteractionStates(
 }
 
 export async function likePublish(publishId: string, userId: string): Promise<void> {
-  const context = assertExists(await repository.getPublishProjectionContext(db, publishId), 'Published episode not found.');
+  const context = await repository.getPublishProjectionContext(db, publishId);
+  const movingtoonContext = context ? null : await repository.getMovingtoonPublishProjectionContext(db, publishId);
+  const target = assertExists(context ?? movingtoonContext, 'Published content not found.');
 
   await withTransaction(async (client) => {
-    await repository.upsertUserLike(client, publishId, userId);
-    const refreshedContext = await repository.refreshFeedItemLikeMetrics(client, publishId);
-    await projectionService.rebuildChannelProjectionForChannel(client, refreshedContext?.channel_id ?? context.channel_id);
+    const refreshedContext = context
+      ? await repository.upsertUserLike(client, publishId, userId).then(() => repository.refreshFeedItemLikeMetrics(client, publishId))
+      : await repository
+          .upsertUserMovingtoonLike(client, publishId, userId)
+          .then(() => repository.refreshMovingtoonFeedItemLikeMetrics(client, publishId));
+    await projectionService.rebuildChannelProjectionForChannel(client, refreshedContext?.channel_id ?? target.channel_id);
     await repository.insertTelemetryEvent(client, {
       eventName: 'feed_like',
       userId,
-      projectId: context.project_id,
-      channelId: context.channel_id ?? undefined,
-      seriesId: context.series_id ?? undefined,
-      episodeId: context.episode_id,
+      projectId: target.project_id,
+      channelId: target.channel_id ?? undefined,
+      seriesId: target.series_id ?? undefined,
+      episodeId: target.episode_id,
       publishId,
-      feedItemId: context.feed_item_id ?? undefined,
+      feedItemId: target.feed_item_id ?? undefined,
       payload: {
         action: 'like'
       }
@@ -59,21 +68,26 @@ export async function likePublish(publishId: string, userId: string): Promise<vo
 }
 
 export async function unlikePublish(publishId: string, userId: string): Promise<void> {
-  const context = assertExists(await repository.getPublishProjectionContext(db, publishId), 'Published episode not found.');
+  const context = await repository.getPublishProjectionContext(db, publishId);
+  const movingtoonContext = context ? null : await repository.getMovingtoonPublishProjectionContext(db, publishId);
+  const target = assertExists(context ?? movingtoonContext, 'Published content not found.');
 
   await withTransaction(async (client) => {
-    await repository.deleteUserLike(client, publishId, userId);
-    const refreshedContext = await repository.refreshFeedItemLikeMetrics(client, publishId);
-    await projectionService.rebuildChannelProjectionForChannel(client, refreshedContext?.channel_id ?? context.channel_id);
+    const refreshedContext = context
+      ? await repository.deleteUserLike(client, publishId, userId).then(() => repository.refreshFeedItemLikeMetrics(client, publishId))
+      : await repository
+          .deleteUserMovingtoonLike(client, publishId, userId)
+          .then(() => repository.refreshMovingtoonFeedItemLikeMetrics(client, publishId));
+    await projectionService.rebuildChannelProjectionForChannel(client, refreshedContext?.channel_id ?? target.channel_id);
     await repository.insertTelemetryEvent(client, {
       eventName: 'feed_like',
       userId,
-      projectId: context.project_id,
-      channelId: context.channel_id ?? undefined,
-      seriesId: context.series_id ?? undefined,
-      episodeId: context.episode_id,
+      projectId: target.project_id,
+      channelId: target.channel_id ?? undefined,
+      seriesId: target.series_id ?? undefined,
+      episodeId: target.episode_id,
       publishId,
-      feedItemId: context.feed_item_id ?? undefined,
+      feedItemId: target.feed_item_id ?? undefined,
       payload: {
         action: 'unlike'
       }
@@ -82,19 +96,25 @@ export async function unlikePublish(publishId: string, userId: string): Promise<
 }
 
 export async function bookmarkPublish(publishId: string, userId: string): Promise<void> {
-  const context = assertExists(await repository.getPublishProjectionContext(db, publishId), 'Published episode not found.');
+  const context = await repository.getPublishProjectionContext(db, publishId);
+  const movingtoonContext = context ? null : await repository.getMovingtoonPublishProjectionContext(db, publishId);
+  const target = assertExists(context ?? movingtoonContext, 'Published content not found.');
 
   await withTransaction(async (client) => {
-    await repository.upsertUserBookmark(client, publishId, userId);
+    if (context) {
+      await repository.upsertUserBookmark(client, publishId, userId);
+    } else {
+      await repository.upsertUserMovingtoonBookmark(client, publishId, userId);
+    }
     await repository.insertTelemetryEvent(client, {
       eventName: 'feed_bookmark',
       userId,
-      projectId: context.project_id,
-      channelId: context.channel_id ?? undefined,
-      seriesId: context.series_id ?? undefined,
-      episodeId: context.episode_id,
+      projectId: target.project_id,
+      channelId: target.channel_id ?? undefined,
+      seriesId: target.series_id ?? undefined,
+      episodeId: target.episode_id,
       publishId,
-      feedItemId: context.feed_item_id ?? undefined,
+      feedItemId: target.feed_item_id ?? undefined,
       payload: {
         action: 'bookmark'
       }
@@ -103,19 +123,25 @@ export async function bookmarkPublish(publishId: string, userId: string): Promis
 }
 
 export async function unbookmarkPublish(publishId: string, userId: string): Promise<void> {
-  const context = assertExists(await repository.getPublishProjectionContext(db, publishId), 'Published episode not found.');
+  const context = await repository.getPublishProjectionContext(db, publishId);
+  const movingtoonContext = context ? null : await repository.getMovingtoonPublishProjectionContext(db, publishId);
+  const target = assertExists(context ?? movingtoonContext, 'Published content not found.');
 
   await withTransaction(async (client) => {
-    await repository.deleteUserBookmark(client, publishId, userId);
+    if (context) {
+      await repository.deleteUserBookmark(client, publishId, userId);
+    } else {
+      await repository.deleteUserMovingtoonBookmark(client, publishId, userId);
+    }
     await repository.insertTelemetryEvent(client, {
       eventName: 'feed_bookmark',
       userId,
-      projectId: context.project_id,
-      channelId: context.channel_id ?? undefined,
-      seriesId: context.series_id ?? undefined,
-      episodeId: context.episode_id,
+      projectId: target.project_id,
+      channelId: target.channel_id ?? undefined,
+      seriesId: target.series_id ?? undefined,
+      episodeId: target.episode_id,
       publishId,
-      feedItemId: context.feed_item_id ?? undefined,
+      feedItemId: target.feed_item_id ?? undefined,
       payload: {
         action: 'unbookmark'
       }

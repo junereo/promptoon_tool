@@ -32,6 +32,15 @@ function assertExists<T>(value: T | null, message: string): T {
   return value;
 }
 
+function assertPublicPublish(value: Publish | null, message: string): Publish {
+  const publish = assertExists(value, message);
+  if (publish.status !== 'published') {
+    throw new HttpError(404, message);
+  }
+
+  return publish;
+}
+
 function encodeFeedCursor(payload: FeedCursorPayload): string {
   return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
 }
@@ -53,13 +62,14 @@ function decodeFeedCursor(cursor: string): FeedCursorPayload {
 }
 
 export async function getPublishedEpisode(publishId: string): Promise<Publish> {
-  return toPublicPublish(normalizePublish(assertExists(await repository.getPublishById(db, publishId), 'Published episode not found.')));
+  return toPublicPublish(normalizePublish(assertPublicPublish(await repository.getPublishById(db, publishId), 'Published episode not found.')));
 }
 
-export async function getEpisodeFeed(input: { cursor?: string; limit: number }): Promise<FeedResponse> {
+export async function getEpisodeFeed(input: { cursor?: string; itemTypes?: string[]; limit: number }): Promise<FeedResponse> {
   const cursor = input.cursor ? decodeFeedCursor(input.cursor) : undefined;
   const rows = await repository.listFeedItemProjections(db, {
     cursor,
+    itemTypes: input.itemTypes,
     limit: input.limit + 1
   });
   const pageRows = rows.slice(0, input.limit);
@@ -90,12 +100,14 @@ export async function getChannelHome(channelSlug: string): Promise<ChannelHome> 
 }
 
 export async function getRelatedShorts(publishId: string): Promise<RelatedShort[]> {
-  assertExists(await repository.getPublishById(db, publishId), 'Published episode not found.');
+  assertPublicPublish(await repository.getPublishById(db, publishId), 'Published episode not found.');
   return repository.listRelatedShortsForPublish(db, publishId);
 }
 
 export async function getCommentsMeta(publishId: string): Promise<CommentsMetaResponse> {
-  assertExists(await repository.getPublishById(db, publishId), 'Published episode not found.');
+  const promptoonPublish = await repository.getPublishById(db, publishId);
+  const movingtoonPublish = promptoonPublish ? null : await repository.getMovingtoonPublishProjectionContext(db, publishId);
+  assertExists(promptoonPublish ?? movingtoonPublish, 'Published content not found.');
   const meta = await repository.getCommentsMetaByPublishId(db, publishId);
 
   return {

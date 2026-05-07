@@ -21,6 +21,7 @@ import { communityApi } from '../../../shared/api/community.api';
 import { feedApi } from '../../../shared/api/feed.api';
 import { promptoonKeys } from '../../../shared/api/query-keys';
 import { FeedBottomNav } from '../components/FeedBottomNav';
+import { FeedCommentsPanel } from '../components/FeedCommentsPanel';
 import { FeedDiscourseCommentsPanel } from '../components/FeedDiscourseCommentsPanel';
 import { FeedSlide } from '../components/FeedSlide';
 
@@ -96,12 +97,13 @@ export function FeedHomePage() {
   const deferredActiveIndex = useDeferredValue(activeIndex);
   const activeItem = feedItems[deferredActiveIndex] ?? null;
   const activePublishId = activeItem?.publishId ?? null;
+  const activeItemUsesDiscourse = activeItem?.type !== 'short_drama';
   const commentsPanelItem = feedItems[activeIndex] ?? activeItem;
   const hasCommentsPanelItem = Boolean(commentsPanelItem);
   const discourseInteractionViewerKey = isAuthenticated ? user?.id ?? user?.loginId ?? 'authenticated' : 'public';
   const { fetchNextPage, hasNextPage, isFetchingNextPage } = feedQuery;
   const discourseInteractionQuery = useQuery({
-    enabled: Boolean(activePublishId),
+    enabled: Boolean(activePublishId) && activeItemUsesDiscourse,
     queryKey: activePublishId
       ? promptoonKeys.communityDiscourseInteraction(activePublishId, discourseInteractionViewerKey)
       : promptoonKeys.communityDiscourseInteraction('__idle__', discourseInteractionViewerKey),
@@ -123,6 +125,13 @@ export function FeedHomePage() {
   const bookmarkMutation = useMutation({
     mutationFn: (input: { publishId: string; bookmarked: boolean }) =>
       input.bookmarked ? feedApi.unbookmarkPublish(input.publishId) : feedApi.bookmarkPublish(input.publishId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: promptoonKeys.feedInteractionState(publishIdsKey) });
+    }
+  });
+  const feedLikeMutation = useMutation({
+    mutationFn: (input: { publishId: string; liked: boolean }) =>
+      input.liked ? feedApi.unlikePublish(input.publishId) : feedApi.likePublish(input.publishId),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: promptoonKeys.feedInteractionState(publishIdsKey) });
     }
@@ -275,6 +284,9 @@ export function FeedHomePage() {
   }
 
   function handlePreloadFeedItem(item: FeedItem) {
+    if (item.type === 'short_drama') {
+      return;
+    }
     void preloadViewerForPublish(item.publishId).catch(() => undefined);
   }
 
@@ -284,6 +296,12 @@ export function FeedHomePage() {
     }
 
     setOpeningPublishId(item.publishId);
+
+    if (item.type === 'short_drama') {
+      navigate(item.entry?.href ?? `/shorts/${item.publishId}`);
+      setOpeningPublishId(null);
+      return;
+    }
 
     try {
       await preloadViewerForPublish(item.publishId);
@@ -301,6 +319,15 @@ export function FeedHomePage() {
   function handleLikeFeedItem(item: FeedItem) {
     if (!isAuthenticated) {
       redirectToLogin();
+      return;
+    }
+
+    if (item.type === 'short_drama') {
+      const interactionState = interactionByPublishId.get(item.publishId);
+      void feedLikeMutation.mutateAsync({
+        publishId: item.publishId,
+        liked: interactionState?.liked ?? false
+      }).catch(() => undefined);
       return;
     }
 
@@ -428,19 +455,19 @@ export function FeedHomePage() {
 
   const content =
     feedQuery.isLoading ? (
-      <section className="flex h-[100dvh] snap-start snap-always items-center justify-center bg-[#050506] px-6 text-center text-white/60">
+      <section className="feed-snap-slide flex snap-start snap-always items-center justify-center bg-[#050506] px-6 text-center text-white/60">
         <div className="feed-viewport-frame flex items-center justify-center overflow-hidden bg-black shadow-[0_0_80px_rgba(0,0,0,0.5)] sm:rounded-[34px] sm:border sm:border-white/10">
           피드를 불러오는 중입니다.
         </div>
       </section>
     ) : feedQuery.isError ? (
-      <section className="flex h-[100dvh] snap-start snap-always items-center justify-center bg-[#050506] px-6 text-center text-white/60">
+      <section className="feed-snap-slide flex snap-start snap-always items-center justify-center bg-[#050506] px-6 text-center text-white/60">
         <div className="feed-viewport-frame flex items-center justify-center overflow-hidden bg-black shadow-[0_0_80px_rgba(0,0,0,0.5)] sm:rounded-[34px] sm:border sm:border-white/10">
           피드를 불러오지 못했습니다.
         </div>
       </section>
     ) : feedItems.length === 0 ? (
-      <section className="flex h-[100dvh] snap-start snap-always items-center justify-center bg-[#050506] px-6 text-center text-white/60">
+      <section className="feed-snap-slide flex snap-start snap-always items-center justify-center bg-[#050506] px-6 text-center text-white/60">
         <div className="feed-viewport-frame flex items-center justify-center overflow-hidden bg-black shadow-[0_0_80px_rgba(0,0,0,0.5)] sm:rounded-[34px] sm:border sm:border-white/10">
           공개된 콘텐츠가 아직 없습니다.
         </div>
@@ -452,15 +479,22 @@ export function FeedHomePage() {
             interactionState={interactionByPublishId.get(item.publishId)}
             isInteractionPending={
               (discourseLikeMutation.isPending && discourseLikeMutation.variables?.publishId === item.publishId) ||
+              (feedLikeMutation.isPending && feedLikeMutation.variables?.publishId === item.publishId) ||
               (bookmarkMutation.isPending && bookmarkMutation.variables?.publishId === item.publishId)
             }
             isOpening={openingPublishId === item.publishId}
             isSidePanelVisible={visibleSidePanelIndex === index}
             item={item}
             key={item.publishId}
-            likedOverride={discourseInteractionQuery.data?.publishId === item.publishId ? discourseInteractionQuery.data.liked : undefined}
+            likedOverride={
+              item.type === 'short_drama'
+                ? undefined
+                : discourseInteractionQuery.data?.publishId === item.publishId
+                  ? discourseInteractionQuery.data.liked
+                  : undefined
+            }
             metricsOverride={
-              discourseInteractionQuery.data?.publishId === item.publishId
+              item.type !== 'short_drama' && discourseInteractionQuery.data?.publishId === item.publishId
                 ? {
                     comments: discourseInteractionQuery.data.metrics.comments,
                     likes: discourseInteractionQuery.data.metrics.likes
@@ -480,7 +514,7 @@ export function FeedHomePage() {
           />
         ))}
         {isFetchingNextPage ? (
-          <section className="flex h-[100dvh] snap-start snap-always items-center justify-center bg-[#050506] text-sm text-white/55">
+          <section className="feed-snap-slide flex snap-start snap-always items-center justify-center bg-[#050506] text-sm text-white/55">
             <div className="feed-viewport-frame flex items-center justify-center overflow-hidden bg-black shadow-[0_0_80px_rgba(0,0,0,0.5)] sm:rounded-[34px] sm:border sm:border-white/10">
               다음 콘텐츠를 불러오는 중입니다.
             </div>
@@ -490,7 +524,7 @@ export function FeedHomePage() {
     );
 
   return (
-    <main className="relative bg-black text-white">
+    <main className="feed-page relative bg-black text-white">
       <header className="pointer-events-none fixed inset-x-0 top-0 z-40 hidden h-14 items-center bg-black/92 px-4 text-white shadow-[0_1px_0_rgba(255,255,255,0.08)] xl:flex">
         <div className="pointer-events-auto flex min-w-0 flex-1 items-center gap-3">
           <button
@@ -624,18 +658,26 @@ export function FeedHomePage() {
         </div>
       </div>
 
-      <div className="h-[100dvh] overflow-y-auto snap-y snap-mandatory scrollbar-hidden" onScroll={handleFeedScroll} ref={containerRef}>
+      <div className="feed-snap-scroller overflow-y-auto snap-y snap-mandatory scrollbar-hidden" onScroll={handleFeedScroll} ref={containerRef}>
         {content}
       </div>
 
       <FeedBottomNav isAuthenticated={isAuthenticated} isVisible={isBottomNavVisible} userLoginId={user?.loginId} />
 
       {isCommentsPanelOpen && commentsPanelItem ? (
-        <FeedDiscourseCommentsPanel
-          item={commentsPanelItem}
-          onClose={() => setIsCommentsPanelOpen(false)}
-          onCommentCreated={handleCommentCreated}
-        />
+        commentsPanelItem.type === 'short_drama' ? (
+          <FeedCommentsPanel
+            item={commentsPanelItem}
+            onClose={() => setIsCommentsPanelOpen(false)}
+            onCommentCreated={handleCommentCreated}
+          />
+        ) : (
+          <FeedDiscourseCommentsPanel
+            item={commentsPanelItem}
+            onClose={() => setIsCommentsPanelOpen(false)}
+            onCommentCreated={handleCommentCreated}
+          />
+        )
       ) : null}
 
       {isFeedMenuOpen ? (

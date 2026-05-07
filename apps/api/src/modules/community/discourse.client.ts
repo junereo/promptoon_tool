@@ -20,6 +20,13 @@ export interface DiscourseUserCreateResponse {
   errors?: unknown;
 }
 
+export interface DiscourseUploadResponse {
+  id?: number;
+  upload_id?: number;
+  url?: string;
+  short_url?: string;
+}
+
 export interface DiscourseAssetResponse {
   body: Buffer;
   contentType: string;
@@ -197,6 +204,73 @@ export function createUser(input: {
       password: input.password,
       active: true,
       approved: true
+    }
+  });
+}
+
+export async function uploadAvatar(input: {
+  buffer: Buffer;
+  contentType: string;
+  fileName: string;
+  username: string;
+}): Promise<DiscourseUploadResponse> {
+  const missingEnv = getMissingDiscourseEnv();
+  if (missingEnv.length > 0) {
+    throw new HttpError(503, `Discourse integration is not configured. Missing: ${missingEnv.join(', ')}.`, {
+      missingEnv
+    });
+  }
+
+  const formData = new FormData();
+  const arrayBuffer = input.buffer.buffer.slice(
+    input.buffer.byteOffset,
+    input.buffer.byteOffset + input.buffer.byteLength
+  ) as ArrayBuffer;
+  formData.append('type', 'avatar');
+  formData.append('synchronous', 'true');
+  formData.append('file', new Blob([arrayBuffer], { type: input.contentType }), input.fileName);
+
+  let response: Response;
+  try {
+    response = await fetch(`${getBaseUrl()}/uploads.json`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Api-Key': env.discourse.apiKey ?? '',
+        'Api-Username': input.username
+      },
+      body: formData
+    });
+  } catch (error) {
+    throw new HttpError(502, 'Discourse avatar upload failed.', {
+      reason: error instanceof Error ? error.message : 'Network request failed.'
+    });
+  }
+
+  if (!response.ok) {
+    let details: unknown = null;
+    try {
+      details = await response.json();
+    } catch {
+      details = await response.text();
+    }
+
+    throw new HttpError(response.status >= 400 && response.status < 500 ? response.status : 502, 'Discourse avatar upload failed.', {
+      status: response.status,
+      details
+    });
+  }
+
+  return await response.json() as DiscourseUploadResponse;
+}
+
+export function pickUploadedAvatar(input: { uploadId: number; username: string }): Promise<unknown> {
+  return requestDiscourse(`/u/${encodeURIComponent(input.username)}/preferences/avatar/pick`, {
+    method: 'PUT',
+    username: input.username,
+    body: {
+      type: 'uploaded',
+      upload_id: input.uploadId
     }
   });
 }

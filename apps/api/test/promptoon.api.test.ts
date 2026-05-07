@@ -991,6 +991,67 @@ maybeDescribe('promptoon api integration', () => {
     expect(latestPublished.body.versionNo).toBe(1);
   });
 
+  it('marks a movingtoon project as published when a movingtoon episode is published', async () => {
+    const auth = await registerUser();
+    const project = await withAuth(request(app).post('/api/studio/projects'), auth.token).send({
+      title: 'Movingtoon Project',
+      kind: 'movingtoon'
+    });
+    expect(project.status).toBe(201);
+
+    const episodeResult = await query<{ id: string }>(
+      `INSERT INTO promptoon_movingtoon_episode (
+         project_id,
+         title,
+         episode_no,
+         original_video_url,
+         video_url,
+         thumbnail_url,
+         duration_sec,
+         aspect_ratio,
+         processing_status,
+         publish_status,
+         created_by
+       )
+       VALUES ($1, 'Movingtoon Episode 1', 1, '/uploads/original.mp4', '/uploads/movingtoon.mp4', '/uploads/thumbnail.webp', 15, '9:16', 'ready', 'draft', $2)
+       RETURNING id`,
+      [project.body.id, auth.user.id]
+    );
+    const episodeId = episodeResult.rows[0].id;
+
+    const publish = await withAuth(request(app).post(`/api/studio/movingtoon/episodes/${episodeId}/publish`), auth.token);
+    expect(publish.status).toBe(201);
+    expect(publish.body.publishStatus).toBe('published');
+
+    const dashboard = await withAuth(request(app).get('/api/studio/projects'), auth.token);
+    expect(dashboard.status).toBe(200);
+    expect(dashboard.body[0].status).toBe('published');
+    expect(dashboard.body[0].movingtoonEpisodes[0].publishStatus).toBe('published');
+
+    const feed = await request(app).get('/api/feed');
+    expect(feed.status).toBe(200);
+    expect(feed.body.items[0]).toEqual(
+      expect.objectContaining({
+        type: 'short_drama',
+        publishId: expect.any(String),
+        episodeId,
+        videoUrl: '/uploads/movingtoon.mp4'
+      })
+    );
+
+    const unpublish = await withAuth(request(app).post(`/api/studio/movingtoon/episodes/${episodeId}/unpublish`), auth.token);
+    expect(unpublish.status).toBe(204);
+
+    const unpublishedDashboard = await withAuth(request(app).get('/api/studio/projects'), auth.token);
+    expect(unpublishedDashboard.status).toBe(200);
+    expect(unpublishedDashboard.body[0].status).toBe('draft');
+    expect(unpublishedDashboard.body[0].movingtoonEpisodes[0].publishStatus).toBe('draft');
+
+    const unpublishedFeed = await request(app).get('/api/feed');
+    expect(unpublishedFeed.status).toBe(200);
+    expect(unpublishedFeed.body.items).toHaveLength(0);
+  });
+
   it('unpublishes an episode and reverts dashboard status to draft', async () => {
     const auth = await registerUser();
     const project = await withAuth(request(app).post('/api/promptoon/projects'), auth.token).send({ title: 'Project A' });
@@ -1019,6 +1080,17 @@ maybeDescribe('promptoon api integration', () => {
 
     expect(publish.status).toBe(201);
 
+    const comment = await withAuth(request(app).post(`/api/community/publishes/${publish.body.id}/comments`), auth.token).send({
+      body: 'Keep this comment connected while unpublished.'
+    });
+    expect(comment.status).toBe(201);
+
+    const discourseSync = await withAuth(request(app).post(`/api/community/publishes/${publish.body.id}/discourse-sync`), auth.token).send({
+      discourseTopicId: 'topic-unpublish-1',
+      status: 'synced'
+    });
+    expect(discourseSync.status).toBe(200);
+
     const unpublish = await withAuth(request(app).post(`/api/promptoon/projects/${project.body.id}/unpublish`), auth.token).send({
       episodeId: episode.body.id
     });
@@ -1036,6 +1108,38 @@ maybeDescribe('promptoon api integration', () => {
 
     const published = await request(app).get(`/api/promptoon/episodes/published/${publish.body.id}`);
     expect(published.status).toBe(404);
+
+    const publishRow = await query<{ status: string }>('SELECT status FROM promptoon_publish WHERE id = $1', [publish.body.id]);
+    expect(publishRow.rows[0]?.status).toBe('unpublished');
+
+    const discussionRow = await query<{ publish_id: string | null; discourse_topic_id: string | null }>(
+      'SELECT publish_id, discourse_topic_id FROM promptoon_episode_discussion WHERE episode_id = $1',
+      [episode.body.id]
+    );
+    expect(discussionRow.rows[0]?.publish_id).toBe(publish.body.id);
+    expect(discussionRow.rows[0]?.discourse_topic_id).toBe('topic-unpublish-1');
+
+    const syncRow = await query<{ discourse_topic_id: string | null; provider_status: string }>(
+      'SELECT discourse_topic_id, provider_status FROM promptoon_discourse_thread_sync WHERE publish_id = $1',
+      [publish.body.id]
+    );
+    expect(syncRow.rows[0]).toEqual(expect.objectContaining({ discourse_topic_id: 'topic-unpublish-1', provider_status: 'synced' }));
+
+    const commentRow = await query<{ body: string; publish_id: string | null; discussion_id: string | null }>(
+      'SELECT body, publish_id, discussion_id FROM promptoon_comment WHERE id = $1',
+      [comment.body.id]
+    );
+    expect(commentRow.rows[0]?.publish_id).toBe(publish.body.id);
+    expect(commentRow.rows[0]?.discussion_id).toBeTruthy();
+    expect(commentRow.rows[0]?.body).toBe('Keep this comment connected while unpublished.');
+
+    const commentsAfterUnpublish = await request(app).get(`/api/community/publishes/${publish.body.id}/comments`);
+    expect(commentsAfterUnpublish.status).toBe(200);
+    expect(commentsAfterUnpublish.body.comments).toHaveLength(1);
+
+    const embedAfterUnpublish = await request(app).get(`/api/community/publishes/${publish.body.id}/embed`);
+    expect(embedAfterUnpublish.status).toBe(200);
+    expect(embedAfterUnpublish.body.provider).toBe('discourse');
   });
 
   it('returns a published manifest without authentication', async () => {

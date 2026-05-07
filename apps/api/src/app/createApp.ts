@@ -6,7 +6,7 @@ import { isHttpError } from '../lib/http-error';
 import { resolveFromApiRoot, resolveFromWorkspaceRoot } from '../lib/workspace-paths';
 import { createAuthRouter } from '../modules/auth/auth.routes';
 import { createAdminRouter } from '../modules/admin/admin.routes';
-import { createChannelRouter } from '../modules/channel/channel.routes';
+import { createChannelRouter, createMeChannelRouter } from '../modules/channel/channel.routes';
 import { createCommunityRouter } from '../modules/community/community.routes';
 import { createFeedRouter } from '../modules/feed/feed.routes';
 import { createLegacyPromptoonRouter } from '../modules/promptoon-authoring/promptoon.routes';
@@ -35,6 +35,7 @@ export function createApp(): Express {
   app.use('/api/auth', createAuthRouter());
   app.use('/api/admin', createAdminRouter());
   app.use('/api/feed', createFeedRouter());
+  app.use('/api/me/channel', createMeChannelRouter());
   app.use('/api/channels', createChannelRouter());
   app.use('/api/viewer', createViewerRouter());
   app.use('/api/studio', createStudioRouter());

@@ -17,6 +17,10 @@ const trackChoiceClickMock = vi.fn();
 const fetchNextPageMock = vi.fn(() => Promise.resolve());
 const preloadViewerForPublishMock = vi.hoisted(() => vi.fn(() => Promise.resolve()));
 const imageSources: string[] = [];
+const playMediaMock = vi.fn(() => Promise.resolve());
+const pauseMediaMock = vi.fn();
+const originalPlayMedia = HTMLMediaElement.prototype.play;
+const originalPauseMedia = HTMLMediaElement.prototype.pause;
 
 let feedResponse: FeedResponse;
 
@@ -51,6 +55,14 @@ function LocationDisplay() {
 
 afterEach(() => {
   cleanup();
+  Object.defineProperty(HTMLMediaElement.prototype, 'play', {
+    configurable: true,
+    value: originalPlayMedia
+  });
+  Object.defineProperty(HTMLMediaElement.prototype, 'pause', {
+    configurable: true,
+    value: originalPauseMedia
+  });
 });
 
 beforeEach(() => {
@@ -59,6 +71,8 @@ beforeEach(() => {
   fetchNextPageMock.mockReset();
   preloadViewerForPublishMock.mockReset();
   preloadViewerForPublishMock.mockResolvedValue(undefined);
+  playMediaMock.mockClear();
+  pauseMediaMock.mockClear();
   imageSources.length = 0;
   useAuthStore.setState({
     user: null,
@@ -78,12 +92,23 @@ beforeEach(() => {
     configurable: true,
     value: ImageMock
   });
+  Object.defineProperty(HTMLMediaElement.prototype, 'play', {
+    configurable: true,
+    value: playMediaMock
+  });
+  Object.defineProperty(HTMLMediaElement.prototype, 'pause', {
+    configurable: true,
+    value: pauseMediaMock
+  });
 
   feedResponse = {
     items: [
       {
         publishId: 'publish-1',
         episodeId: 'episode-1',
+        channelAvatarUrl: 'https://cdn.example.com/channel-avatar.webp',
+        channelName: 'Serial Studio',
+        channelSlug: 'serial-studio',
         episodeTitle: 'Episode 1',
         projectTitle: 'Project 1',
         coverImageUrl: 'https://cdn.example.com/cover-1.jpg',
@@ -196,6 +221,7 @@ describe('MainFeedPage', () => {
     expect(screen.getByRole('link', { name: '프롬툰 설문 조사' }).getAttribute('href')).toBe(
       'https://forms.gle/WhsQ9jH7WVg9UUjK6'
     );
+    expect(document.querySelector('img[src="https://cdn.example.com/channel-avatar.webp"]')).toBeTruthy();
 
     await waitFor(() => {
       expect(trackImpressionMock).toHaveBeenCalledTimes(1);
@@ -227,6 +253,45 @@ describe('MainFeedPage', () => {
     expect(trackChoiceClickMock).not.toHaveBeenCalled();
     expect(preloadViewerForPublishMock).toHaveBeenCalledWith('publish-1');
     expect(await screen.findByText('/v/publish-1')).toBeTruthy();
+  });
+
+  it('renders movingtoon video playback controls in the feed', async () => {
+    feedResponse = {
+      ...feedResponse,
+      items: [
+        {
+          ...feedResponse.items[0],
+          type: 'short_drama',
+          videoUrl: 'https://cdn.example.com/movingtoon-1.mp4',
+          durationSec: 15
+        },
+        ...feedResponse.items.slice(1)
+      ]
+    };
+
+    renderPage();
+
+    const video = await screen.findByLabelText('Episode 1 영상');
+    const player = screen.getByTestId('movingtoon-video-player');
+    expect(video.getAttribute('src')).toBe('https://cdn.example.com/movingtoon-1.mp4');
+    expect(screen.getByRole('button', { name: '영상 정지' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '음소거 해제' })).toBeTruthy();
+    expect(screen.getByRole('slider', { name: '영상 진행 위치' })).toBeTruthy();
+
+    fireEvent.pointerEnter(player);
+    fireEvent.click(screen.getByRole('button', { name: '음소거 해제' }));
+    expect(screen.getByRole('button', { name: '음소거' })).toBeTruthy();
+    expect(pauseMediaMock).not.toHaveBeenCalled();
+
+    fireEvent.click(player);
+    expect(pauseMediaMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: '영상 시작' })).toBeTruthy();
+    expect(screen.getByText('시작')).toBeTruthy();
+
+    fireEvent.click(player);
+    expect(playMediaMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: '영상 정지' })).toBeTruthy();
+    expect(screen.getByText('정지')).toBeTruthy();
   });
 
   it('preloads on CTA intent and shows progress until preload finishes', async () => {

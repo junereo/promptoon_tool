@@ -76,6 +76,19 @@ export async function ensureEpisodeProjectRole(episodeId: string, userId: string
   await ensureProjectRole(projectId, userId, allowedRoles);
 }
 
+export async function ensureMovingtoonEpisodeProjectRole(
+  episodeId: string,
+  userId: string,
+  allowedRoles: ProjectRole[]
+): Promise<void> {
+  const projectId = await repository.getMovingtoonEpisodeProjectId(db, episodeId);
+  if (!projectId) {
+    throw new HttpError(404, 'Movingtoon episode not found.');
+  }
+
+  await ensureProjectRole(projectId, userId, allowedRoles);
+}
+
 export async function ensureCutProjectRole(cutId: string, userId: string, allowedRoles: ProjectRole[]): Promise<void> {
   const projectId = await repository.getCutProjectId(db, cutId);
   if (!projectId) {

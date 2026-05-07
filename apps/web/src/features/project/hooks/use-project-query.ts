@@ -1,5 +1,6 @@
 import type {
   CreateEpisodeRequest,
+  CreateMovingtoonEpisodeRequest,
   CreateProjectRequest,
   PatchEpisodeRequest,
   PatchProjectRequest,
@@ -45,6 +46,13 @@ export function useProjectAssets(projectId?: string) {
     queryKey: promptoonKeys.projectAssets(projectId ?? ''),
     queryFn: () => studioApi.listProjectAssets(projectId ?? ''),
     enabled: Boolean(projectId)
+  });
+}
+
+export function useUploadQueue() {
+  return useQuery({
+    queryKey: promptoonKeys.uploadQueue(),
+    queryFn: () => studioApi.listUploadQueue()
   });
 }
 
@@ -112,6 +120,46 @@ export function useCreateEpisode() {
       studioApi.createEpisode(projectId, payload),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: promptoonKeys.projects() });
+    }
+  });
+}
+
+export function useCreateMovingtoonEpisode() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ projectId, payload }: { projectId: string; payload: CreateMovingtoonEpisodeRequest & { file: File } }) =>
+      studioApi.createMovingtoonEpisode(projectId, payload),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: promptoonKeys.projects() }),
+        queryClient.invalidateQueries({ queryKey: promptoonKeys.uploadQueue() })
+      ]);
+    }
+  });
+}
+
+export function usePublishMovingtoonEpisode() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (episodeId: string) => studioApi.publishMovingtoonEpisode(episodeId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: promptoonKeys.projects() });
+    }
+  });
+}
+
+export function useUnpublishMovingtoonEpisode() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (episodeId: string) => studioApi.unpublishMovingtoonEpisode(episodeId),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: promptoonKeys.projects() }),
+        queryClient.invalidateQueries({ queryKey: promptoonKeys.feed() })
+      ]);
     }
   });
 }

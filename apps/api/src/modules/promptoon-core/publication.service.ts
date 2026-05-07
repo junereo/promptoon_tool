@@ -38,6 +38,7 @@ type ProjectionChannelInput = {
   id: string;
   slug: string;
   display_name: string;
+  avatar_url: string | null;
 };
 
 type ProjectionSeriesInput = {
@@ -263,6 +264,7 @@ export function buildProjectedFeedItem(input: {
     channelId: input.channel.id,
     channelSlug: input.channel.slug,
     channelName: input.channel.display_name,
+    channelAvatarUrl: input.channel.avatar_url,
     metrics: {
       views: 0,
       likes: 0,

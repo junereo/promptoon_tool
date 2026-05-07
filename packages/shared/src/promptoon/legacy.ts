@@ -51,10 +51,10 @@ export type PromptoonContentBlockType =
 export type PromptoonResultCardTemplateId = 'the-replace-final';
 export type PromptoonResultCardTheme = 'blue' | 'gold' | 'violet' | 'red';
 
-export type PromptoonProjectStatus = 'draft' | 'published';
+export type PromptoonProjectStatus = 'draft' | 'in_review' | 'published' | 'archived';
 export type PromptoonEpisodeStatus = 'draft' | 'published';
 export type PromptoonEpisodeMode = 'standard' | 'exit_loop';
-export type PromptoonPublishStatus = 'published';
+export type PromptoonPublishStatus = 'published' | 'unpublished';
 export type TelemetryEventType = 'cut_view' | 'cut_leave' | 'choice_click' | 'ending_reach' | 'ending_share' | 'feed_impression' | 'feed_choice_click';
 
 export const DEFAULT_CUT_EFFECT_DURATION_MS = 320;
@@ -151,6 +151,7 @@ export interface Project {
   title: string;
   description: string | null;
   thumbnailUrl: string | null;
+  kind?: import('./studio').StudioProjectKind;
   status: PromptoonProjectStatus;
   createdBy: string;
   createdAt: string;
@@ -159,6 +160,7 @@ export interface Project {
 
 export interface ProjectWithEpisodes extends Project {
   episodes: Episode[];
+  movingtoonEpisodes?: import('./studio').MovingtoonEpisodeSummary[];
 }
 
 export interface Episode {
@@ -415,12 +417,15 @@ export interface PublishRequest {
 export interface CreateProjectRequest {
   title: string;
   description?: string;
+  kind?: import('./studio').StudioProjectKind;
 }
 
 export interface PatchProjectRequest {
   title?: string;
   description?: string | null;
   thumbnailUrl?: string | null;
+  kind?: import('./studio').StudioProjectKind;
+  status?: import('./studio').StudioProjectStatus;
 }
 
 export interface CreateEpisodeRequest {

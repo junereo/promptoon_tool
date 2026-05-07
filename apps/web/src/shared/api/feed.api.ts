@@ -1,4 +1,4 @@
-import type { ContentInteractionStateListResponse, FeedResponse } from '@promptoon/shared';
+import type { ContentInteractionStateListResponse, FeedItem, FeedResponse } from '@promptoon/shared';
 
 import { publicRootApiClient, rootApiClient } from './client';
 
@@ -15,6 +15,11 @@ export const feedApi = {
 
   async getShorts(params: { cursor?: string; limit?: number } = {}): Promise<FeedResponse> {
     const { data } = await publicRootApiClient.get('/feed/shorts', { params });
+    return data;
+  },
+
+  async getShort(publishId: string): Promise<FeedItem> {
+    const { data } = await publicRootApiClient.get(`/feed/shorts/${publishId}`);
     return data;
   },
 

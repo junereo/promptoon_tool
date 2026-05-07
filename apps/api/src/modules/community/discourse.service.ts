@@ -25,6 +25,15 @@ function isUsableDiscourseUsername(username: string | null | undefined): usernam
   );
 }
 
+function getDiscourseUploadId(response: client.DiscourseUploadResponse): number {
+  const uploadId = response.id ?? response.upload_id;
+  if (typeof uploadId !== 'number' || !Number.isFinite(uploadId)) {
+    throw new HttpError(502, 'Discourse avatar upload response did not include an upload id.', response);
+  }
+
+  return uploadId;
+}
+
 export function getDiscourseTopicUrl(topicId: string | number): string | null {
   return client.getDiscourseTopicUrl(topicId);
 }
@@ -103,6 +112,34 @@ export async function ensureDiscourseUserForUser(userId: string): Promise<string
   });
 
   return discourseUsername;
+}
+
+export async function syncUserAvatar(input: {
+  buffer: Buffer;
+  contentType: string;
+  fileName: string;
+  userId: string;
+}): Promise<{ status: 'skipped' | 'synced'; username?: string }> {
+  if (!isDiscourseConfigured()) {
+    return { status: 'skipped' };
+  }
+
+  const username = await ensureDiscourseUserForUser(input.userId);
+  const upload = await client.uploadAvatar({
+    buffer: input.buffer,
+    contentType: input.contentType,
+    fileName: input.fileName,
+    username
+  });
+  await client.pickUploadedAvatar({
+    uploadId: getDiscourseUploadId(upload),
+    username
+  });
+
+  return {
+    status: 'synced',
+    username
+  };
 }
 
 export function getCategories(): Promise<unknown> {

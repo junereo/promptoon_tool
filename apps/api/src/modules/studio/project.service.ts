@@ -235,6 +235,7 @@ export async function createProject(request: CreateProjectRequest, userId: strin
       const project = await repository.createProject(client, {
         title: request.title,
         description: request.description,
+        kind: request.kind,
         createdBy: userId
       });
       await accessRepository.upsertProjectMember(client, {

@@ -9,6 +9,7 @@ export interface FeedItemMetrics {
 
 export interface ContentInteractionState {
   publishId: string;
+  contentType?: Exclude<FeedItemType, 'channel_recommendation'>;
   liked: boolean;
   bookmarked: boolean;
   metrics: FeedItemMetrics;
@@ -31,9 +32,12 @@ export interface FeedItem {
   channelId?: string | null;
   channelSlug?: string | null;
   channelName?: string | null;
+  channelAvatarUrl?: string | null;
   episodeTitle: string;
   projectTitle: string;
   coverImageUrl: string | null;
+  videoUrl?: string | null;
+  durationSec?: number | null;
   publishedAt: string;
   metrics?: FeedItemMetrics;
   entry?: FeedItemEntry;

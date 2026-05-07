@@ -56,6 +56,11 @@ export const env = {
     categoryId: discourseCategoryId,
     origin: getOptionalEnv('DISCOURSE_ORIGIN', 'VITE_DISCOURSE_ORIGIN')
   },
+  movingtoon: {
+    ffmpegPath: process.env.MOVINGTOON_FFMPEG_PATH ?? 'ffmpeg',
+    ffprobePath: process.env.MOVINGTOON_FFPROBE_PATH ?? 'ffprobe',
+    maxUploadBytes: Number(process.env.MOVINGTOON_MAX_UPLOAD_BYTES ?? 500 * 1024 * 1024)
+  },
   nodeEnv: process.env.NODE_ENV ?? 'development',
   port: Number(process.env.PORT ?? 4000)
 };

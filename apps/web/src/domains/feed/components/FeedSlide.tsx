@@ -1,6 +1,7 @@
 import type { ContentInteractionState, FeedItem, FeedItemMetrics, FeedItemType } from '@promptoon/shared';
 import { Link } from 'react-router-dom';
 
+import { MovingtoonVideoPlayer } from '../../../widgets/public-feed/MovingtoonVideoPlayer';
 import { FeedActionRail } from './FeedActionRail';
 
 const TYPE_LABELS: Record<FeedItemType, string> = {
@@ -45,6 +46,20 @@ function getCtaLabel(type: FeedItem['type']) {
   return '선택 시작';
 }
 
+function ChannelAvatar({
+  avatarUrl,
+  initial
+}: {
+  avatarUrl?: string | null;
+  initial: string;
+}) {
+  return (
+    <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/15 text-lg font-semibold text-white ring-2 ring-white/30">
+      {avatarUrl ? <img alt="" className="h-full w-full object-cover" src={avatarUrl} /> : initial}
+    </span>
+  );
+}
+
 export function FeedSlide({
   interactionState,
   isInteractionPending,
@@ -75,6 +90,7 @@ export function FeedSlide({
   onShare?: () => void;
 }) {
   const posterUrl = getPosterUrl(item);
+  const shouldRenderVideo = item.type === 'short_drama' && Boolean(item.videoUrl);
   const channelPath = item.channelSlug ? `/channel/${item.channelSlug}` : null;
   const metrics = getMetrics(interactionState, item, metricsOverride);
   const liked = likedOverride ?? interactionState?.liked;
@@ -87,7 +103,7 @@ export function FeedSlide({
   const deferredOverlayVisibilityClass = isSidePanelVisible ? 'opacity-100' : 'pointer-events-none opacity-0';
 
   return (
-    <section className="relative flex h-[100dvh] snap-start snap-always items-center justify-center overflow-hidden bg-[#050506] text-white" data-feed-slide>
+    <section className="feed-snap-slide relative flex snap-start snap-always items-center justify-center overflow-hidden bg-[#050506] text-white" data-feed-slide>
       <div
         className={[
           'feed-desktop-info-panel feed-desktop-side-panel absolute top-1/2 hidden w-[22rem] -translate-y-1/2 flex-col justify-end pb-10 text-left transition-opacity duration-200 ease-out xl:flex',
@@ -114,9 +130,7 @@ export function FeedSlide({
           <div className="mt-6 flex flex-col items-start gap-4">
             {channelPath ? (
               <Link className="flex min-w-0 max-w-full items-center gap-3" to={channelPath}>
-                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/12 text-lg font-semibold text-white ring-1 ring-white/18">
-                  {channelInitial}
-                </span>
+                <ChannelAvatar avatarUrl={item.channelAvatarUrl} initial={channelInitial} />
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-semibold text-white">{item.channelName ?? item.projectTitle}</span>
                   <span className="block truncate text-xs text-white/58">@{item.channelSlug}</span>
@@ -124,9 +138,7 @@ export function FeedSlide({
               </Link>
             ) : (
               <div className="flex min-w-0 max-w-full items-center gap-3">
-                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/12 text-lg font-semibold text-white ring-1 ring-white/18">
-                  {channelInitial}
-                </span>
+                <ChannelAvatar avatarUrl={item.channelAvatarUrl} initial={channelInitial} />
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-semibold text-white">{item.channelName ?? item.projectTitle}</span>
                   <span className="block truncate text-xs text-white/58">{metrics.views.toLocaleString('ko-KR')} views</span>
@@ -150,7 +162,14 @@ export function FeedSlide({
       </div>
 
       <div className="feed-viewport-frame relative overflow-hidden bg-black shadow-[0_0_80px_rgba(0,0,0,0.5)] sm:rounded-[34px] sm:border sm:border-white/10">
-        {posterUrl ? (
+        {shouldRenderVideo ? (
+          <MovingtoonVideoPlayer
+            className="absolute inset-0 h-full w-full object-cover"
+            posterUrl={posterUrl}
+            title={item.episodeTitle}
+            videoUrl={item.videoUrl ?? ''}
+          />
+        ) : posterUrl ? (
           <img alt={item.episodeTitle} className="absolute inset-0 h-full w-full object-cover" src={posterUrl} />
         ) : (
           <div className="absolute inset-0 bg-[linear-gradient(135deg,#131316,#202327_52%,#050506)]" />
@@ -172,6 +191,7 @@ export function FeedSlide({
       >
         <FeedActionRail
           bookmarked={interactionState?.bookmarked}
+          channelAvatarUrl={item.channelAvatarUrl}
           channelInitial={channelInitial}
           channelName={item.channelName ?? item.projectTitle}
           channelPath={channelPath}
@@ -187,7 +207,8 @@ export function FeedSlide({
 
       <div
         className={[
-          'absolute inset-x-0 bottom-0 z-10 px-5 pb-[max(env(safe-area-inset-bottom),0.5rem)] pr-24 pt-16 transition-opacity duration-200 ease-out sm:px-6 sm:pr-24 xl:hidden',
+          'absolute inset-x-0 bottom-0 z-10 px-5 pr-24 pt-16 transition-opacity duration-200 ease-out sm:px-6 sm:pr-24 xl:hidden',
+          shouldRenderVideo ? 'pb-24' : 'pb-[max(env(safe-area-inset-bottom),0.5rem)]',
           deferredOverlayVisibilityClass
         ].join(' ')}
       >
@@ -215,9 +236,7 @@ export function FeedSlide({
           <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-center">
             {channelPath ? (
               <Link className="flex min-w-0 items-center gap-3" to={channelPath}>
-                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/15 text-lg font-semibold text-white ring-2 ring-white/30">
-                  {channelInitial}
-                </span>
+                <ChannelAvatar avatarUrl={item.channelAvatarUrl} initial={channelInitial} />
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-semibold text-white">{item.channelName ?? item.projectTitle}</span>
                   <span className="block truncate text-xs text-white/62">@{item.channelSlug}</span>
@@ -225,9 +244,7 @@ export function FeedSlide({
               </Link>
             ) : (
               <div className="flex min-w-0 items-center gap-3">
-                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/15 text-lg font-semibold text-white ring-2 ring-white/30">
-                  {channelInitial}
-                </span>
+                <ChannelAvatar avatarUrl={item.channelAvatarUrl} initial={channelInitial} />
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-semibold text-white">{item.channelName ?? item.projectTitle}</span>
                   <span className="block truncate text-xs text-white/62">{metrics.views.toLocaleString('ko-KR')} views</span>
@@ -258,6 +275,7 @@ export function FeedSlide({
       >
         <FeedActionRail
           bookmarked={interactionState?.bookmarked}
+          channelAvatarUrl={item.channelAvatarUrl}
           channelInitial={channelInitial}
           channelName={item.channelName ?? item.projectTitle}
           channelPath={channelPath}

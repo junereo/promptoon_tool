@@ -25,6 +25,10 @@ const CommunityDiscussionPage = lazyNamedPage(
   'CommunityDiscussionPage'
 );
 const FeedHomePage = lazyNamedPage(() => import('../domains/feed/pages/FeedHomePage'), 'FeedHomePage');
+const MovingtoonShortViewerPage = lazyNamedPage(
+  () => import('../domains/feed/pages/MovingtoonShortViewerPage'),
+  'MovingtoonShortViewerPage'
+);
 const LoginPage = lazyNamedPage(() => import('../pages/LoginPage'), 'LoginPage');
 const PromptoonOverviewPage = lazyNamedPage(() => import('../pages/PromptoonOverviewPage'), 'PromptoonOverviewPage');
 const RegisterPage = lazyNamedPage(() => import('../pages/RegisterPage'), 'RegisterPage');
@@ -181,6 +185,7 @@ export function AppRouter() {
       <Routes>
         <Route path="/" element={<FeedHomePage />} />
         <Route path="/feed" element={<FeedHomePage />} />
+        <Route path="/shorts/:publishId" element={<MovingtoonShortViewerPage />} />
         <Route path="/channel/:channelId" element={<ChannelPage />} />
         <Route path="/overview" element={<PromptoonOverviewPage />} />
         <Route path="/v/:publishId" element={<ViewerRoute />} />
@@ -188,6 +193,7 @@ export function AppRouter() {
         <Route path="/c/:channelSlug" element={<ChannelHomePage />} />
         <Route path="/c/:channelSlug/series" element={<ChannelHomePage />} />
         <Route path="/c/:channelSlug/shorts" element={<ChannelHomePage />} />
+        <Route path="/c/:channelSlug/promptoons" element={<ChannelHomePage />} />
         <Route path="/c/:channelSlug/community" element={<ChannelHomePage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />

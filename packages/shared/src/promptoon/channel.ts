@@ -1,6 +1,7 @@
 export interface ChannelProfile {
   id: string;
   slug: string;
+  ownerLoginId?: string | null;
   displayName: string;
   handle?: string | null;
   avatarUrl?: string | null;
@@ -59,4 +60,14 @@ export interface ChannelHome {
   latestEpisodes: ChannelEpisode[];
   latestShorts: ChannelShort[];
   communityMeta?: ChannelCommunityMeta;
+}
+
+export interface UpdateChannelProfileRequest {
+  displayName?: string;
+  bio?: string | null;
+}
+
+export interface ChannelProfileUpdateResponse {
+  channel: ChannelProfile;
+  home: ChannelHome;
 }
