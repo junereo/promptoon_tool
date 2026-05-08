@@ -114,8 +114,10 @@ export function MainFeedPage() {
   const activeItem = feedItems[deferredActiveIndex] ?? null;
   const { fetchNextPage, hasNextPage, isFetchingNextPage } = feedQuery;
   const likeMutation = useMutation({
-    mutationFn: (input: { publishId: string; liked: boolean }) =>
-      input.liked ? feedApi.unlikePublish(input.publishId) : feedApi.likePublish(input.publishId),
+    mutationFn: (input: { item: FeedItem; liked: boolean }) =>
+      input.liked
+        ? feedApi.unlikePublish(input.item.publishId, input.item.recommendation)
+        : feedApi.likePublish(input.item.publishId, input.item.recommendation),
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: promptoonKeys.feedInteractionState(publishIdsKey) }),
@@ -124,8 +126,10 @@ export function MainFeedPage() {
     }
   });
   const bookmarkMutation = useMutation({
-    mutationFn: (input: { publishId: string; bookmarked: boolean }) =>
-      input.bookmarked ? feedApi.unbookmarkPublish(input.publishId) : feedApi.bookmarkPublish(input.publishId),
+    mutationFn: (input: { item: FeedItem; bookmarked: boolean }) =>
+      input.bookmarked
+        ? feedApi.unbookmarkPublish(input.item.publishId, input.item.recommendation)
+        : feedApi.bookmarkPublish(input.item.publishId, input.item.recommendation),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: promptoonKeys.feedInteractionState(publishIdsKey) });
     }
@@ -185,8 +189,8 @@ export function MainFeedPage() {
     }
 
     viewedPublishIdsRef.current.add(activeItem.publishId);
-    telemetry.trackImpression(activeItem);
-  }, [activeItem, telemetry]);
+    telemetry.trackImpression(activeItem, deferredActiveIndex + 1);
+  }, [activeItem, deferredActiveIndex, telemetry]);
 
   useEffect(() => {
     const preloadTargets = feedItems
@@ -279,7 +283,7 @@ export function MainFeedPage() {
 
     const interactionState = interactionByPublishId.get(item.publishId);
     void likeMutation.mutateAsync({
-      publishId: item.publishId,
+      item,
       liked: interactionState?.liked ?? false
     }).catch(() => undefined);
   }
@@ -292,7 +296,7 @@ export function MainFeedPage() {
 
     const interactionState = interactionByPublishId.get(item.publishId);
     void bookmarkMutation.mutateAsync({
-      publishId: item.publishId,
+      item,
       bookmarked: interactionState?.bookmarked ?? false
     }).catch(() => undefined);
   }
@@ -358,8 +362,8 @@ export function MainFeedPage() {
             <FeedSlide
               interactionState={interactionByPublishId.get(item.publishId)}
               isInteractionPending={
-                (likeMutation.isPending && likeMutation.variables?.publishId === item.publishId) ||
-                (bookmarkMutation.isPending && bookmarkMutation.variables?.publishId === item.publishId)
+                (likeMutation.isPending && likeMutation.variables?.item.publishId === item.publishId) ||
+                (bookmarkMutation.isPending && bookmarkMutation.variables?.item.publishId === item.publishId)
               }
               isOpening={openingPublishId === item.publishId}
               item={item}

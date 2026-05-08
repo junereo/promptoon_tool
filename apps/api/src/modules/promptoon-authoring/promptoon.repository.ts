@@ -2426,11 +2426,35 @@ export async function createViewerEvent(
     cutId: string;
     choiceId?: string;
     durationMs?: number;
+    surface?: string;
+    position?: number;
+    trackingToken?: string;
+    recommendationRequestId?: string;
+    policyId?: string;
+    modelVersion?: string;
+    experimentId?: string;
   }
 ): Promise<void> {
   await db.query<ViewerEventInsertRow>(
-    `INSERT INTO promptoon_viewer_event (id, publish_id, episode_id, anonymous_id, session_id, event_type, cut_id, choice_id, duration_ms)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    `INSERT INTO promptoon_viewer_event (
+       id,
+       publish_id,
+       episode_id,
+       anonymous_id,
+       session_id,
+       event_type,
+       cut_id,
+       choice_id,
+       duration_ms,
+       surface,
+       position,
+       tracking_token,
+       recommendation_request_id,
+       policy_id,
+       model_version,
+       experiment_id
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
     [
       randomUUID(),
       input.publishId,
@@ -2440,7 +2464,14 @@ export async function createViewerEvent(
       input.eventType,
       input.cutId,
       input.choiceId ?? null,
-      input.durationMs ?? null
+      input.durationMs ?? null,
+      input.surface ?? null,
+      input.position ?? null,
+      input.trackingToken ?? null,
+      input.recommendationRequestId ?? null,
+      input.policyId ?? null,
+      input.modelVersion ?? null,
+      input.experimentId ?? null
     ]
   );
 }

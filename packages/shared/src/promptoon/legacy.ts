@@ -365,6 +365,13 @@ export interface TelemetryEventRequest {
   cutId: string;
   choiceId?: string;
   durationMs?: number;
+  surface?: 'home_feed' | 'discovery_feed' | string;
+  position?: number;
+  trackingToken?: string;
+  recommendationRequestId?: string;
+  policyId?: string;
+  modelVersion?: string;
+  experimentId?: string;
 }
 
 export interface AssetUploadResponse {

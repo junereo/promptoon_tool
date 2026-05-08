@@ -1,25 +1,55 @@
-import type { ContentInteractionStateListResponse, FeedHomeResponse, FeedItem, FeedResponse, FeedItemType } from '@promptoon/shared';
+import type { ContentInteractionStateListResponse, FeedHomeResponse, FeedItem, FeedRecommendationMeta, FeedResponse, FeedItemType } from '@promptoon/shared';
 
 import { publicRootApiClient, rootApiClient } from './client';
+import { getPromptoonAnonymousId } from '../lib/promptoon-telemetry';
+
+function getAnonymousHeaders(): Record<string, string> {
+  if (typeof window === 'undefined') {
+    return {};
+  }
+
+  return {
+    'X-Promptoon-Anonymous-Id': getPromptoonAnonymousId()
+  };
+}
+
+function getRecommendationBody(recommendation?: FeedRecommendationMeta) {
+  return recommendation
+    ? {
+        recommendation
+      }
+    : {};
+}
 
 export const feedApi = {
   async getHome(): Promise<FeedHomeResponse> {
-    const { data } = await publicRootApiClient.get('/feed/home');
+    const { data } = await publicRootApiClient.get('/feed/home', {
+      headers: getAnonymousHeaders()
+    });
     return data;
   },
 
   async getMixedFeed(params: { cursor?: string; limit?: number } = {}): Promise<FeedResponse> {
-    const { data } = await publicRootApiClient.get('/feed/mixed', { params });
+    const { data } = await publicRootApiClient.get('/feed/mixed', {
+      headers: getAnonymousHeaders(),
+      params
+    });
     return data;
   },
 
   async getEpisodes(params: { cursor?: string; limit?: number } = {}): Promise<FeedResponse> {
-    const { data } = await publicRootApiClient.get('/feed/episodes', { params });
+    const { data } = await publicRootApiClient.get('/feed/episodes', {
+      headers: getAnonymousHeaders(),
+      params
+    });
     return data;
   },
 
   async getShorts(params: { cursor?: string; limit?: number } = {}): Promise<FeedResponse> {
-    const { data } = await publicRootApiClient.get('/feed/shorts', { params });
+    const { data } = await publicRootApiClient.get('/feed/shorts', {
+      headers: getAnonymousHeaders(),
+      params
+    });
     return data;
   },
 
@@ -47,19 +77,23 @@ export const feedApi = {
     return data;
   },
 
-  async likePublish(publishId: string): Promise<void> {
-    await rootApiClient.post(`/feed/publishes/${publishId}/like`);
+  async likePublish(publishId: string, recommendation?: FeedRecommendationMeta): Promise<void> {
+    await rootApiClient.post(`/feed/publishes/${publishId}/like`, getRecommendationBody(recommendation));
   },
 
-  async unlikePublish(publishId: string): Promise<void> {
-    await rootApiClient.delete(`/feed/publishes/${publishId}/like`);
+  async unlikePublish(publishId: string, recommendation?: FeedRecommendationMeta): Promise<void> {
+    await rootApiClient.delete(`/feed/publishes/${publishId}/like`, {
+      data: getRecommendationBody(recommendation)
+    });
   },
 
-  async bookmarkPublish(publishId: string): Promise<void> {
-    await rootApiClient.post(`/feed/publishes/${publishId}/bookmark`);
+  async bookmarkPublish(publishId: string, recommendation?: FeedRecommendationMeta): Promise<void> {
+    await rootApiClient.post(`/feed/publishes/${publishId}/bookmark`, getRecommendationBody(recommendation));
   },
 
-  async unbookmarkPublish(publishId: string): Promise<void> {
-    await rootApiClient.delete(`/feed/publishes/${publishId}/bookmark`);
+  async unbookmarkPublish(publishId: string, recommendation?: FeedRecommendationMeta): Promise<void> {
+    await rootApiClient.delete(`/feed/publishes/${publishId}/bookmark`, {
+      data: getRecommendationBody(recommendation)
+    });
   }
 };

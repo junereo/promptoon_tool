@@ -25,9 +25,9 @@ export function ChannelIdentity({
   const accountId = formatChannelHandle(profile.accountId ?? fallbackAccountId);
 
   return (
-    <section className="relative z-30 -mt-16 flex flex-col gap-4 md:-mt-20 md:flex-row md:items-end md:justify-between">
-      <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-end">
-        <div className="relative flex h-28 w-28 shrink-0 items-center justify-center overflow-hidden rounded-[30px] border border-white/16 bg-white/12 text-4xl font-semibold text-white shadow-2xl shadow-black/35 ring-4 ring-[#050505] md:h-36 md:w-36 md:rounded-[36px]">
+    <section className="relative z-30 -mt-16 flex flex-col gap-4">
+      <div className="flex min-w-0 flex-col gap-4">
+        <div className="relative flex h-28 w-28 shrink-0 items-center justify-center overflow-hidden rounded-[30px] border border-white/16 bg-white/12 text-4xl font-semibold text-white shadow-2xl shadow-black/35 ring-4 ring-[#050505]">
           {profile.avatarImage ? (
             <img alt={`${profile.displayName} avatar`} className="h-full w-full object-cover" src={profile.avatarImage.mobileUrl} />
           ) : (
@@ -46,7 +46,7 @@ export function ChannelIdentity({
         </div>
         <div className="min-w-0 pb-1">
           <p className="text-sm font-medium text-white/56">{accountId}</p>
-          <h1 className="mt-1 truncate font-display text-4xl font-semibold tracking-tight text-white md:text-5xl">
+          <h1 className="mt-1 truncate font-display text-4xl font-semibold tracking-tight text-white">
             {profile.displayName}
           </h1>
           {profile.bio ? <p className="mt-3 max-w-2xl text-sm leading-6 text-white/68">{profile.bio}</p> : null}

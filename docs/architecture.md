@@ -7,7 +7,9 @@ Promptoon은 `pnpm` workspace 기반 모노레포입니다. 현재 구현은 초
 - `apps/web`: 사용자용 Web 앱. consumer home/discovery/library/my, public feed/channel/viewer/community와 Studio authoring 화면을 함께 제공.
 - `apps/admin`: platform admin 전용 운영 콘솔.
 - `apps/api`: Express + PostgreSQL API 서버.
+- `apps/recommendation-api`: Feed 추천 전용 Express API 서버.
 - `packages/shared`: 프론트엔드와 백엔드가 공유하는 TypeScript 타입.
+- `packages/recommendation-contract`, `packages/recommendation-client`, `packages/recommendation-core`, `packages/recommendation-rankers`: 추천 API 계약, Feed API용 client, 후보/로그 core, 교체형 ranker.
 
 공유 타입은 `@promptoon/shared` workspace 패키지로 연결됩니다. Vite 앱은 alias로 `packages/shared/src/index.ts`를 직접 참조합니다.
 
@@ -17,7 +19,7 @@ Promptoon은 `pnpm` workspace 기반 모노레포입니다. 현재 구현은 초
 
 - 위치: `apps/web`
 - 주요 스택: React 19, Vite 5, TypeScript, React Router, TanStack Query, Zustand, Tailwind CSS 4, React Flow, dnd-kit, Recharts
-- 개발 서버: `http://127.0.0.1:5173`
+- 개발 서버: `pnpm --filter @promptoon/web dev` 기준 `http://127.0.0.1:5174`. `apps/web/vite.config.ts`의 raw Vite 기본값은 `5173`입니다.
 - API proxy: `/api`, `/uploads` -> `VITE_API_PROXY_TARGET` 또는 `http://127.0.0.1:4000`
 
 디렉터리는 FSD와 product-domain 구조가 함께 쓰입니다.
@@ -87,6 +89,17 @@ API는 `apps/api/src/app/createApp.ts`에서 mount됩니다.
 - `modules/promptoon-core`: product domain에서 공유하는 public/projection repository와 service.
 - `modules/promptoon-authoring`: legacy authoring service와 schema/validator. Studio service가 일부 구현을 재사용합니다.
 
+### 3.1. Recommendation API
+
+- 위치: `apps/recommendation-api`
+- 기본 포트: `4100`
+- Health check: `GET /health`
+- 추천 endpoint: `POST /recommendations/v1/feed`
+
+Feed API는 기본 피드 정렬을 직접 계산하지 않고 Recommendation API에 `publishId` 목록과 score/tracking metadata를 요청합니다. Recommendation API는 `promptoon_feed_item` projection만 읽으며 Studio draft/cut state는 읽지 않습니다. 추천 API 장애, timeout, 빈 결과에서는 `apps/api`가 기존 최신순 projection query로 fallback합니다.
+
+v0 추천은 PostgreSQL + RuleRanker 기반입니다. 후보군은 Latest, Trending, Exploration이고 결과는 `promptoon_recommendation_request`, `promptoon_recommendation_result`에 저장됩니다. `nextCursor`는 저장된 request/result offset을 가리키며, Feed/Viewer telemetry는 recommendation request id, policy/model/experiment id, tracking token을 optional로 포함합니다.
+
 ## 4. Auth와 권한
 
 인증은 JWT access token과 refresh token을 사용합니다. 토큰은 JSON response와 httpOnly cookie에 함께 내려가며, `Authorization: Bearer <token>`도 지원합니다.
@@ -115,7 +128,7 @@ Project role 정책:
 
 PostgreSQL은 `pg.Pool`로 연결됩니다. Vitest 실행 중이고 `TEST_DATABASE_URL`이 있으면 테스트 DB를 사용하고, 그 외에는 `DATABASE_URL`을 사용합니다.
 
-마이그레이션은 `apps/api/src/db/migrations/*.sql`을 번호순으로 실행합니다. 현재 migration 범위는 `001_init_promptoon.sql`부터 `024_promptoon_platform_admin.sql`까지입니다.
+마이그레이션은 `apps/api/src/db/migrations/*.sql`을 번호순으로 실행합니다. 현재 migration 범위는 `001_init_promptoon.sql`부터 `030_promptoon_recommendation_system.sql`까지입니다.
 
 주요 schema 축:
 
@@ -123,6 +136,7 @@ PostgreSQL은 `pg.Pool`로 연결됩니다. Vitest 실행 중이고 `TEST_DATABA
 - auth/session/role: user, session, refresh token, project member, studio member, platform admin
 - public product: feed item projection, channel, series, channel home projection, short clip
 - interaction: like, bookmark, subscription, viewer event, telemetry event
+- recommendation: recommendation request/result log, viewer event attribution
 - community: episode discussion, DB comment, Discourse sync
 - asset/publish history: project asset, asset history, publish history/diff/rollback support
 
@@ -136,6 +150,7 @@ PostgreSQL은 `pg.Pool`로 연결됩니다. Vitest 실행 중이고 `TEST_DATABA
 - `studio.ts`: project role, member, asset, publish history/diff/rollback, projection repair 타입
 - `admin.ts`: platform admin response 타입
 - `feed.ts`, `channel.ts`, `viewer.ts`, `community.ts`, `analytics.ts`: public product 및 analytics 타입
+- recommendation contract/ranker 타입은 `packages/recommendation-*` 패키지에 분리되어 있으며, public Feed item에는 optional recommendation metadata만 포함됩니다.
 
 API request validation의 소스는 `apps/api/src/modules/promptoon-authoring/promptoon.schemas.ts`입니다.
 
@@ -144,7 +159,8 @@ API request validation의 소스는 `apps/api/src/modules/promptoon-authoring/pr
 로컬 기본 포트:
 
 - API: `4000`
-- Web: `5173`
+- Recommendation API: `4100`
+- Web: `5174` via package script, `5173` via raw Vite config
 - Admin: `5174`
 - PostgreSQL: `5432`
 

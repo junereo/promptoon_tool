@@ -19,7 +19,7 @@ export function FeaturedSeriesSection({ channelSlug, series }: FeaturedSeriesSec
         </Link>
       </div>
       {series.length > 0 ? (
-        <div className="-mx-4 flex snap-x gap-4 overflow-x-auto px-4 pb-2 md:mx-0 md:grid md:grid-cols-2 md:overflow-visible md:px-0">
+        <div className="-mx-4 flex snap-x gap-4 overflow-x-auto px-4 pb-2">
           {series.map((item) => (
             <FeaturedSeriesCard key={item.id} series={item} />
           ))}

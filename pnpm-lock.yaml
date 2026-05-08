@@ -81,6 +81,12 @@ importers:
 
   apps/api:
     dependencies:
+      '@promptoon/recommendation-client':
+        specifier: workspace:*
+        version: link:../../packages/recommendation-client
+      '@promptoon/recommendation-contract':
+        specifier: workspace:*
+        version: link:../../packages/recommendation-contract
       '@promptoon/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -118,6 +124,52 @@ importers:
       '@types/multer':
         specifier: ^2.1.0
         version: 2.1.0
+      '@types/node':
+        specifier: ^22.13.4
+        version: 22.19.15
+      '@types/pg':
+        specifier: ^8.11.11
+        version: 8.20.0
+      '@types/supertest':
+        specifier: ^6.0.3
+        version: 6.0.3
+      supertest:
+        specifier: ^7.0.0
+        version: 7.2.2
+      tsx:
+        specifier: ^4.19.2
+        version: 4.21.0
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.5
+        version: 3.2.4(@types/node@22.19.15)(jsdom@26.1.0)(lightningcss@1.32.0)
+
+  apps/recommendation-api:
+    dependencies:
+      '@promptoon/recommendation-contract':
+        specifier: workspace:*
+        version: link:../../packages/recommendation-contract
+      '@promptoon/recommendation-core':
+        specifier: workspace:*
+        version: link:../../packages/recommendation-core
+      dotenv:
+        specifier: ^16.4.5
+        version: 16.6.1
+      express:
+        specifier: ^4.21.2
+        version: 4.22.1
+      pg:
+        specifier: ^8.13.1
+        version: 8.20.0
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+    devDependencies:
+      '@types/express':
+        specifier: ^5.0.0
+        version: 5.0.6
       '@types/node':
         specifier: ^22.13.4
         version: 22.19.15
@@ -230,6 +282,57 @@ importers:
       vite:
         specifier: ^5.4.14
         version: 5.4.21(@types/node@22.19.15)(lightningcss@1.32.0)
+      vitest:
+        specifier: ^3.0.5
+        version: 3.2.4(@types/node@22.19.15)(jsdom@26.1.0)(lightningcss@1.32.0)
+
+  packages/recommendation-client:
+    dependencies:
+      '@promptoon/recommendation-contract':
+        specifier: workspace:*
+        version: link:../recommendation-contract
+    devDependencies:
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
+  packages/recommendation-contract:
+    dependencies:
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+    devDependencies:
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
+  packages/recommendation-core:
+    dependencies:
+      '@promptoon/recommendation-contract':
+        specifier: workspace:*
+        version: link:../recommendation-contract
+      '@promptoon/recommendation-rankers':
+        specifier: workspace:*
+        version: link:../recommendation-rankers
+      pg:
+        specifier: ^8.13.1
+        version: 8.20.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.13.4
+        version: 22.19.15
+      '@types/pg':
+        specifier: ^8.11.11
+        version: 8.20.0
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
+  packages/recommendation-rankers:
+    devDependencies:
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
       vitest:
         specifier: ^3.0.5
         version: 3.2.4(@types/node@22.19.15)(jsdom@26.1.0)(lightningcss@1.32.0)

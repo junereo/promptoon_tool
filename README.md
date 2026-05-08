@@ -89,7 +89,18 @@ pnpm run dev:api
 기본 주소:
 
 - `http://127.0.0.1:4000`
-- Health check: `http://127.0.0.1:4000/health`
+- Health check: `http://127.0.0.1:4000/api/health`
+
+### Recommendation API
+
+```bash
+pnpm run dev:recommendation
+```
+
+기본 주소:
+
+- `http://127.0.0.1:4100`
+- Health check: `http://127.0.0.1:4100/health`
 
 ### Web
 

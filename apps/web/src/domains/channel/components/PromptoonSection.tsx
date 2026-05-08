@@ -20,7 +20,7 @@ export function PromptoonSection({ channelSlug, episodes, relation }: PromptoonS
         </Link>
       </div>
       {episodes.length > 0 ? (
-        <div className="grid grid-cols-2 gap-3 @[42rem]:grid-cols-3 md:grid-cols-3 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3">
           {episodes.map((episode) => (
             <PromptoonEpisodeCard episode={episode} key={episode.id} />
           ))}

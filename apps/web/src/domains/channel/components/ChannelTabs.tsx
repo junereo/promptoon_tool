@@ -16,7 +16,7 @@ const CHANNEL_TABS: Array<{ key: ChannelContentTab; label: string; path: (channe
 
 export function ChannelTabs({ activeTab, channelSlug }: ChannelTabsProps) {
   return (
-    <nav className="sticky top-0 z-20 -mx-4 overflow-x-auto border-y border-white/8 bg-[#050505]/78 px-4 py-3 backdrop-blur-xl md:rounded-full md:border md:px-3">
+    <nav className="sticky top-0 z-20 -mx-4 overflow-x-auto border-y border-white/8 bg-[#050505]/78 px-4 py-3 backdrop-blur-xl">
       <div className="flex min-w-max gap-2">
         {CHANNEL_TABS.map((tab) => {
           const isActive = tab.key === activeTab;

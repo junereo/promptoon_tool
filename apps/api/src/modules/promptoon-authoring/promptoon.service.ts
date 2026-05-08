@@ -2188,7 +2188,14 @@ export async function trackViewerEvent(request: TelemetryEventRequest): Promise<
     eventType: request.eventType,
     cutId: request.cutId,
     choiceId: request.choiceId,
-    durationMs: request.durationMs
+    durationMs: request.durationMs,
+    surface: request.surface,
+    position: request.position,
+    trackingToken: request.trackingToken,
+    recommendationRequestId: request.recommendationRequestId,
+    policyId: request.policyId,
+    modelVersion: request.modelVersion,
+    experimentId: request.experimentId
   });
   await repository.insertTelemetryEvent(db, {
     eventName: request.eventType,
@@ -2200,7 +2207,14 @@ export async function trackViewerEvent(request: TelemetryEventRequest): Promise<
     payload: {
       cutId: request.cutId,
       choiceId: request.choiceId,
-      durationMs: request.durationMs
+      durationMs: request.durationMs,
+      surface: request.surface,
+      position: request.position,
+      trackingToken: request.trackingToken,
+      recommendationRequestId: request.recommendationRequestId,
+      policyId: request.policyId,
+      modelVersion: request.modelVersion,
+      experimentId: request.experimentId
     }
   });
 }

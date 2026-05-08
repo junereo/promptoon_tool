@@ -1,5 +1,6 @@
 import type { ChannelEpisode, ChannelHome, ChannelSeries, ChannelShort } from '@promptoon/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 
@@ -181,12 +182,27 @@ function mapChannelHomeToPageData(
   };
 }
 
+function ChannelMobileFrame({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <main className="min-h-dvh bg-[#050506] text-white">
+      <div
+        className={[
+          'mx-auto min-h-dvh w-full max-w-[480px] bg-[#050505] shadow-[0_0_80px_rgba(0,0,0,0.42)]',
+          className ?? ''
+        ].join(' ')}
+      >
+        {children}
+      </div>
+    </main>
+  );
+}
+
 function ChannelPageSkeleton() {
   return (
-    <main className="min-h-dvh bg-[#050505] text-white">
+    <ChannelMobileFrame>
       <p className="sr-only">채널을 불러오는 중입니다.</p>
-      <div className="h-[248px] animate-pulse rounded-b-[28px] bg-white/[0.055] md:mx-auto md:mt-5 md:h-[336px] md:max-w-5xl md:rounded-[32px]" />
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 pb-28">
+      <div className="h-[248px] animate-pulse rounded-b-[28px] bg-white/[0.055]" />
+      <div className="flex w-full flex-col gap-6 px-4 pb-28">
         <div className="-mt-16 h-28 w-28 animate-pulse rounded-[30px] bg-white/10 ring-4 ring-[#050505]" />
         <div className="h-28 animate-pulse rounded-[28px] bg-white/[0.045]" />
         <div className="grid grid-cols-3 gap-2">
@@ -195,7 +211,7 @@ function ChannelPageSkeleton() {
           <div className="h-20 animate-pulse rounded-[22px] bg-white/[0.045]" />
         </div>
       </div>
-    </main>
+    </ChannelMobileFrame>
   );
 }
 
@@ -372,14 +388,14 @@ export function CreatorChannelPage() {
 
   if (channelQuery.isError || !pageData) {
     return (
-      <main className="flex min-h-dvh items-center justify-center bg-[#050505] px-6 text-center text-white">
+      <ChannelMobileFrame className="flex items-center justify-center px-6 text-center">
         <div>
           <p className="font-display text-3xl font-semibold">채널을 찾을 수 없습니다.</p>
           <Link className="mt-5 inline-flex min-h-11 items-center rounded-full bg-white px-5 text-sm font-semibold text-zinc-950" to="/discovery">
             피드로 이동
           </Link>
         </div>
-      </main>
+      </ChannelMobileFrame>
     );
   }
 
@@ -389,14 +405,14 @@ export function CreatorChannelPage() {
   const shouldShowPromptoons = activeTab === 'all' || activeTab === 'promptoon';
 
   return (
-    <main className="min-h-dvh bg-[#050505] text-white">
+    <ChannelMobileFrame>
       <ChannelHero
         onEditCover={() => setIsCoverDialogOpen(true)}
         onShare={handleShare}
         profile={pageData.profile}
         theme={theme}
       />
-      <div className="relative z-20 mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 pb-28 pt-0 md:px-6 md:pt-6">
+      <div className="relative z-20 flex w-full flex-col gap-6 px-4 pb-28 pt-0">
         <ChannelIdentity
           isSubscribed={isSubscribed}
           isSubscribePending={subscribeMutation.isPending}
@@ -463,6 +479,6 @@ export function CreatorChannelPage() {
         profile={pageData.profile}
       />
       <FeedBottomNav isAuthenticated={isAuthenticated} isVisible userLoginId={user?.loginId} />
-    </main>
+    </ChannelMobileFrame>
   );
 }

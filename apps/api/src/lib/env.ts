@@ -61,6 +61,10 @@ export const env = {
     ffprobePath: process.env.MOVINGTOON_FFPROBE_PATH ?? 'ffprobe',
     maxUploadBytes: Number(process.env.MOVINGTOON_MAX_UPLOAD_BYTES ?? 500 * 1024 * 1024)
   },
+  recommendation: {
+    apiUrl: process.env.RECOMMENDATION_API_URL ?? 'http://127.0.0.1:4100',
+    timeoutMs: Number(process.env.RECOMMENDATION_TIMEOUT_MS ?? 800)
+  },
   nodeEnv: process.env.NODE_ENV ?? 'development',
   port: Number(process.env.PORT ?? 4000)
 };

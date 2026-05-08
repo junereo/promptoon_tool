@@ -98,6 +98,10 @@ interface FeedItemProjectionRow {
   published_at: Date;
 }
 
+interface ResolvedFeedItemProjectionRow extends FeedItemProjectionRow {
+  resolved_publish_id: string;
+}
+
 interface BookmarkedFeedItemProjectionRow extends FeedItemProjectionRow {
   bookmarked_at: Date;
   bookmark_publish_id: string;
@@ -783,6 +787,38 @@ export async function listFeedItemProjections(
   );
 
   return result.rows.map(mapFeedItemProjectionRow);
+}
+
+export async function listFeedItemProjectionsByPublishIds(
+  db: DbExecutor,
+  publishIds: string[]
+): Promise<Array<{ publishId: string; id: string; publishedAt: string; item: FeedItem }>> {
+  if (publishIds.length === 0) {
+    return [];
+  }
+
+  const result = await db.query<ResolvedFeedItemProjectionRow>(
+    `SELECT
+       id,
+       publish_id,
+       movingtoon_publish_id,
+       COALESCE(publish_id, movingtoon_publish_id) AS resolved_publish_id,
+       project_id,
+       channel_id,
+       series_id,
+       episode_id,
+       metrics_json,
+       payload_json,
+       published_at
+     FROM promptoon_feed_item
+     WHERE COALESCE(publish_id, movingtoon_publish_id) = ANY($1::uuid[])`,
+    [publishIds]
+  );
+
+  return result.rows.map((row) => ({
+    publishId: row.resolved_publish_id,
+    ...mapFeedItemProjectionRow(row)
+  }));
 }
 
 function mapFeedItemProjectionRow(row: FeedItemProjectionRow): { id: string; publishedAt: string; item: FeedItem } {
@@ -1964,11 +2000,35 @@ export async function createViewerEvent(
     cutId: string;
     choiceId?: string;
     durationMs?: number;
+    surface?: string;
+    position?: number;
+    trackingToken?: string;
+    recommendationRequestId?: string;
+    policyId?: string;
+    modelVersion?: string;
+    experimentId?: string;
   }
 ): Promise<void> {
   await db.query<ViewerEventInsertRow>(
-    `INSERT INTO promptoon_viewer_event (id, publish_id, episode_id, anonymous_id, session_id, event_type, cut_id, choice_id, duration_ms)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    `INSERT INTO promptoon_viewer_event (
+       id,
+       publish_id,
+       episode_id,
+       anonymous_id,
+       session_id,
+       event_type,
+       cut_id,
+       choice_id,
+       duration_ms,
+       surface,
+       position,
+       tracking_token,
+       recommendation_request_id,
+       policy_id,
+       model_version,
+       experiment_id
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
     [
       randomUUID(),
       input.publishId,
@@ -1978,7 +2038,14 @@ export async function createViewerEvent(
       input.eventType,
       input.cutId,
       input.choiceId ?? null,
-      input.durationMs ?? null
+      input.durationMs ?? null,
+      input.surface ?? null,
+      input.position ?? null,
+      input.trackingToken ?? null,
+      input.recommendationRequestId ?? null,
+      input.policyId ?? null,
+      input.modelVersion ?? null,
+      input.experimentId ?? null
     ]
   );
 }

@@ -26,6 +26,19 @@ export interface FeedItemEntry {
   href: string;
 }
 
+export interface FeedRecommendationMeta {
+  requestId: string;
+  policyId: string;
+  modelVersion: string;
+  experimentId: string;
+  trackingToken: string;
+  rank: number;
+  score: number;
+  source: string;
+  reason: string;
+  surface?: 'home_feed' | 'discovery_feed';
+}
+
 export interface FeedItem {
   id?: string;
   type?: FeedItemType;
@@ -43,6 +56,7 @@ export interface FeedItem {
   publishedAt: string;
   metrics?: FeedItemMetrics;
   entry?: FeedItemEntry;
+  recommendation?: FeedRecommendationMeta;
   startCut: Pick<
     import('./core').ProductPublishedCut,
     | 'id'

@@ -15,6 +15,7 @@
     "db:down": "docker compose down",
     "db:logs": "docker compose logs -f postgres",
     "dev:api": "pnpm --filter @promptoon/api dev",
+    "dev:recommendation": "pnpm --filter @promptoon/recommendation-api dev",
     "dev:admin": "pnpm --filter @promptoon/admin dev",
     "build:admin": "pnpm --filter @promptoon/admin build",
     "migrate:api": "pnpm --filter @promptoon/api migrate"

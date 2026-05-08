@@ -1,0 +1,22 @@
+{
+  "name": "@promptoon/recommendation-core",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node -e \"console.log('recommendation-core test placeholder')\""
+  },
+  "dependencies": {
+    "@promptoon/recommendation-contract": "workspace:*",
+    "@promptoon/recommendation-rankers": "workspace:*",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "@types/pg": "^8.11.11",
+    "typescript": "^5.7.3"
+  }
+}

@@ -13,6 +13,8 @@
     "start": "node dist/main.js"
   },
   "dependencies": {
+    "@promptoon/recommendation-client": "workspace:*",
+    "@promptoon/recommendation-contract": "workspace:*",
     "@promptoon/shared": "workspace:*",
     "bcryptjs": "^3.0.3",
     "dotenv": "^16.4.5",

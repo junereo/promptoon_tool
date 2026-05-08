@@ -322,7 +322,14 @@ export const telemetryEventSchema = z.object({
   eventType: z.enum(['cut_view', 'cut_leave', 'choice_click', 'ending_reach', 'ending_share', 'feed_impression', 'feed_choice_click']),
   cutId: uuidSchema,
   choiceId: uuidSchema.optional(),
-  durationMs: z.number().int().min(0).max(24 * 60 * 60 * 1000).optional()
+  durationMs: z.number().int().min(0).max(24 * 60 * 60 * 1000).optional(),
+  surface: z.string().trim().max(64).optional(),
+  position: z.number().int().min(1).max(1000).optional(),
+  trackingToken: z.string().trim().max(2048).optional(),
+  recommendationRequestId: uuidSchema.optional(),
+  policyId: z.string().trim().max(128).optional(),
+  modelVersion: z.string().trim().max(128).optional(),
+  experimentId: z.string().trim().max(128).optional()
 }).superRefine((value, context) => {
   if ((value.eventType === 'choice_click' || value.eventType === 'feed_choice_click') && !value.choiceId) {
     context.addIssue({

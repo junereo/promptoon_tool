@@ -48,8 +48,8 @@ export const requireAuth: RequestHandler = async (request, _response, next) => {
       sessionId: payload.sid
     };
     next();
-  } catch (error) {
-    next(error instanceof HttpError ? error : new HttpError(401, 'Invalid authentication token.'));
+  } catch {
+    next();
   }
 };
 

@@ -1,11 +1,13 @@
 # Promptoon API 문서
 
-이 문서는 `apps/api`의 현재 Express route 기준 API 요약입니다. 상세 request/response 타입은 `packages/shared/src/promptoon/*`, request validation은 `apps/api/src/modules/promptoon-authoring/promptoon.schemas.ts`를 기준으로 합니다.
+이 문서는 `apps/api`와 `apps/recommendation-api`의 현재 Express route 기준 API 요약입니다. 상세 public product 타입은 `packages/shared/src/promptoon/*`, 추천 API 계약은 `packages/recommendation-contract`, request validation은 `apps/api/src/modules/promptoon-authoring/promptoon.schemas.ts`를 기준으로 합니다.
 
 ## 1. 기본 규칙
 
 - API 서버 기본 origin: `http://127.0.0.1:4000`
+- Recommendation API 기본 origin: `http://127.0.0.1:4100`
 - Health check: `GET /api/health`
+- Recommendation health check: `GET http://127.0.0.1:4100/health`
 - 업로드 asset serve: `GET /uploads/*`
 - JSON body: `express.json()`
 - 업로드: `multipart/form-data`, `file` field, 최대 10MB
@@ -25,6 +27,7 @@ Public read API는 대체로 인증 없이 접근합니다. Studio/Admin/interac
 - `/api/telemetry`: generic telemetry
 - `/api/promptoon/auth`: legacy auth mount
 - `/api/promptoon`: legacy authoring/public 호환 API
+- `POST http://127.0.0.1:4100/recommendations/v1/feed`: 독립 Recommendation API
 
 ## 3. Auth API
 
@@ -57,17 +60,35 @@ Public read API는 대체로 인증 없이 접근합니다. Studio/Admin/interac
 - `GET /api/feed/episodes`
 - `GET /api/feed/shorts`
   - Query: `{ cursor?, limit? }`, `limit` 기본 10, 최대 20.
+  - Header: `X-Promptoon-Anonymous-Id`가 있으면 Recommendation API 요청에 전달합니다.
+  - 기본 응답은 Recommendation API가 반환한 `publishId` 순서를 hydrate합니다. 추천 API 실패/빈 결과는 최신순 projection으로 fallback합니다.
+- `GET /api/feed/home`
+  - 홈 컬렉션 반환. `recommended` 섹션은 Recommendation API를 사용하고 `new/trending/shorts`는 projection query를 유지합니다.
+- `GET /api/feed/search`
+  - Query: `{ q?, type?, cursor?, limit? }`. 검색은 추천 시스템 적용 대상이 아닙니다.
+- `GET /api/feed/bookmarks`
+  - 인증 필요. 일반/숏드라마 bookmark를 병합해 반환합니다.
 - `GET /api/feed/state?publishIds=<uuid>[,<uuid>]`
   - 인증 필요. publish별 liked/bookmarked 상태와 projected metrics 반환.
 - `POST /api/feed/publishes/:publishId/like`
 - `DELETE /api/feed/publishes/:publishId/like`
 - `POST /api/feed/publishes/:publishId/bookmark`
 - `DELETE /api/feed/publishes/:publishId/bookmark`
-  - 인증 필요. 상태 변경 후 204.
+  - 인증 필요. 상태 변경 후 204. Body `{ recommendation? }`를 주면 tracking token/request metadata를 telemetry payload에 저장합니다.
 - `POST /api/feed/events/impression`
 - `POST /api/feed/events/open`
 - `POST /api/feed/events/watch-progress`
   - feed telemetry 수집, 202.
+
+### Recommendation API
+
+- `POST /recommendations/v1/feed`
+  - Body: `{ user, context, constraints }`
+  - `context.surface`: `home_feed | discovery_feed`
+  - `constraints.contentTypes`: `promptoon | webtoon_episode | short_drama`
+  - Response: `{ requestId, policyId, modelVersion, experimentId, items, nextCursor }`
+  - `items[]`: `{ publishId, rank, score, source, reason, trackingToken }`
+  - Recommendation API는 콘텐츠 payload를 반환하지 않고 추천 id와 추적 메타데이터만 반환합니다.
 
 ### Channels
 
