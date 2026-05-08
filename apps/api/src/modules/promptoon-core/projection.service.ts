@@ -1,6 +1,8 @@
 import type {
   ChannelHome,
   CommentsMetaResponse,
+  FeedHomeResponse,
+  FeedItem,
   FeedResponse,
   Publish,
   RebuildPublicProjectionsResponse,
@@ -41,11 +43,11 @@ function assertPublicPublish(value: Publish | null, message: string): Publish {
   return publish;
 }
 
-function encodeFeedCursor(payload: FeedCursorPayload): string {
+export function encodeFeedCursor(payload: FeedCursorPayload): string {
   return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
 }
 
-function decodeFeedCursor(cursor: string): FeedCursorPayload {
+export function decodeFeedCursor(cursor: string): FeedCursorPayload {
   try {
     const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as Partial<FeedCursorPayload>;
     if (typeof parsed.createdAt !== 'string' || typeof parsed.publishId !== 'string') {
@@ -81,6 +83,104 @@ export async function getEpisodeFeed(input: { cursor?: string; itemTypes?: strin
       rows.length > input.limit && lastRow
         ? encodeFeedCursor({
             createdAt: lastRow.publishedAt,
+            publishId: lastRow.id
+          })
+        : null
+  };
+}
+
+function toFeedResponse(rows: Array<{ id: string; publishedAt: string; item: FeedItem }>, limit: number): FeedResponse {
+  const pageRows = rows.slice(0, limit);
+  const lastRow = pageRows[pageRows.length - 1] ?? null;
+
+  return {
+    items: pageRows.map((row) => row.item),
+    nextCursor:
+      rows.length > limit && lastRow
+        ? encodeFeedCursor({
+            createdAt: lastRow.publishedAt,
+            publishId: lastRow.id
+          })
+        : null
+  };
+}
+
+export async function getFeedHome(): Promise<FeedHomeResponse> {
+  const [trendingRows, newRows, recommendedRows, shortsRows] = await Promise.all([
+    repository.listFeedItemProjections(db, { limit: 10, orderBy: 'trending' }),
+    repository.listFeedItemProjections(db, { limit: 12 }),
+    repository.listFeedItemProjections(db, {
+      itemTypes: ['promptoon', 'webtoon_episode'],
+      limit: 12,
+      orderBy: 'trending'
+    }),
+    repository.listFeedItemProjections(db, { itemTypes: ['short_drama'], limit: 12 })
+  ]);
+
+  return {
+    hero: trendingRows[0]?.item ?? newRows[0]?.item ?? null,
+    sections: [
+      {
+        key: 'trending',
+        title: 'trending TOP 10',
+        subtitle: '지금 가장 반응이 좋은 작품',
+        items: trendingRows.map((row) => row.item)
+      },
+      {
+        key: 'new',
+        title: '신작',
+        subtitle: '최근 공개된 에피소드',
+        items: newRows.map((row) => row.item)
+      },
+      {
+        key: 'recommended',
+        title: '추천',
+        subtitle: '선택형 프롬툰과 웹툰 추천',
+        items: recommendedRows.map((row) => row.item)
+      },
+      {
+        key: 'shorts',
+        title: '숏드라마',
+        subtitle: '짧게 시작하는 세로형 콘텐츠',
+        items: shortsRows.map((row) => row.item)
+      }
+    ]
+  };
+}
+
+export async function searchFeed(input: {
+  cursor?: string;
+  itemTypes?: string[];
+  limit: number;
+  query?: string;
+}): Promise<FeedResponse> {
+  const cursor = input.cursor ? decodeFeedCursor(input.cursor) : undefined;
+  const rows = await repository.listFeedItemProjections(db, {
+    cursor,
+    itemTypes: input.itemTypes,
+    limit: input.limit + 1,
+    query: input.query
+  });
+
+  return toFeedResponse(rows, input.limit);
+}
+
+export async function getBookmarkedFeed(input: { cursor?: string; limit: number; userId: string }): Promise<FeedResponse> {
+  const cursor = input.cursor ? decodeFeedCursor(input.cursor) : undefined;
+  const rows = await repository.listBookmarkedFeedItemProjections(db, {
+    cursor,
+    limit: input.limit + 1,
+    userId: input.userId
+  });
+  const pageRows = rows.slice(0, input.limit);
+  const lastRow = pageRows[pageRows.length - 1] ?? null;
+
+  return {
+    items: pageRows.map((row) => row.item),
+    nextCursor:
+      rows.length > input.limit && lastRow
+        ? encodeFeedCursor({
+            createdAt: lastRow.cursorAt,
             publishId: lastRow.id
           })
         : null

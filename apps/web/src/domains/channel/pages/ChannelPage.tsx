@@ -165,7 +165,7 @@ function LegacyChannelPage() {
       <main className="flex min-h-[100dvh] items-center justify-center bg-black px-6 text-center text-white">
         <div>
           <p className="font-display text-3xl font-semibold">채널을 찾을 수 없습니다.</p>
-          <Link className="mt-5 inline-flex rounded-full bg-white px-5 py-2 text-sm font-semibold text-zinc-950" to="/feed">
+          <Link className="mt-5 inline-flex rounded-full bg-white px-5 py-2 text-sm font-semibold text-zinc-950" to="/discovery">
             피드로 이동
           </Link>
         </div>
@@ -183,7 +183,7 @@ function LegacyChannelPage() {
         )}
         <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.24),rgba(5,5,6,0.58)_48%,#050506_100%)]" />
         <div className="relative mx-auto flex min-h-[25rem] w-full max-w-6xl flex-col justify-between px-5 pb-8 pt-5 sm:px-8">
-          <Link className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-black/35 text-white ring-1 ring-white/15 backdrop-blur" to="/feed">
+          <Link className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-black/35 text-white ring-1 ring-white/15 backdrop-blur" to="/discovery">
             <ArrowLeft aria-hidden className="h-5 w-5" />
             <span className="sr-only">피드로 돌아가기</span>
           </Link>

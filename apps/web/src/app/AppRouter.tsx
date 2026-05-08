@@ -24,13 +24,18 @@ const CommunityDiscussionPage = lazyNamedPage(
   () => import('../domains/community/pages/CommunityDiscussionPage'),
   'CommunityDiscussionPage'
 );
+const ConsumerHomePage = lazyNamedPage(() => import('../domains/consumer/pages/ConsumerHomePage'), 'ConsumerHomePage');
+const ConsumerLibraryPage = lazyNamedPage(
+  () => import('../domains/consumer/pages/ConsumerLibraryPage'),
+  'ConsumerLibraryPage'
+);
+const ConsumerMyPage = lazyNamedPage(() => import('../domains/consumer/pages/ConsumerMyPage'), 'ConsumerMyPage');
 const FeedHomePage = lazyNamedPage(() => import('../domains/feed/pages/FeedHomePage'), 'FeedHomePage');
 const MovingtoonShortViewerPage = lazyNamedPage(
   () => import('../domains/feed/pages/MovingtoonShortViewerPage'),
   'MovingtoonShortViewerPage'
 );
 const LoginPage = lazyNamedPage(() => import('../pages/LoginPage'), 'LoginPage');
-const PromptoonOverviewPage = lazyNamedPage(() => import('../pages/PromptoonOverviewPage'), 'PromptoonOverviewPage');
 const RegisterPage = lazyNamedPage(() => import('../pages/RegisterPage'), 'RegisterPage');
 const StudioAssetLibraryPage = lazyNamedPage(
   () => import('../domains/studio/pages/StudioAssetLibraryPage'),
@@ -191,11 +196,14 @@ export function AppRouter() {
   return (
     <Suspense fallback={<RouteLoadingScreen />}>
       <Routes>
-        <Route path="/" element={<FeedHomePage />} />
-        <Route path="/feed" element={<FeedHomePage />} />
+        <Route path="/" element={<ConsumerHomePage />} />
+        <Route path="/discovery" element={<FeedHomePage />} />
+        <Route path="/library" element={<ConsumerLibraryPage />} />
+        <Route path="/my" element={<ConsumerMyPage />} />
+        <Route path="/feed" element={<Navigate replace to="/discovery" />} />
         <Route path="/shorts/:publishId" element={<MovingtoonShortViewerPage />} />
         <Route path="/channel/:channelId" element={<ChannelPage />} />
-        <Route path="/overview" element={<PromptoonOverviewPage />} />
+        <Route path="/overview" element={<Navigate replace to="/discovery" />} />
         <Route path="/v/:publishId" element={<ViewerRoute />} />
         <Route path="/v/:publishId/:episodeNo" element={<ViewerRoute />} />
         <Route path="/promptoon/projects/:projectId/episodes/:episodeId/test-viewer" element={<StudioTestViewerRoute />} />
@@ -226,7 +234,7 @@ export function AppRouter() {
           </Route>
         </Route>
 
-        <Route path="*" element={<Navigate replace to="/feed" />} />
+        <Route path="*" element={<Navigate replace to="/" />} />
       </Routes>
     </Suspense>
   );

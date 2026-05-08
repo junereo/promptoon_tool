@@ -263,9 +263,11 @@ select option:disabled {
 
 .feed-page {
   --feed-header-height: calc(max(env(safe-area-inset-top), 1rem) + 2.5rem);
-  --feed-available-height: calc(100dvh - var(--feed-header-height));
-  --feed-frame-height: min(var(--feed-available-height), calc(100vw * 16 / 9));
-  --feed-frame-width: min(100vw, calc(var(--feed-frame-height) * 9 / 16));
+  --feed-bottom-nav-height: calc(max(env(safe-area-inset-bottom), 0.5rem) + 3.75rem);
+  --feed-shell-width: min(100vw, 480px);
+  --feed-available-height: calc(100dvh - var(--feed-header-height) - var(--feed-bottom-nav-height));
+  --feed-frame-height: min(var(--feed-available-height), calc(var(--feed-shell-width) * 16 / 9));
+  --feed-frame-width: calc(var(--feed-frame-height) * 9 / 16);
 }
 
 @media (min-width: 1280px) {
@@ -286,13 +288,14 @@ select option:disabled {
 .feed-viewport-frame {
   aspect-ratio: 9 / 16;
   height: var(--feed-frame-height, calc(100vw * 16 / 9));
+  max-width: 100%;
   width: var(--feed-frame-width, 100vw);
 }
 
 @media (min-width: 1280px) {
   .feed-viewport-frame {
-    height: var(--feed-frame-height, min(100dvh, calc(100vw * 16 / 9)));
-    width: var(--feed-frame-width, min(100vw, calc(100dvh * 9 / 16)));
+    height: var(--feed-frame-height, 100dvh);
+    width: var(--feed-frame-width, min(100vw, 480px));
   }
 }
 

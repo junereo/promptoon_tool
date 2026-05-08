@@ -41,7 +41,6 @@ const FEED_MENU_DESCRIPTIONS = [
 ];
 
 const VIEWER_NAVIGATION_DELAY_MS = 120;
-const BOTTOM_NAV_HIDE_DELAY_MS = 420;
 const SIDE_PANEL_REVEAL_DELAY_MS = 200;
 
 function getUserInitial(loginId: string | null | undefined) {
@@ -65,13 +64,10 @@ export function FeedHomePage() {
   const preloadedAssetUrlsRef = useRef(new Set<string>());
   const activeIndexRef = useRef(0);
   const lastFeedScrollTopRef = useRef(0);
-  const bottomNavVisibleRef = useRef(false);
-  const bottomNavVisibilityTimerRef = useRef<number | null>(null);
   const sidePanelRevealTimerRef = useRef<number | null>(null);
-  const [activeTab, setActiveTab] = useState<FeedTabKey>('recommended');
+  const [activeTab] = useState<FeedTabKey>('recommended');
   const [activeIndex, setActiveIndex] = useState(0);
   const [openingPublishId, setOpeningPublishId] = useState<string | null>(null);
-  const [isBottomNavVisible, setIsBottomNavVisible] = useState(false);
   const [isFeedMenuOpen, setIsFeedMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isCommentsPanelOpen, setIsCommentsPanelOpen] = useState(false);
@@ -142,16 +138,11 @@ export function FeedHomePage() {
     setIsCommentsPanelOpen(false);
     containerRef.current?.scrollTo({ top: 0 });
     lastFeedScrollTopRef.current = 0;
-    setBottomNavVisibility(false);
     hideSidePanels();
   }, [activeTab]);
 
   useEffect(() => {
     return () => {
-      if (bottomNavVisibilityTimerRef.current) {
-        window.clearTimeout(bottomNavVisibilityTimerRef.current);
-      }
-
       clearSidePanelRevealTimer();
     };
   }, []);
@@ -391,16 +382,7 @@ export function FeedHomePage() {
     event.preventDefault();
     const query = searchQuery.trim();
 
-    navigate(query ? `/overview?q=${encodeURIComponent(query)}` : '/overview');
-  }
-
-  function setBottomNavVisibility(nextVisibility: boolean) {
-    if (bottomNavVisibleRef.current === nextVisibility) {
-      return;
-    }
-
-    bottomNavVisibleRef.current = nextVisibility;
-    setIsBottomNavVisible(nextVisibility);
+    navigate(query ? `/discovery?q=${encodeURIComponent(query)}` : '/discovery');
   }
 
   function clearSidePanelRevealTimer() {
@@ -431,44 +413,29 @@ export function FeedHomePage() {
     const delta = nextScrollTop - lastFeedScrollTopRef.current;
     lastFeedScrollTopRef.current = nextScrollTop;
 
-    if (bottomNavVisibilityTimerRef.current) {
-      window.clearTimeout(bottomNavVisibilityTimerRef.current);
-      bottomNavVisibilityTimerRef.current = null;
-    }
-
     if (Math.abs(delta) < 1) {
       return;
     }
 
     scheduleSidePanelReveal(activeIndexRef.current);
-
-    if (delta < 0) {
-      setBottomNavVisibility(true);
-      bottomNavVisibilityTimerRef.current = window.setTimeout(() => {
-        setBottomNavVisibility(false);
-      }, BOTTOM_NAV_HIDE_DELAY_MS);
-      return;
-    }
-
-    setBottomNavVisibility(false);
   }
 
   const content =
     feedQuery.isLoading ? (
-      <section className="feed-snap-slide flex snap-start snap-always items-center justify-center bg-[#050506] px-6 text-center text-white/60">
-        <div className="feed-viewport-frame flex items-center justify-center overflow-hidden bg-black shadow-[0_0_80px_rgba(0,0,0,0.5)] sm:rounded-[34px] sm:border sm:border-white/10">
+      <section className="feed-snap-slide flex snap-start snap-always items-center justify-center bg-[#050506] text-center text-white/60">
+        <div className="feed-viewport-frame flex items-center justify-center overflow-hidden bg-black shadow-[0_0_80px_rgba(0,0,0,0.5)]">
           피드를 불러오는 중입니다.
         </div>
       </section>
     ) : feedQuery.isError ? (
-      <section className="feed-snap-slide flex snap-start snap-always items-center justify-center bg-[#050506] px-6 text-center text-white/60">
-        <div className="feed-viewport-frame flex items-center justify-center overflow-hidden bg-black shadow-[0_0_80px_rgba(0,0,0,0.5)] sm:rounded-[34px] sm:border sm:border-white/10">
+      <section className="feed-snap-slide flex snap-start snap-always items-center justify-center bg-[#050506] text-center text-white/60">
+        <div className="feed-viewport-frame flex items-center justify-center overflow-hidden bg-black shadow-[0_0_80px_rgba(0,0,0,0.5)]">
           피드를 불러오지 못했습니다.
         </div>
       </section>
     ) : feedItems.length === 0 ? (
-      <section className="feed-snap-slide flex snap-start snap-always items-center justify-center bg-[#050506] px-6 text-center text-white/60">
-        <div className="feed-viewport-frame flex items-center justify-center overflow-hidden bg-black shadow-[0_0_80px_rgba(0,0,0,0.5)] sm:rounded-[34px] sm:border sm:border-white/10">
+      <section className="feed-snap-slide flex snap-start snap-always items-center justify-center bg-[#050506] text-center text-white/60">
+        <div className="feed-viewport-frame flex items-center justify-center overflow-hidden bg-black shadow-[0_0_80px_rgba(0,0,0,0.5)]">
           공개된 콘텐츠가 아직 없습니다.
         </div>
       </section>
@@ -515,7 +482,7 @@ export function FeedHomePage() {
         ))}
         {isFetchingNextPage ? (
           <section className="feed-snap-slide flex snap-start snap-always items-center justify-center bg-[#050506] text-sm text-white/55">
-            <div className="feed-viewport-frame flex items-center justify-center overflow-hidden bg-black shadow-[0_0_80px_rgba(0,0,0,0.5)] sm:rounded-[34px] sm:border sm:border-white/10">
+            <div className="feed-viewport-frame flex items-center justify-center overflow-hidden bg-black shadow-[0_0_80px_rgba(0,0,0,0.5)]">
               다음 콘텐츠를 불러오는 중입니다.
             </div>
           </section>
@@ -524,8 +491,8 @@ export function FeedHomePage() {
     );
 
   return (
-    <main className="feed-page relative bg-black text-white">
-      <header className="pointer-events-none fixed inset-x-0 top-0 z-40 hidden h-14 items-center bg-black/92 px-4 text-white shadow-[0_1px_0_rgba(255,255,255,0.08)] xl:flex">
+    <main className="feed-page relative mx-auto min-h-dvh max-w-[480px] overflow-hidden bg-black text-white shadow-[0_0_80px_rgba(0,0,0,0.42)]">
+      <header className="pointer-events-none fixed inset-x-0 top-0 z-40 hidden h-14 items-center bg-black/92 px-4 text-white shadow-[0_1px_0_rgba(255,255,255,0.08)]">
         <div className="pointer-events-auto flex min-w-0 flex-1 items-center gap-3">
           <button
             aria-label="피드 메뉴"
@@ -538,7 +505,7 @@ export function FeedHomePage() {
           <button
             aria-label="Promptoon feed"
             className="flex min-w-0 items-center gap-2 rounded-full pr-3 text-white transition hover:text-white/86 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
-            onClick={() => navigate('/feed')}
+            onClick={() => navigate('/discovery')}
             type="button"
           >
             <span className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-lg bg-white">
@@ -602,25 +569,8 @@ export function FeedHomePage() {
         </div>
       </header>
 
-      <div className="pointer-events-none fixed inset-x-0 top-0 z-40 px-4 pt-[max(env(safe-area-inset-top),1rem)] sm:px-6 xl:hidden">
-        <div className="pointer-events-auto flex items-center justify-between gap-4">
-          <div className="flex min-w-0 items-center gap-5 text-sm font-semibold drop-shadow-[0_1px_8px_rgba(0,0,0,0.65)] sm:gap-7">
-            {FEED_TABS.map((tab) => (
-              <button
-                aria-pressed={activeTab === tab.key}
-                className={[
-                  'border-b-2 pb-1 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70',
-                  activeTab === tab.key ? 'border-white text-white' : 'border-transparent text-white/62 hover:text-white'
-                ].join(' ')}
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                type="button"
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-
+      <div className="pointer-events-none fixed left-1/2 top-0 z-40 w-full max-w-[480px] -translate-x-1/2 px-4 pt-[max(env(safe-area-inset-top),1rem)] sm:px-6">
+        <div className="pointer-events-auto flex items-center justify-end">
           <div className="flex shrink-0 items-center gap-3 drop-shadow-[0_1px_8px_rgba(0,0,0,0.65)]">
             <button
               aria-label="검색"
@@ -641,19 +591,6 @@ export function FeedHomePage() {
             >
               <EllipsisVertical aria-hidden className="h-5 w-5" />
             </button>
-            {isAuthenticated ? (
-              <button
-                aria-label={`${user?.loginId ?? 'MY'} 계정`}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-full text-white transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
-                onClick={() => navigate('/promptoon/projects')}
-                title="MY"
-                type="button"
-              >
-                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-sm font-bold text-zinc-950">
-                  {userInitial}
-                </span>
-              </button>
-            ) : null}
           </div>
         </div>
       </div>
@@ -662,7 +599,7 @@ export function FeedHomePage() {
         {content}
       </div>
 
-      <FeedBottomNav isAuthenticated={isAuthenticated} isVisible={isBottomNavVisible} userLoginId={user?.loginId} />
+      <FeedBottomNav isAuthenticated={isAuthenticated} isVisible userLoginId={user?.loginId} />
 
       {isCommentsPanelOpen && commentsPanelItem ? (
         commentsPanelItem.type === 'short_drama' ? (

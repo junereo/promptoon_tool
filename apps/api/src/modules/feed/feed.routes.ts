@@ -9,6 +9,11 @@ import { feedQuerySchema } from '../promptoon-authoring/promptoon.schemas';
 import * as service from './feed.service';
 
 const uuidSchema = z.string().uuid();
+const feedSearchTypeSchema = z.enum(['all', 'promptoon', 'webtoon_episode', 'short_drama']).default('all');
+const feedSearchQuerySchema = feedQuerySchema.extend({
+  q: z.string().trim().max(100).optional(),
+  type: feedSearchTypeSchema
+});
 
 function getParam(value: string | string[] | undefined, name: string): string {
   if (!value) {
@@ -36,6 +41,29 @@ export function createFeedRouter(): Router {
     response.json(await service.getEpisodeFeed({ ...query, itemTypes }));
   }
 
+  router.get('/home', asyncHandler(async (_request, response) => {
+    response.json(await service.getFeedHome());
+  }));
+  router.get('/search', asyncHandler(async (request, response) => {
+    const query = feedSearchQuerySchema.parse(request.query);
+    response.json(
+      await service.searchFeed({
+        cursor: query.cursor,
+        itemTypes: query.type === 'all' ? undefined : [query.type],
+        limit: query.limit,
+        query: query.q
+      })
+    );
+  }));
+  router.get('/bookmarks', requireAuth, asyncHandler(async (request, response) => {
+    const query = feedQuerySchema.parse(request.query);
+    response.json(
+      await service.getBookmarkedFeed({
+        ...query,
+        userId: getRequiredAuthUser(request).sub
+      })
+    );
+  }));
   router.get('/mixed', asyncHandler(async (request, response) => getFeed(request, response)));
   router.get('/episodes', asyncHandler(async (request, response) => getFeed(request, response, ['promptoon', 'webtoon_episode'])));
   router.get('/shorts', asyncHandler(async (request, response) => getFeed(request, response, ['short_drama'])));

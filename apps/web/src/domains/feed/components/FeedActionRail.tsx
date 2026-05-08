@@ -108,7 +108,7 @@ export function FeedActionRail({
         channelPath ? (
           <Link
             aria-label={`${channelName ?? '채널'} 채널로 이동`}
-            className="mt-1 flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-white/10 text-sm font-semibold text-white ring-2 ring-white/45 transition hover:bg-white/18"
+            className="mt-1 flex h-10 w-10 items-center justify-center overflow-hidden bg-white/10 text-sm font-semibold text-white transition hover:bg-white/18"
             to={channelPath}
           >
             {channelAvatarUrl ? (
@@ -120,7 +120,7 @@ export function FeedActionRail({
         ) : (
           <div
             aria-label={channelName ?? '채널'}
-            className="mt-1 flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-white/10 text-sm font-semibold text-white ring-2 ring-white/45"
+            className="mt-1 flex h-10 w-10 items-center justify-center overflow-hidden bg-white/10 text-sm font-semibold text-white"
             role="img"
           >
             {channelAvatarUrl ? (

@@ -2,10 +2,15 @@
 
 Promptoon은 인터랙티브 에피소드 제작, 배포, 소비, 커뮤니티, 운영 관리를 하나의 workspace에서 다룹니다. 현재 Web 앱은 public product surface와 Studio authoring surface를 함께 제공하고, Admin 앱은 platform 운영 기능을 분리해 제공합니다.
 
-## 1. Public Feed
+## 1. Consumer Public Surface
 
-- Route: `/`, `/feed`
-- API: `/api/feed/*`
+- Route: `/`, `/discovery`, `/library`, `/my`
+- API: `/api/feed/home`, `/api/feed/search`, `/api/feed/bookmarks`, `/api/feed/*`
+- `/`는 모바일 consumer home으로 상단 hero 없이 `인기/신작/추천/모아보기/랭킹` 컬렉션을 노출합니다.
+- `/discovery`는 기존 immersive snap feed 형태의 슬라이드 숏폼 탐색 경험을 제공합니다.
+- `/library`는 로그인 사용자의 promptoon/short drama bookmark를 최신 저장 순으로 병합해 보여주고, 비로그인 사용자는 로그인으로 이동합니다.
+- `/my`는 비로그인 로그인 CTA와 로그인 사용자용 보관함, Studio 진입, 로그아웃, 멤버십/지갑/FAQ/언어/설정 영역을 제공합니다.
+- `/feed`는 호환용으로 `/discovery`로 리다이렉트합니다.
 - `promptoon_feed_item` projection 기반으로 promptoon/webtoon/short/channel recommendation feed를 조회합니다.
 - infinite query cursor와 `limit` 기반 pagination을 사용합니다.
 - 로그인 사용자는 publish별 like/bookmark state를 조회하고 변경할 수 있습니다.

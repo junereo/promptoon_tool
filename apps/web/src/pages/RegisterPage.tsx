@@ -5,7 +5,7 @@ import { useRegister } from '../features/auth/hooks/use-auth-query';
 import { useAuthStore } from '../features/auth/store/use-auth-store';
 import { ApiError } from '../shared/api/client';
 
-const POST_REGISTER_REDIRECT_PATH = '/feed';
+const POST_REGISTER_REDIRECT_PATH = '/';
 
 function getValidationError(loginId: string, password: string): string | null {
   if (loginId.trim().length < 8) {

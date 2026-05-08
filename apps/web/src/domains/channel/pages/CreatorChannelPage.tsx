@@ -375,7 +375,7 @@ export function CreatorChannelPage() {
       <main className="flex min-h-dvh items-center justify-center bg-[#050505] px-6 text-center text-white">
         <div>
           <p className="font-display text-3xl font-semibold">채널을 찾을 수 없습니다.</p>
-          <Link className="mt-5 inline-flex min-h-11 items-center rounded-full bg-white px-5 text-sm font-semibold text-zinc-950" to="/feed">
+          <Link className="mt-5 inline-flex min-h-11 items-center rounded-full bg-white px-5 text-sm font-semibold text-zinc-950" to="/discovery">
             피드로 이동
           </Link>
         </div>

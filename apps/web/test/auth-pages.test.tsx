@@ -57,7 +57,7 @@ function renderPage(path: '/login' | '/register') {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
-        <Route path="/feed" element={<div>Home Feed</div>} />
+        <Route path="/" element={<div>Consumer Home</div>} />
         <Route path="/promptoon/projects" element={<div>Dashboard</div>} />
       </Routes>
     </MemoryRouter>
@@ -98,7 +98,7 @@ describe('auth pages', () => {
     await user.type(screen.getByLabelText('비밀번호'), 'password2026');
     await user.click(screen.getByRole('button', { name: 'Sign In' }));
 
-    expect(await screen.findByText('Home Feed')).toBeTruthy();
+    expect(await screen.findByText('Consumer Home')).toBeTruthy();
     expect(screen.queryByText('Dashboard')).toBeNull();
   });
 
@@ -111,7 +111,7 @@ describe('auth pages', () => {
     await user.type(screen.getByLabelText('비밀번호'), 'password2026');
     await user.click(screen.getByRole('button', { name: 'Create Account' }));
 
-    expect(await screen.findByText('Home Feed')).toBeTruthy();
+    expect(await screen.findByText('Consumer Home')).toBeTruthy();
     expect(screen.queryByText('Dashboard')).toBeNull();
   });
 });

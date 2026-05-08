@@ -1,5 +1,7 @@
 export type FeedItemType = 'short_drama' | 'promptoon' | 'webtoon_episode' | 'channel_recommendation';
 
+export type FeedCollectionKey = 'hero' | 'trending' | 'new' | 'recommended' | 'shorts';
+
 export interface FeedItemMetrics {
   views: number;
   likes: number;
@@ -69,4 +71,16 @@ export interface FeedItem {
 export interface FeedResponse {
   items: FeedItem[];
   nextCursor: string | null;
+}
+
+export interface FeedHomeSection {
+  key: Exclude<FeedCollectionKey, 'hero'>;
+  title: string;
+  subtitle?: string;
+  items: FeedItem[];
+}
+
+export interface FeedHomeResponse {
+  hero: FeedItem | null;
+  sections: FeedHomeSection[];
 }

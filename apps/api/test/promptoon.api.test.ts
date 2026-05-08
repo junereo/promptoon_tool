@@ -212,6 +212,8 @@ maybeDescribe('promptoon api integration', () => {
     await query('DELETE FROM promptoon_feed_impression');
     await query('DELETE FROM promptoon_user_like');
     await query('DELETE FROM promptoon_user_bookmark');
+    await query('DELETE FROM promptoon_user_movingtoon_like');
+    await query('DELETE FROM promptoon_user_movingtoon_bookmark');
     await query('DELETE FROM promptoon_user_subscription');
     await query('DELETE FROM promptoon_channel_home_projection');
     await query('DELETE FROM promptoon_short_clip');
@@ -222,6 +224,9 @@ maybeDescribe('promptoon api integration', () => {
     await query('DELETE FROM promptoon_episode_discussion');
     await query('DELETE FROM promptoon_viewer_event');
     await query('DELETE FROM promptoon_publish');
+    await query('DELETE FROM promptoon_movingtoon_publish');
+    await query('DELETE FROM promptoon_movingtoon_processing_job');
+    await query('DELETE FROM promptoon_movingtoon_episode');
     await query('DELETE FROM promptoon_asset_history');
     await query('DELETE FROM promptoon_asset');
     await query('DELETE FROM promptoon_series');
@@ -2469,6 +2474,109 @@ maybeDescribe('promptoon api integration', () => {
     const afterDelete = await request(app).get('/api/feed/mixed?limit=10');
     expect(afterDelete.status).toBe(200);
     expect(afterDelete.body.items.map((item: { publishId: string }) => item.publishId)).not.toContain(fixture.publish.body.id);
+  });
+
+  it('returns consumer home collections and searchable feed results', async () => {
+    const trendingFixture = await createFeedReadyPublishedEpisodeFixture();
+    const latestFixture = await createFeedReadyPublishedEpisodeFixture();
+
+    await query(
+      `UPDATE promptoon_feed_item
+       SET ranking_score = 10,
+           metrics_json = '{"views":120,"likes":8,"comments":4,"shares":2}'::jsonb,
+           published_at = NOW() - INTERVAL '1 day'
+       WHERE publish_id = $1`,
+      [trendingFixture.publish.body.id]
+    );
+    await query(
+      `UPDATE promptoon_feed_item
+       SET ranking_score = 0,
+           metrics_json = '{"views":1,"likes":0,"comments":0,"shares":0}'::jsonb,
+           published_at = NOW()
+       WHERE publish_id = $1`,
+      [latestFixture.publish.body.id]
+    );
+
+    const home = await request(app).get('/api/feed/home');
+    expect(home.status).toBe(200);
+    expect(home.body.hero.publishId).toBe(trendingFixture.publish.body.id);
+    expect(home.body.sections.find((section: { key: string }) => section.key === 'trending').items[0].publishId).toBe(
+      trendingFixture.publish.body.id
+    );
+    expect(home.body.sections.find((section: { key: string }) => section.key === 'new').items[0].publishId).toBe(
+      latestFixture.publish.body.id
+    );
+
+    const search = await request(app).get('/api/feed/search?q=Product&type=promptoon&limit=1');
+    expect(search.status).toBe(200);
+    expect(search.body.items).toHaveLength(1);
+    expect(search.body.nextCursor).toEqual(expect.any(String));
+
+    const noShorts = await request(app).get('/api/feed/search?q=Product&type=short_drama&limit=10');
+    expect(noShorts.status).toBe(200);
+    expect(noShorts.body.items).toHaveLength(0);
+  });
+
+  it('returns authenticated bookmark library across promptoon and movingtoon publishes', async () => {
+    const fixture = await createFeedReadyPublishedEpisodeFixture();
+    const movingtoonOwner = await registerUser();
+    const reader = await registerUser();
+    const project = await withAuth(request(app).post('/api/studio/projects'), movingtoonOwner.token).send({
+      title: 'Movingtoon Library Project',
+      kind: 'movingtoon'
+    });
+    const movingtoonEpisode = await query<{ id: string }>(
+      `INSERT INTO promptoon_movingtoon_episode (
+         project_id,
+         title,
+         episode_no,
+         original_video_url,
+         video_url,
+         thumbnail_url,
+         duration_sec,
+         aspect_ratio,
+         processing_status,
+         publish_status,
+         created_by
+       )
+       VALUES ($1, 'Saved Short Drama', 1, '/uploads/original.mp4', '/uploads/movingtoon.mp4', '/uploads/thumbnail.webp', 15, '9:16', 'ready', 'draft', $2)
+       RETURNING id`,
+      [project.body.id, movingtoonOwner.user.id]
+    );
+    const movingtoonEpisodeId = movingtoonEpisode.rows[0].id;
+
+    const movingtoonPublishResponse = await withAuth(
+      request(app).post(`/api/studio/movingtoon/episodes/${movingtoonEpisodeId}/publish`),
+      movingtoonOwner.token
+    );
+    expect(movingtoonPublishResponse.status).toBe(201);
+    const movingtoonPublish = await query<{ id: string }>(
+      'SELECT id::text AS id FROM promptoon_movingtoon_publish WHERE episode_id = $1',
+      [movingtoonEpisodeId]
+    );
+    const movingtoonPublishId = movingtoonPublish.rows[0].id;
+
+    const unauthenticated = await request(app).get('/api/feed/bookmarks');
+    expect(unauthenticated.status).toBe(401);
+
+    const bookmarkPromptoon = await withAuth(request(app).post(`/api/feed/publishes/${fixture.publish.body.id}/bookmark`), reader.token);
+    const bookmarkMovingtoon = await withAuth(request(app).post(`/api/feed/publishes/${movingtoonPublishId}/bookmark`), reader.token);
+    expect(bookmarkPromptoon.status).toBe(204);
+    expect(bookmarkMovingtoon.status).toBe(204);
+
+    const library = await withAuth(request(app).get('/api/feed/bookmarks?limit=10'), reader.token);
+    expect(library.status).toBe(200);
+    expect(library.body.items.map((item: { publishId: string }) => item.publishId)).toEqual(
+      expect.arrayContaining([fixture.publish.body.id, movingtoonPublishId])
+    );
+
+    const movingtoonItem = library.body.items.find((item: { publishId: string }) => item.publishId === movingtoonPublishId);
+    expect(movingtoonItem).toEqual(
+      expect.objectContaining({
+        type: 'short_drama',
+        videoUrl: '/uploads/movingtoon.mp4'
+      })
+    );
   });
 
   it('rebuilds channel home projections when missing and updates subscription counts', async () => {

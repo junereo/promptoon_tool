@@ -54,7 +54,7 @@ function ChannelAvatar({
   initial: string;
 }) {
   return (
-    <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/15 text-lg font-semibold text-white ring-2 ring-white/30">
+    <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden bg-white/15 text-lg font-semibold text-white">
       {avatarUrl ? <img alt="" className="h-full w-full object-cover" src={avatarUrl} /> : initial}
     </span>
   );
@@ -106,7 +106,7 @@ export function FeedSlide({
     <section className="feed-snap-slide relative flex snap-start snap-always items-center justify-center overflow-hidden bg-[#050506] text-white" data-feed-slide>
       <div
         className={[
-          'feed-desktop-info-panel feed-desktop-side-panel absolute top-1/2 hidden w-[22rem] -translate-y-1/2 flex-col justify-end pb-10 text-left transition-opacity duration-200 ease-out xl:flex',
+          'feed-desktop-info-panel feed-desktop-side-panel absolute top-1/2 hidden w-[22rem] -translate-y-1/2 flex-col justify-end pb-10 text-left transition-opacity duration-200 ease-out',
           deferredOverlayVisibilityClass
         ].join(' ')}
       >
@@ -148,7 +148,7 @@ export function FeedSlide({
 
             <button
               aria-busy={isOpening ? 'true' : undefined}
-              className="inline-flex h-11 w-fit items-center justify-center rounded-full bg-white px-5 text-sm font-semibold text-zinc-950 shadow-lg shadow-black/30 transition hover:bg-zinc-200 disabled:cursor-wait disabled:opacity-75"
+              className="inline-flex h-11 w-fit items-center justify-center bg-white px-5 text-sm font-semibold text-zinc-950 shadow-lg shadow-black/30 transition hover:bg-zinc-200 disabled:cursor-wait disabled:opacity-75"
               disabled={isOpening}
               onClick={onOpen}
               onFocus={onPreloadIntent}
@@ -161,10 +161,10 @@ export function FeedSlide({
         </div>
       </div>
 
-      <div className="feed-viewport-frame relative overflow-hidden bg-black shadow-[0_0_80px_rgba(0,0,0,0.5)] sm:rounded-[34px] sm:border sm:border-white/10">
+      <div className="feed-viewport-frame relative overflow-hidden bg-black shadow-[0_0_80px_rgba(0,0,0,0.5)]">
         {shouldRenderVideo ? (
           <MovingtoonVideoPlayer
-            className="absolute inset-0 h-full w-full object-cover"
+            className="absolute inset-0 h-full w-full bg-black"
             posterUrl={posterUrl}
             title={item.episodeTitle}
             videoUrl={item.videoUrl ?? ''}
@@ -178,14 +178,14 @@ export function FeedSlide({
 
       <div
         className={[
-          'absolute inset-x-0 bottom-0 h-[46dvh] bg-[linear-gradient(0deg,rgba(0,0,0,0.9),rgba(0,0,0,0.46)_58%,transparent_100%)] transition-opacity duration-200 ease-out xl:hidden',
+          'absolute inset-x-0 bottom-0 h-[46dvh] bg-[linear-gradient(0deg,rgba(0,0,0,0.9),rgba(0,0,0,0.46)_58%,transparent_100%)] transition-opacity duration-200 ease-out',
           deferredOverlayVisibilityClass
         ].join(' ')}
       />
 
       <div
         className={[
-          'absolute inset-y-0 right-3 z-20 flex items-end pb-[max(env(safe-area-inset-bottom),0.5rem)] transition-opacity duration-200 ease-out sm:right-5 xl:hidden',
+          'absolute bottom-0 right-3 z-20 flex items-end pb-3 transition-opacity duration-200 ease-out sm:right-5',
           deferredOverlayVisibilityClass
         ].join(' ')}
       >
@@ -207,18 +207,17 @@ export function FeedSlide({
 
       <div
         className={[
-          'absolute inset-x-0 bottom-0 z-10 px-5 pr-24 pt-16 transition-opacity duration-200 ease-out sm:px-6 sm:pr-24 xl:hidden',
-          shouldRenderVideo ? 'pb-24' : 'pb-[max(env(safe-area-inset-bottom),0.5rem)]',
+          'absolute inset-x-0 bottom-0 z-10 px-5 pr-24 pt-16 pb-3 transition-opacity duration-200 ease-out sm:px-6 sm:pr-24',
           deferredOverlayVisibilityClass
         ].join(' ')}
       >
         <div className="max-w-md">
           <div className="mb-3 flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-zinc-950">{getTypeLabel(item.type)}</span>
-            <span className="rounded-full bg-black/35 px-3 py-1 text-xs font-medium text-white ring-1 ring-white/15 backdrop-blur">
+            <span className="bg-white px-3 py-1 text-xs font-semibold text-zinc-950">{getTypeLabel(item.type)}</span>
+            <span className="bg-black/35 px-3 py-1 text-xs font-medium text-white backdrop-blur">
               {publishedLabel}
             </span>
-            <span className="rounded-full bg-black/35 px-3 py-1 text-xs font-medium text-white ring-1 ring-white/15 backdrop-blur">
+            <span className="bg-black/35 px-3 py-1 text-xs font-medium text-white backdrop-blur">
               {choiceLabel}
             </span>
           </div>
@@ -229,8 +228,8 @@ export function FeedSlide({
           <p className="mt-3 line-clamp-3 max-w-md text-sm leading-6 text-white/82 sm:text-base">{getSummary(item)}</p>
 
           <div className="mt-4 flex flex-wrap gap-2">
-            <span className="rounded-full bg-white/12 px-3 py-1 text-xs font-medium text-white backdrop-blur">#{item.projectTitle}</span>
-            <span className="rounded-full bg-white/12 px-3 py-1 text-xs font-medium text-white backdrop-blur">#{getTypeLabel(item.type)}</span>
+            <span className="bg-white/12 px-3 py-1 text-xs font-medium text-white backdrop-blur">#{item.projectTitle}</span>
+            <span className="bg-white/12 px-3 py-1 text-xs font-medium text-white backdrop-blur">#{getTypeLabel(item.type)}</span>
           </div>
 
           <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-center">
@@ -254,7 +253,7 @@ export function FeedSlide({
 
             <button
               aria-busy={isOpening ? 'true' : undefined}
-              className="inline-flex h-11 w-fit items-center justify-center rounded-full bg-white px-5 text-sm font-semibold text-zinc-950 shadow-lg shadow-black/30 transition hover:bg-zinc-200 disabled:cursor-wait disabled:opacity-75"
+              className="inline-flex h-11 w-fit items-center justify-center bg-white px-5 text-sm font-semibold text-zinc-950 shadow-lg shadow-black/30 transition hover:bg-zinc-200 disabled:cursor-wait disabled:opacity-75"
               disabled={isOpening}
               onClick={onOpen}
               onFocus={onPreloadIntent}
@@ -269,7 +268,7 @@ export function FeedSlide({
 
       <div
         className={[
-          'feed-desktop-action-panel feed-desktop-side-panel absolute top-1/2 hidden w-16 -translate-y-1/2 items-end pb-10 transition-opacity duration-200 ease-out xl:flex',
+          'feed-desktop-action-panel feed-desktop-side-panel absolute top-1/2 hidden w-16 -translate-y-1/2 items-end pb-10 transition-opacity duration-200 ease-out',
           deferredOverlayVisibilityClass
         ].join(' ')}
       >

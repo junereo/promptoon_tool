@@ -83,6 +83,8 @@ interface FeedCursorInput {
   publishId: string;
 }
 
+type FeedProjectionOrder = 'published' | 'trending';
+
 interface FeedItemProjectionRow {
   id: string;
   publish_id: string | null;
@@ -94,6 +96,11 @@ interface FeedItemProjectionRow {
   metrics_json: FeedItemMetrics | null;
   payload_json: FeedItem;
   published_at: Date;
+}
+
+interface BookmarkedFeedItemProjectionRow extends FeedItemProjectionRow {
+  bookmarked_at: Date;
+  bookmark_publish_id: string;
 }
 
 interface ContentInteractionStateRow {
@@ -728,6 +735,8 @@ export async function listFeedItemProjections(
     cursor?: FeedCursorInput;
     itemTypes?: string[];
     limit: number;
+    orderBy?: FeedProjectionOrder;
+    query?: string;
   }
 ): Promise<Array<{ id: string; publishedAt: string; item: FeedItem }>> {
   const values: unknown[] = [];
@@ -740,7 +749,27 @@ export async function listFeedItemProjections(
     values.push(input.itemTypes);
     whereClauses.push(`item_type = ANY($${values.length}::text[])`);
   }
+  if (input.query?.trim()) {
+    values.push(`%${input.query.trim()}%`);
+    whereClauses.push(`(
+      title ILIKE $${values.length}
+      OR COALESCE(description, '') ILIKE $${values.length}
+      OR COALESCE(payload_json->>'projectTitle', '') ILIKE $${values.length}
+      OR COALESCE(payload_json->>'episodeTitle', '') ILIKE $${values.length}
+      OR COALESCE(payload_json->>'channelName', '') ILIKE $${values.length}
+    )`);
+  }
   const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+  const orderBy =
+    input.orderBy === 'trending'
+      ? `ORDER BY (
+           ranking_score
+           + COALESCE((metrics_json->>'views')::double precision, 0) * 0.2
+           + COALESCE((metrics_json->>'likes')::double precision, 0) * 3
+           + COALESCE((metrics_json->>'comments')::double precision, 0) * 2
+           + COALESCE((metrics_json->>'shares')::double precision, 0) * 4
+         ) DESC, published_at DESC, id DESC`
+      : 'ORDER BY published_at DESC, id DESC';
 
   values.push(input.limit);
 
@@ -748,18 +777,89 @@ export async function listFeedItemProjections(
     `SELECT id, publish_id, movingtoon_publish_id, project_id, channel_id, series_id, episode_id, metrics_json, payload_json, published_at
      FROM promptoon_feed_item
      ${whereClause}
-     ORDER BY published_at DESC, id DESC
+     ${orderBy}
      LIMIT $${values.length}`,
     values
   );
 
-  return result.rows.map((row) => ({
+  return result.rows.map(mapFeedItemProjectionRow);
+}
+
+function mapFeedItemProjectionRow(row: FeedItemProjectionRow): { id: string; publishedAt: string; item: FeedItem } {
+  return {
     id: row.id,
     publishedAt: toIsoString(row.published_at),
     item: {
       ...row.payload_json,
       metrics: normalizeFeedMetrics(row.metrics_json ?? row.payload_json.metrics)
     }
+  };
+}
+
+export async function listBookmarkedFeedItemProjections(
+  db: DbExecutor,
+  input: {
+    cursor?: FeedCursorInput;
+    limit: number;
+    userId: string;
+  }
+): Promise<Array<{ id: string; publishedAt: string; cursorAt: string; item: FeedItem }>> {
+  const values: unknown[] = [input.userId];
+  const whereClauses: string[] = [];
+
+  if (input.cursor) {
+    values.push(input.cursor.createdAt, input.cursor.publishId);
+    whereClauses.push(`(bookmarked.bookmarked_at, bookmarked.bookmark_publish_id) < ($${values.length - 1}::timestamptz, $${values.length}::uuid)`);
+  }
+
+  const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+  values.push(input.limit);
+
+  const result = await db.query<BookmarkedFeedItemProjectionRow>(
+    `WITH bookmarked AS (
+       SELECT
+         bookmark.publish_id AS publish_id,
+         NULL::uuid AS movingtoon_publish_id,
+         bookmark.publish_id AS bookmark_publish_id,
+         bookmark.created_at AS bookmarked_at
+       FROM promptoon_user_bookmark AS bookmark
+       WHERE bookmark.user_id = $1
+       UNION ALL
+       SELECT
+         NULL::uuid AS publish_id,
+         bookmark.movingtoon_publish_id AS movingtoon_publish_id,
+         bookmark.movingtoon_publish_id AS bookmark_publish_id,
+         bookmark.created_at AS bookmarked_at
+       FROM promptoon_user_movingtoon_bookmark AS bookmark
+       WHERE bookmark.user_id = $1
+     )
+     SELECT
+       item.id,
+       item.publish_id,
+       item.movingtoon_publish_id,
+       item.project_id,
+       item.channel_id,
+       item.series_id,
+       item.episode_id,
+       item.metrics_json,
+       item.payload_json,
+       item.published_at,
+       bookmarked.bookmarked_at,
+       bookmarked.bookmark_publish_id::text AS bookmark_publish_id
+     FROM bookmarked
+     INNER JOIN promptoon_feed_item AS item
+       ON item.publish_id = bookmarked.publish_id
+       OR item.movingtoon_publish_id = bookmarked.movingtoon_publish_id
+     ${whereClause}
+     ORDER BY bookmarked.bookmarked_at DESC, bookmarked.bookmark_publish_id DESC
+     LIMIT $${values.length}`,
+    values
+  );
+
+  return result.rows.map((row) => ({
+    ...mapFeedItemProjectionRow(row),
+    cursorAt: toIsoString(row.bookmarked_at),
+    id: row.bookmark_publish_id
   }));
 }
 

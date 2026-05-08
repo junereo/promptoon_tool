@@ -22,7 +22,7 @@ export function ChannelHero({ profile, theme, onEditCover, onShare }: ChannelHer
         <Link
           aria-label="피드로 돌아가기"
           className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/14 bg-black/38 text-white shadow-lg shadow-black/20 backdrop-blur-xl transition hover:bg-black/55"
-          to="/feed"
+          to="/discovery"
         >
           <ArrowLeft aria-hidden className="h-5 w-5" />
         </Link>

@@ -63,7 +63,7 @@ export function CommunityDiscussionPage() {
         </div>
 
         <div className="mt-6 flex flex-wrap gap-3">
-          <Link className="rounded-full border border-white/10 px-4 py-2 text-sm text-zinc-200 transition hover:border-editor-accentSoft" to="/feed">
+          <Link className="rounded-full border border-white/10 px-4 py-2 text-sm text-zinc-200 transition hover:border-editor-accentSoft" to="/discovery">
             피드로 돌아가기
           </Link>
           <Link className="rounded-full border border-white/10 px-4 py-2 text-sm text-zinc-200 transition hover:border-editor-accentSoft" to={`/v/${embed.publishId}`}>

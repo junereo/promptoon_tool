@@ -4,6 +4,9 @@ import { Link, Navigate, Outlet, createBrowserRouter, useNavigate } from 'react-
 import { ChannelHomePage } from '../domains/channel/pages/ChannelHomePage';
 import { ChannelPage } from '../domains/channel/pages/ChannelPage';
 import { CommunityDiscussionPage } from '../domains/community/pages/CommunityDiscussionPage';
+import { ConsumerHomePage } from '../domains/consumer/pages/ConsumerHomePage';
+import { ConsumerLibraryPage } from '../domains/consumer/pages/ConsumerLibraryPage';
+import { ConsumerMyPage } from '../domains/consumer/pages/ConsumerMyPage';
 import { FeedHomePage } from '../domains/feed/pages/FeedHomePage';
 import { MovingtoonShortViewerPage } from '../domains/feed/pages/MovingtoonShortViewerPage';
 import { StudioAssetLibraryPage } from '../domains/studio/pages/StudioAssetLibraryPage';
@@ -22,7 +25,6 @@ import { clearAuthSession } from '../features/auth/lib/auth-session';
 import { useAuthStore } from '../features/auth/store/use-auth-store';
 import { preloadPromptoonViewerPage } from '../features/viewer/lib/preload-viewer';
 import { LoginPage } from '../pages/LoginPage';
-import { PromptoonOverviewPage } from '../pages/PromptoonOverviewPage';
 import { RegisterPage } from '../pages/RegisterPage';
 
 const PromptoonViewerPage = lazy(() =>
@@ -135,11 +137,23 @@ export const router: AppRouter = createBrowserRouter([
   },
   {
     path: '/',
+    element: <ConsumerHomePage />
+  },
+  {
+    path: '/discovery',
     element: <FeedHomePage />
   },
   {
+    path: '/library',
+    element: <ConsumerLibraryPage />
+  },
+  {
+    path: '/my',
+    element: <ConsumerMyPage />
+  },
+  {
     path: '/feed',
-    element: <FeedHomePage />
+    element: <Navigate replace to="/discovery" />
   },
   {
     path: '/shorts/:publishId',
@@ -151,7 +165,7 @@ export const router: AppRouter = createBrowserRouter([
   },
   {
     path: '/overview',
-    element: <PromptoonOverviewPage />
+    element: <Navigate replace to="/discovery" />
   },
   {
     path: '/c/:channelSlug',
@@ -304,5 +318,9 @@ export const router: AppRouter = createBrowserRouter([
         element: <StudioEpisodeEditorPage />
       }
     ]
+  },
+  {
+    path: '*',
+    element: <Navigate replace to="/" />
   }
 ]);

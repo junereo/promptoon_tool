@@ -1,4 +1,4 @@
-import type { ContentInteractionStateListResponse, FeedResponse, TelemetryEventPayload } from '@promptoon/shared';
+import type { ContentInteractionStateListResponse, FeedHomeResponse, FeedResponse, TelemetryEventPayload } from '@promptoon/shared';
 
 import { db, withTransaction } from '../../db';
 import { HttpError } from '../../lib/http-error';
@@ -19,6 +19,18 @@ function normalizeInteractionPublishIds(publishIds: string[]): string[] {
 
 export function getEpisodeFeed(input: { cursor?: string; itemTypes?: string[]; limit: number }): Promise<FeedResponse> {
   return projectionService.getEpisodeFeed(input);
+}
+
+export function getFeedHome(): Promise<FeedHomeResponse> {
+  return projectionService.getFeedHome();
+}
+
+export function searchFeed(input: { cursor?: string; itemTypes?: string[]; limit: number; query?: string }): Promise<FeedResponse> {
+  return projectionService.searchFeed(input);
+}
+
+export function getBookmarkedFeed(input: { cursor?: string; limit: number; userId: string }): Promise<FeedResponse> {
+  return projectionService.getBookmarkedFeed(input);
 }
 
 export async function getFeedItemByPublishId(publishId: string) {

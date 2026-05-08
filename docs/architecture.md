@@ -4,7 +4,7 @@ Promptoon은 `pnpm` workspace 기반 모노레포입니다. 현재 구현은 초
 
 ## 1. Workspace 구성
 
-- `apps/web`: 사용자용 Web 앱. public feed/channel/viewer/community와 Studio authoring 화면을 함께 제공.
+- `apps/web`: 사용자용 Web 앱. consumer home/discovery/library/my, public feed/channel/viewer/community와 Studio authoring 화면을 함께 제공.
 - `apps/admin`: platform admin 전용 운영 콘솔.
 - `apps/api`: Express + PostgreSQL API 서버.
 - `packages/shared`: 프론트엔드와 백엔드가 공유하는 TypeScript 타입.
@@ -23,7 +23,7 @@ Promptoon은 `pnpm` workspace 기반 모노레포입니다. 현재 구현은 초
 디렉터리는 FSD와 product-domain 구조가 함께 쓰입니다.
 
 - `app/`: router, query client, bootstrap.
-- `domains/`: product domain 화면. `feed`, `channel`, `viewer`, `studio`, `community`.
+- `domains/`: product domain 화면. `consumer`, `feed`, `channel`, `viewer`, `studio`, `community`.
 - `features/`: 인증, 에디터, 분석, viewer telemetry 등 기능 단위 상태/훅.
 - `widgets/`: editor shell, branch canvas, inspector, preview, public viewer/feed UI 등 복합 UI.
 - `pages/`: legacy/공통 route page.
@@ -32,11 +32,12 @@ Promptoon은 `pnpm` workspace 기반 모노레포입니다. 현재 구현은 초
 
 주요 route:
 
-- Public: `/`, `/feed`, `/v/:publishId`, `/v/:publishId/:episodeNo`, `/c/:channelSlug`, `/community/publishes/:publishId`
+- Public consumer: `/`, `/discovery`, `/library`, `/my`
+- Public media: `/shorts/:publishId`, `/v/:publishId`, `/v/:publishId/:episodeNo`, `/c/:channelSlug`, `/community/publishes/:publishId`
 - Auth: `/login`, `/register`
 - Studio: `/promptoon/*`, `/studio/*`
 
-`/promptoon`과 `/studio`는 같은 Studio shell을 공유하며 `ProtectedRoute requireStudio`로 보호됩니다.
+`/`는 consumer home이고 상단 hero 없이 `인기/신작/추천/모아보기/랭킹` 컬렉션을 노출합니다. 기존 snap feed는 `/discovery`의 탐색 화면으로 사용하고 `/feed`는 `/discovery`로 리다이렉트합니다. `/overview`도 `/discovery`로 리다이렉트합니다. `/library`는 비로그인 사용자를 `/login`으로 보낸 뒤 로그인 후 원래 경로로 복귀합니다. `/promptoon`과 `/studio`는 같은 Studio shell을 공유하며 `ProtectedRoute requireStudio`로 보호됩니다.
 
 ### 2.2. Admin App
 
@@ -69,7 +70,7 @@ API는 `apps/api/src/app/createApp.ts`에서 mount됩니다.
 
 - `/api/auth`: register/login/session/refresh/logout/OAuth
 - `/api/admin`: platform admin 운영 API
-- `/api/feed`: public feed와 like/bookmark/feed telemetry
+- `/api/feed`: consumer home/search/bookmark library, public feed와 like/bookmark/feed telemetry
 - `/api/channels`: channel home, series, episodes, shorts, subscription
 - `/api/viewer`: published viewer manifest, share page, viewer state/continue
 - `/api/studio`: authoring, asset, publish, analytics, member, projection repair

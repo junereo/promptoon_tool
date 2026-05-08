@@ -2,6 +2,10 @@ import type { AnalyticsViewGranularity, AnalyticsViewRange, CommunityDiscourseSc
 
 export const promptoonKeys = {
   feed: () => ['promptoon', 'feed'] as const,
+  feedHome: () => ['promptoon', 'feed', 'home'] as const,
+  feedSearch: (query: string, type: string) => ['promptoon', 'feed', 'search', query, type] as const,
+  feedBookmarks: () => ['promptoon', 'feed', 'bookmarks'] as const,
+  feedInteractionStateRoot: () => ['promptoon', 'feed', 'state'] as const,
   feedInteractionState: (publishIdsKey: string) => ['promptoon', 'feed', 'state', publishIdsKey] as const,
   channelHome: (channelSlug: string) => ['promptoon', 'channel', channelSlug, 'home'] as const,
   myChannelHome: () => ['promptoon', 'me', 'channel', 'home'] as const,

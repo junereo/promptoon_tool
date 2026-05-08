@@ -276,7 +276,7 @@ describe('MainFeedPage', () => {
     expect(video.getAttribute('src')).toBe('https://cdn.example.com/movingtoon-1.mp4');
     expect(screen.getByRole('button', { name: '영상 정지' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '음소거 해제' })).toBeTruthy();
-    expect(screen.getByRole('slider', { name: '영상 진행 위치' })).toBeTruthy();
+    expect(screen.queryByRole('slider', { name: '영상 진행 위치' })).toBeNull();
 
     fireEvent.pointerEnter(player);
     fireEvent.click(screen.getByRole('button', { name: '음소거 해제' }));
