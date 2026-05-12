@@ -44,10 +44,10 @@ export const env = {
   refreshTokenExpiresIn: process.env.JWT_REFRESH_TOKEN_EXPIRES_IN ?? '30d',
   refreshTokenTtlDays: Number(process.env.JWT_REFRESH_TOKEN_TTL_DAYS ?? 30),
   clientRedirectUrl: process.env.CLIENT_REDIRECT_URL ?? process.env.WEB_APP_URL ?? '/',
-  kakao: {
-    clientId: getOptionalEnv('KAKAO_REST_API_KEY') ?? getOptionalEnv('KAKAO_CLIENT_ID'),
-    clientSecret: getOptionalEnv('KAKAO_CLIENT_SECRET'),
-    redirectUri: getOptionalEnv('KAKAO_REDIRECT_URI')
+  google: {
+    clientId: getOptionalEnv('GOOGLE_CLIENT_ID'),
+    clientSecret: getOptionalEnv('GOOGLE_CLIENT_SECRET'),
+    redirectUri: getOptionalEnv('GOOGLE_REDIRECT_URI')
   },
   discourse: {
     baseUrl: discourseBaseUrl,

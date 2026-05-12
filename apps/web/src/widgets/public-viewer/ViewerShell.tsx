@@ -57,6 +57,10 @@ function getPathStepAssetUrls(pathSteps: ViewerPathStep[]): string[] {
   return Array.from(assetUrls);
 }
 
+function getPrimaryAssetUrl(pathStartStep: ViewerPathStep | null): string | null {
+  return pathStartStep?.renderCut.assetUrl ?? null;
+}
+
 export function ViewerShell({
   canGoBack,
   episodeTitle,
@@ -90,31 +94,48 @@ export function ViewerShell({
   const pathStartStep = pathSteps[0] ?? null;
   const pathStepKey = pathSteps.map((step) => `${step.cut.id}:${step.renderCut.id}`).join('|');
   const pathStartKey = pathStartStep ? `${pathStartStep.cut.id}:${pathStartStep.renderCut.id}` : 'empty-path';
-  const requiredAssetUrls = useMemo(() => getPathStepAssetUrls(pathSteps), [pathStepKey, pathSteps]);
-  const [readyPathStepKey, setReadyPathStepKey] = useState<string | null>(requiredAssetUrls.length === 0 ? pathStepKey : null);
-  const isMediaReady = requiredAssetUrls.length === 0 || readyPathStepKey === pathStepKey;
+  const pathAssetUrls = useMemo(() => getPathStepAssetUrls(pathSteps), [pathSteps]);
+  const primaryAssetUrl = getPrimaryAssetUrl(pathStartStep);
+  const mediaReadyKey = `${pathStepKey}:${primaryAssetUrl ?? ''}`;
+  const requiredAssetUrls = useMemo(() => (primaryAssetUrl ? [primaryAssetUrl] : []), [primaryAssetUrl]);
+  const deferredAssetUrls = useMemo(
+    () => pathAssetUrls.filter((assetUrl) => assetUrl !== primaryAssetUrl),
+    [pathAssetUrls, primaryAssetUrl]
+  );
+  const [readyMediaKey, setReadyMediaKey] = useState<string | null>(requiredAssetUrls.length === 0 ? mediaReadyKey : null);
+  const isMediaReady = requiredAssetUrls.length === 0 || readyMediaKey === mediaReadyKey;
   const areControlsVisible = isChromeVisible && isScrollBoundary && isMediaReady;
   const readyClassName = isMediaReady ? 'opacity-100' : 'pointer-events-none opacity-0';
 
   useEffect(() => {
     if (requiredAssetUrls.length === 0) {
-      setReadyPathStepKey(pathStepKey);
+      setReadyMediaKey(mediaReadyKey);
       return;
     }
 
     let isCancelled = false;
-    setReadyPathStepKey((currentPathStepKey) => (currentPathStepKey === pathStepKey ? currentPathStepKey : null));
+    setReadyMediaKey((currentMediaKey) => (currentMediaKey === mediaReadyKey ? currentMediaKey : null));
 
     void Promise.all(requiredAssetUrls.map((assetUrl) => preloadImageAsset(assetUrl))).then(() => {
       if (!isCancelled) {
-        setReadyPathStepKey(pathStepKey);
+        setReadyMediaKey(mediaReadyKey);
       }
     });
 
     return () => {
       isCancelled = true;
     };
-  }, [pathStepKey, requiredAssetUrls]);
+  }, [mediaReadyKey, requiredAssetUrls]);
+
+  useEffect(() => {
+    if (!isMediaReady || deferredAssetUrls.length === 0) {
+      return;
+    }
+
+    for (const assetUrl of deferredAssetUrls) {
+      void preloadImageAsset(assetUrl);
+    }
+  }, [deferredAssetUrls, isMediaReady]);
 
   const updateScrollBoundary = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;
@@ -348,6 +369,7 @@ export function ViewerShell({
                             canGoBack={canGoBack}
                             compact={isPathCompact}
                             cut={step.renderCut}
+                            deferContentUntilImageReady
                             isTerminal={isTerminalStep}
                             key={`${step.cut.id}:${step.renderCut.id}`}
                             onChoiceClick={(choice) => onChoiceClick(choice, step.cut.id)}

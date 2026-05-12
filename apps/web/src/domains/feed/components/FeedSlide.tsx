@@ -113,6 +113,9 @@ export function FeedSlide({
         <div className="max-w-[21rem]">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm font-medium text-white/68">
             <span className="text-white">{getTypeLabel(item.type)}</span>
+            {item.isExperimental ? (
+              <span className="rounded-full bg-amber-300 px-2.5 py-1 text-xs font-black text-zinc-950">실험용</span>
+            ) : null}
             <span>{publishedLabel}</span>
             <span>{choiceLabel}</span>
           </div>
@@ -125,6 +128,9 @@ export function FeedSlide({
           <div className="mt-4 flex flex-wrap gap-2">
             <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white">#{item.projectTitle}</span>
             <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white">#{getTypeLabel(item.type)}</span>
+            {item.isExperimental ? (
+              <span className="rounded-full bg-amber-300 px-3 py-1 text-xs font-black text-zinc-950">#실험용</span>
+            ) : null}
           </div>
 
           <div className="mt-6 flex flex-col items-start gap-4">
@@ -214,6 +220,9 @@ export function FeedSlide({
         <div className="max-w-md">
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <span className="bg-white px-3 py-1 text-xs font-semibold text-zinc-950">{getTypeLabel(item.type)}</span>
+            {item.isExperimental ? (
+              <span className="bg-amber-300 px-3 py-1 text-xs font-black text-zinc-950">실험용</span>
+            ) : null}
             <span className="bg-black/35 px-3 py-1 text-xs font-medium text-white backdrop-blur">
               {publishedLabel}
             </span>
@@ -230,6 +239,9 @@ export function FeedSlide({
           <div className="mt-4 flex flex-wrap gap-2">
             <span className="bg-white/12 px-3 py-1 text-xs font-medium text-white backdrop-blur">#{item.projectTitle}</span>
             <span className="bg-white/12 px-3 py-1 text-xs font-medium text-white backdrop-blur">#{getTypeLabel(item.type)}</span>
+            {item.isExperimental ? (
+              <span className="bg-amber-300 px-3 py-1 text-xs font-black text-zinc-950">#실험용</span>
+            ) : null}
           </div>
 
           <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-center">

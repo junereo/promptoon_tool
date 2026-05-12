@@ -8,6 +8,7 @@ import { createAuthRouter } from '../modules/auth/auth.routes';
 import { createAdminRouter } from '../modules/admin/admin.routes';
 import { createChannelRouter, createMeChannelRouter } from '../modules/channel/channel.routes';
 import { createCommunityRouter } from '../modules/community/community.routes';
+import { createExperimentalRouter } from '../modules/experimental/experimental.routes';
 import { createFeedRouter } from '../modules/feed/feed.routes';
 import { createLegacyPromptoonRouter } from '../modules/promptoon-authoring/promptoon.routes';
 import { createStudioRouter } from '../modules/studio/studio.routes';
@@ -34,6 +35,7 @@ export function createApp(): Express {
 
   app.use('/api/auth', createAuthRouter());
   app.use('/api/admin', createAdminRouter());
+  app.use('/api/experimental', createExperimentalRouter());
   app.use('/api/feed', createFeedRouter());
   app.use('/api/me/channel', createMeChannelRouter());
   app.use('/api/channels', createChannelRouter());

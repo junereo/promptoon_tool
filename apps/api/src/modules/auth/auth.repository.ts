@@ -10,6 +10,7 @@ interface UserRow {
   email: string | null;
   display_name: string | null;
   profile_image_url: string | null;
+  sns_profile_image_url?: string | null;
   discourse_username: string | null;
 }
 
@@ -47,7 +48,7 @@ export interface AuthUserRecord extends AuthUser {
 }
 
 export interface OAuthProfileInput {
-  provider: 'kakao';
+  provider: 'google';
   providerAccountId: string;
   email?: string | null;
   displayName?: string | null;
@@ -57,7 +58,8 @@ export interface OAuthProfileInput {
 function mapAuthUser(row: UserRow): AuthUser {
   return {
     id: row.id,
-    loginId: row.login_id
+    loginId: row.login_id,
+    snsProfileImageUrl: row.sns_profile_image_url ?? null
   };
 }
 
@@ -85,7 +87,20 @@ export async function getUserByLoginId(
   db: DbExecutor,
   loginId: string
 ): Promise<AuthUserRecord | null> {
-  const result = await db.query<UserRow>('SELECT * FROM users WHERE login_id = $1', [loginId]);
+  const result = await db.query<UserRow>(
+    `SELECT users.*, oauth.profile_image_url AS sns_profile_image_url
+     FROM users
+     LEFT JOIN LATERAL (
+       SELECT profile_image_url
+       FROM promptoon_oauth_account
+       WHERE user_id = users.id
+         AND provider = 'google'
+       ORDER BY updated_at DESC
+       LIMIT 1
+     ) AS oauth ON TRUE
+     WHERE users.login_id = $1`,
+    [loginId]
+  );
   const row = result.rows[0];
 
   if (!row) {
@@ -144,12 +159,38 @@ export async function createUser(
 }
 
 export async function getUserById(db: DbExecutor, userId: string): Promise<AuthUser | null> {
-  const result = await db.query<UserRow>('SELECT * FROM users WHERE id = $1', [userId]);
+  const result = await db.query<UserRow>(
+    `SELECT users.*, oauth.profile_image_url AS sns_profile_image_url
+     FROM users
+     LEFT JOIN LATERAL (
+       SELECT profile_image_url
+       FROM promptoon_oauth_account
+       WHERE user_id = users.id
+         AND provider = 'google'
+       ORDER BY updated_at DESC
+       LIMIT 1
+     ) AS oauth ON TRUE
+     WHERE users.id = $1`,
+    [userId]
+  );
   return result.rows[0] ? mapAuthUser(result.rows[0]) : null;
 }
 
 export async function getUserRecordById(db: DbExecutor, userId: string): Promise<AuthUserRecord | null> {
-  const result = await db.query<UserRow>('SELECT * FROM users WHERE id = $1', [userId]);
+  const result = await db.query<UserRow>(
+    `SELECT users.*, oauth.profile_image_url AS sns_profile_image_url
+     FROM users
+     LEFT JOIN LATERAL (
+       SELECT profile_image_url
+       FROM promptoon_oauth_account
+       WHERE user_id = users.id
+         AND provider = 'google'
+       ORDER BY updated_at DESC
+       LIMIT 1
+     ) AS oauth ON TRUE
+     WHERE users.id = $1`,
+    [userId]
+  );
   return result.rows[0] ? mapAuthUserRecord(result.rows[0]) : null;
 }
 
@@ -254,7 +295,7 @@ export async function getUserByOAuthAccount(
   input: { provider: string; providerAccountId: string }
 ): Promise<AuthUserRecord | null> {
   const result = await db.query<UserRow>(
-    `SELECT users.*
+    `SELECT users.*, account.profile_image_url AS sns_profile_image_url
      FROM promptoon_oauth_account AS account
      INNER JOIN users ON users.id = account.user_id
      WHERE account.provider = $1
@@ -281,21 +322,23 @@ export async function upsertOAuthUser(db: DbExecutor, input: OAuthProfileInput):
          AND provider_account_id = $2`,
       [input.provider, input.providerAccountId, input.email ?? null, input.displayName ?? null, input.profileImageUrl ?? null]
     );
-    return existing;
+    return await getUserByOAuthAccount(db, {
+      provider: input.provider,
+      providerAccountId: input.providerAccountId
+    }) ?? existing;
   }
 
   const loginId = `${input.provider}:${input.providerAccountId}`;
   const passwordHash = `OAUTH_LOGIN_DISABLED:${randomUUID()}`;
   const userResult = await db.query<UserRow>(
-    `INSERT INTO users (login_id, password_hash, email, display_name, profile_image_url)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO users (login_id, password_hash, email, display_name)
+     VALUES ($1, $2, $3, $4)
      ON CONFLICT (login_id) DO UPDATE
        SET email = COALESCE(EXCLUDED.email, users.email),
            display_name = COALESCE(EXCLUDED.display_name, users.display_name),
-           profile_image_url = COALESCE(EXCLUDED.profile_image_url, users.profile_image_url),
            updated_at = NOW()
      RETURNING *`,
-    [loginId, passwordHash, input.email ?? null, input.displayName ?? null, input.profileImageUrl ?? null]
+    [loginId, passwordHash, input.email ?? null, input.displayName ?? null]
   );
   const user = userResult.rows[0];
 
@@ -310,5 +353,8 @@ export async function upsertOAuthUser(db: DbExecutor, input: OAuthProfileInput):
     [user.id, input.provider, input.providerAccountId, input.email ?? null, input.displayName ?? null, input.profileImageUrl ?? null]
   );
 
-  return mapAuthUserRecord(user);
+  return await getUserByOAuthAccount(db, {
+    provider: input.provider,
+    providerAccountId: input.providerAccountId
+  }) ?? mapAuthUserRecord(user);
 }

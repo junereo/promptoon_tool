@@ -5,6 +5,7 @@ import {
   LogOut,
   Chat as MessageSquare,
   PaperPlane as Rocket,
+  ShieldCheck,
   Users
 } from 'react-coolicons';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
@@ -19,6 +20,7 @@ const navItems = [
   { to: '/users', label: 'Users', icon: Users },
   { to: '/projects', label: 'Projects', icon: FileText },
   { to: '/publishes', label: 'Publishes', icon: Rocket },
+  { to: '/experimental', label: 'Experimental', icon: ShieldCheck },
   { to: '/community', label: 'Community', icon: MessageSquare },
   { to: '/telemetry', label: 'Telemetry', icon: BarChart3 }
 ];

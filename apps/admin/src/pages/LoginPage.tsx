@@ -57,7 +57,7 @@ export function LoginPage() {
           return;
         }
         logout();
-        setErrorMessage(error instanceof ApiError ? error.message : '카카오 로그인 세션을 확인할 수 없습니다.');
+        setErrorMessage(error instanceof ApiError ? error.message : 'Google 로그인 세션을 확인할 수 없습니다.');
       })
       .finally(() => {
         if (isMounted) {
@@ -114,13 +114,13 @@ export function LoginPage() {
     }
   }
 
-  async function handleKakaoLogin() {
+  async function handleGoogleLogin() {
     try {
       setErrorMessage(null);
-      const authorizationUrl = await authApi.getKakaoAuthorizationUrl();
+      const authorizationUrl = await authApi.getGoogleAuthorizationUrl();
       window.location.assign(authorizationUrl);
     } catch (error) {
-      setErrorMessage(error instanceof ApiError ? error.message : '카카오 로그인을 시작할 수 없습니다.');
+      setErrorMessage(error instanceof ApiError ? error.message : 'Google 로그인을 시작할 수 없습니다.');
     }
   }
 
@@ -183,12 +183,12 @@ export function LoginPage() {
           </form>
 
           <button
-            className="mt-4 w-full rounded-2xl bg-[#fee500] px-5 py-3 text-sm font-black text-zinc-950 transition hover:bg-[#ffdd00]"
+            className="mt-4 w-full rounded-2xl bg-white px-5 py-3 text-sm font-black text-zinc-950 ring-1 ring-admin-border transition hover:bg-zinc-50"
             disabled={isSubmitting}
-            onClick={handleKakaoLogin}
+            onClick={handleGoogleLogin}
             type="button"
           >
-            Kakao로 관리자 로그인
+            Google로 관리자 로그인
           </button>
         </section>
       </div>

@@ -1,84 +1,34 @@
-import { Suspense, lazy, useState, type ComponentType } from 'react';
+import { Suspense, useState } from 'react';
 import { Link, Navigate, Outlet, Route, Routes, useNavigate } from 'react-router-dom';
 
 import { ProtectedRoute } from '../features/auth/components/ProtectedRoute';
 import { clearAuthSession } from '../features/auth/lib/auth-session';
 import { useAuthStore } from '../features/auth/store/use-auth-store';
-import { preloadPromptoonViewerPage } from '../features/viewer/lib/preload-viewer';
-
-function lazyNamedPage<TModule extends Record<string, ComponentType>, TExport extends keyof TModule>(
-  loader: () => Promise<TModule>,
-  exportName: TExport
-) {
-  return lazy(async () => ({
-    default: (await loader())[exportName]
-  }));
-}
-
-const ChannelHomePage = lazyNamedPage(
-  () => import('../domains/channel/pages/ChannelHomePage'),
-  'ChannelHomePage'
-);
-const ChannelPage = lazyNamedPage(() => import('../domains/channel/pages/ChannelPage'), 'ChannelPage');
-const CommunityDiscussionPage = lazyNamedPage(
-  () => import('../domains/community/pages/CommunityDiscussionPage'),
-  'CommunityDiscussionPage'
-);
-const ConsumerHomePage = lazyNamedPage(() => import('../domains/consumer/pages/ConsumerHomePage'), 'ConsumerHomePage');
-const ConsumerLibraryPage = lazyNamedPage(
-  () => import('../domains/consumer/pages/ConsumerLibraryPage'),
-  'ConsumerLibraryPage'
-);
-const ConsumerMyPage = lazyNamedPage(() => import('../domains/consumer/pages/ConsumerMyPage'), 'ConsumerMyPage');
-const FeedHomePage = lazyNamedPage(() => import('../domains/feed/pages/FeedHomePage'), 'FeedHomePage');
-const MovingtoonShortViewerPage = lazyNamedPage(
-  () => import('../domains/feed/pages/MovingtoonShortViewerPage'),
-  'MovingtoonShortViewerPage'
-);
-const LoginPage = lazyNamedPage(() => import('../pages/LoginPage'), 'LoginPage');
-const RegisterPage = lazyNamedPage(() => import('../pages/RegisterPage'), 'RegisterPage');
-const StudioAssetLibraryPage = lazyNamedPage(
-  () => import('../domains/studio/pages/StudioAssetLibraryPage'),
-  'StudioAssetLibraryPage'
-);
-const StudioAnalyticsPage = lazyNamedPage(
-  () => import('../domains/studio/pages/StudioAnalyticsPage'),
-  'StudioAnalyticsPage'
-);
-const StudioCommunityModerationPage = lazyNamedPage(
-  () => import('../domains/studio/pages/StudioCommunityModerationPage'),
-  'StudioCommunityModerationPage'
-);
-const StudioEpisodeEditorPage = lazyNamedPage(
-  () => import('../domains/studio/pages/StudioEpisodeEditorPage'),
-  'StudioEpisodeEditorPage'
-);
-const StudioProjectDashboardPage = lazyNamedPage(
-  () => import('../domains/studio/pages/StudioProjectDashboardPage'),
-  'StudioProjectDashboardPage'
-);
-const StudioProjectDetailPage = lazyNamedPage(
-  () => import('../domains/studio/pages/StudioProjectDetailPage'),
-  'StudioProjectDetailPage'
-);
-const StudioProjectMembersPage = lazyNamedPage(
-  () => import('../domains/studio/pages/StudioProjectMembersPage'),
-  'StudioProjectMembersPage'
-);
-const StudioProjectSettingsPage = lazyNamedPage(
-  () => import('../domains/studio/pages/StudioProjectSettingsPage'),
-  'StudioProjectSettingsPage'
-);
-const StudioPublishHistoryPage = lazyNamedPage(
-  () => import('../domains/studio/pages/StudioPublishHistoryPage'),
-  'StudioPublishHistoryPage'
-);
-const StudioPublishPage = lazyNamedPage(() => import('../domains/studio/pages/StudioPublishPage'), 'StudioPublishPage');
-const StudioSeriesPage = lazyNamedPage(() => import('../domains/studio/pages/StudioSeriesPage'), 'StudioSeriesPage');
-
-const PromptoonViewerPage = lazy(() =>
-  preloadPromptoonViewerPage().then((module) => ({ default: module.PromptoonViewerPage }))
-);
+import {
+  ChannelHomePage,
+  ChannelPage,
+  CommunityDiscussionPage,
+  ConsumerHomePage,
+  ConsumerExperimentalPage,
+  ConsumerLibraryPage,
+  ConsumerMyPage,
+  FeedHomePage,
+  LoginPage,
+  MovingtoonShortViewerPage,
+  PromptoonViewerPage,
+  RegisterPage,
+  StudioAnalyticsPage,
+  StudioAssetLibraryPage,
+  StudioCommunityModerationPage,
+  StudioEpisodeEditorPage,
+  StudioProjectDashboardPage,
+  StudioProjectDetailPage,
+  StudioProjectMembersPage,
+  StudioProjectSettingsPage,
+  StudioPublishHistoryPage,
+  StudioPublishPage,
+  StudioSeriesPage
+} from './lazy-routes';
 
 function RouteLoadingScreen() {
   return <div className="min-h-dvh bg-[#050506]" />;
@@ -198,6 +148,7 @@ export function AppRouter() {
       <Routes>
         <Route path="/" element={<ConsumerHomePage />} />
         <Route path="/discovery" element={<FeedHomePage />} />
+        <Route path="/experimental" element={<ConsumerExperimentalPage />} />
         <Route path="/library" element={<ConsumerLibraryPage />} />
         <Route path="/my" element={<ConsumerMyPage />} />
         <Route path="/feed" element={<Navigate replace to="/discovery" />} />

@@ -18,11 +18,11 @@ export interface AuthTokenPayload {
   sid: string;
 }
 
-export interface KakaoOAuthProfile {
+export interface GoogleOAuthProfile {
   id: string;
   email?: string | null;
   emailVerified?: boolean;
-  nickname?: string | null;
+  name?: string | null;
   profileImageUrl?: string | null;
 }
 
@@ -186,7 +186,8 @@ export async function login(request: LoginRequest): Promise<AuthResponse> {
 
   const authUser = {
     id: user.id,
-    loginId: user.loginId
+    loginId: user.loginId,
+    snsProfileImageUrl: user.snsProfileImageUrl ?? null
   };
 
   return createAuthResponse(authUser);
@@ -277,101 +278,92 @@ export async function refresh(refreshToken: string): Promise<AuthResponse> {
   });
 }
 
-function getKakaoConfig(): { clientId: string; redirectUri: string; clientSecret?: string } {
-  if (!env.kakao.clientId || !env.kakao.redirectUri) {
-    throw new HttpError(503, 'Kakao OAuth is not configured.');
+function getGoogleConfig(): { clientId: string; clientSecret: string; redirectUri: string } {
+  if (!env.google.clientId || !env.google.clientSecret || !env.google.redirectUri) {
+    throw new HttpError(503, 'Google OAuth is not configured.');
   }
 
   return {
-    clientId: env.kakao.clientId,
-    redirectUri: env.kakao.redirectUri,
-    ...(env.kakao.clientSecret ? { clientSecret: env.kakao.clientSecret } : {})
+    clientId: env.google.clientId,
+    clientSecret: env.google.clientSecret,
+    redirectUri: env.google.redirectUri
   };
 }
 
-export function getKakaoAuthorizationUrl(state?: string): string {
-  const config = getKakaoConfig();
+export function getGoogleAuthorizationUrl(state?: string): string {
+  const config = getGoogleConfig();
   const params = new URLSearchParams({
     response_type: 'code',
     client_id: config.clientId,
     redirect_uri: config.redirectUri,
+    scope: 'openid email profile',
     state: state ?? randomUUID()
   });
 
-  return `https://kauth.kakao.com/oauth/authorize?${params.toString()}`;
+  return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 }
 
-async function fetchKakaoProfile(code: string): Promise<KakaoOAuthProfile> {
-  const config = getKakaoConfig();
+async function fetchGoogleProfile(code: string): Promise<GoogleOAuthProfile> {
+  const config = getGoogleConfig();
   const tokenParams = new URLSearchParams({
     grant_type: 'authorization_code',
     client_id: config.clientId,
+    client_secret: config.clientSecret,
     redirect_uri: config.redirectUri,
     code
   });
-  if (config.clientSecret) {
-    tokenParams.set('client_secret', config.clientSecret);
-  }
 
-  const tokenResponse = await fetch('https://kauth.kakao.com/oauth/token', {
+  const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8'
+      'Content-Type': 'application/x-www-form-urlencoded'
     },
     body: tokenParams.toString()
   });
   if (!tokenResponse.ok) {
-    throw new HttpError(502, 'Failed to exchange Kakao authorization code.');
+    throw new HttpError(502, 'Failed to exchange Google authorization code.');
   }
   const tokenJson = await tokenResponse.json() as { access_token?: string };
   if (!tokenJson.access_token) {
-    throw new HttpError(502, 'Kakao token response did not include an access token.');
+    throw new HttpError(502, 'Google token response did not include an access token.');
   }
 
-  const profileResponse = await fetch('https://kapi.kakao.com/v2/user/me', {
+  const profileResponse = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
     headers: {
       Authorization: `Bearer ${tokenJson.access_token}`
     }
   });
   if (!profileResponse.ok) {
-    throw new HttpError(502, 'Failed to fetch Kakao profile.');
+    throw new HttpError(502, 'Failed to fetch Google profile.');
   }
   const profileJson = await profileResponse.json() as {
-    id?: number | string;
-    kakao_account?: {
-      email?: string;
-      is_email_verified?: boolean;
-      profile?: {
-        nickname?: string;
-        profile_image_url?: string;
-      };
-    };
-    properties?: {
-      nickname?: string;
-      profile_image?: string;
-    };
+    sub?: string;
+    email?: string;
+    email_verified?: boolean;
+    name?: string;
+    picture?: string;
   };
-  if (profileJson.id === undefined || profileJson.id === null) {
-    throw new HttpError(502, 'Kakao profile response did not include an id.');
+  if (!profileJson.sub) {
+    throw new HttpError(502, 'Google profile response did not include a subject.');
   }
 
   return {
-    id: String(profileJson.id),
-    email: profileJson.kakao_account?.email ?? null,
-    emailVerified: profileJson.kakao_account?.is_email_verified ?? false,
-    nickname: profileJson.kakao_account?.profile?.nickname ?? profileJson.properties?.nickname ?? null,
-    profileImageUrl: profileJson.kakao_account?.profile?.profile_image_url ?? profileJson.properties?.profile_image ?? null
+    id: profileJson.sub,
+    email: profileJson.email ?? null,
+    emailVerified: profileJson.email_verified ?? false,
+    name: profileJson.name ?? null,
+    profileImageUrl: profileJson.picture ?? null
   };
 }
 
-export async function loginWithKakaoCode(code: string): Promise<AuthResponse> {
-  const profile = await fetchKakaoProfile(code);
+export async function loginWithGoogleCode(code: string): Promise<AuthResponse> {
+  const profile = await fetchGoogleProfile(code);
   const user = await withTransaction(async (client) => {
     const oauthUser = await repository.upsertOAuthUser(client, {
-      provider: 'kakao',
+      provider: 'google',
       providerAccountId: profile.id,
       email: profile.emailVerified ? profile.email : null,
-      displayName: profile.nickname,
+      displayName: profile.name,
       profileImageUrl: profile.profileImageUrl
     });
     return {

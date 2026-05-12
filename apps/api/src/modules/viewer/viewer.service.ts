@@ -2,6 +2,7 @@ import type { Publish, RelatedShort, TelemetryEventRequest, ViewerInteractionSta
 
 import { db } from '../../db';
 import { HttpError } from '../../lib/http-error';
+import * as experimentalService from '../experimental/experimental.service';
 import * as projectionService from '../promptoon-core/projection.service';
 import * as shareService from '../promptoon-core/share.service';
 import * as repository from '../promptoon-core/product.repository';
@@ -27,11 +28,13 @@ function isEndingLikeCut(cut: { isEnding?: boolean; kind: string }): boolean {
   return Boolean(cut.isEnding) || cut.kind === 'ending' || cut.kind === 'resultCard';
 }
 
-export function getPublishedEpisode(publishId: string): Promise<Publish> {
+export async function getPublishedEpisode(publishId: string, userId?: string): Promise<Publish> {
+  await experimentalService.assertPublishAccess(publishId, userId);
   return projectionService.getPublishedEpisode(publishId);
 }
 
-export function getRelatedShorts(publishId: string): Promise<RelatedShort[]> {
+export async function getRelatedShorts(publishId: string, userId?: string): Promise<RelatedShort[]> {
+  await experimentalService.assertPublishAccess(publishId, userId);
   return projectionService.getRelatedShorts(publishId);
 }
 

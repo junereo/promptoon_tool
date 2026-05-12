@@ -77,11 +77,20 @@ function HomeSection({ section }: { section: HomeCollection }) {
         </Link>
       </div>
       <div className="flex min-w-0 max-w-full flex-wrap gap-x-3 gap-y-5 px-5 pb-1">
-        {section.items.map((item, index) => (
-          <div className="min-w-0 shrink-0 grow-0" key={`${section.key}-${item.publishId}`} style={HOME_CARD_SLOT_STYLE}>
-            <ConsumerContentCard item={item} rank={section.showRank ? index + 1 : undefined} />
-          </div>
-        ))}
+        {section.items.map((item, index) => {
+          const shouldPrioritizePoster = section.key === 'popular' && index < 3;
+
+          return (
+            <div className="min-w-0 shrink-0 grow-0" key={`${section.key}-${item.publishId}`} style={HOME_CARD_SLOT_STYLE}>
+              <ConsumerContentCard
+                imageFetchPriority={shouldPrioritizePoster ? 'high' : 'auto'}
+                imageLoading={shouldPrioritizePoster ? 'eager' : 'lazy'}
+                item={item}
+                rank={section.showRank ? index + 1 : undefined}
+              />
+            </div>
+          );
+        })}
       </div>
     </section>
   );

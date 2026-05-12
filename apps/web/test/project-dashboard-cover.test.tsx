@@ -11,7 +11,9 @@ import { PromptoonProjectListPage } from '../src/pages/promptoon-project-list-pa
 let projects: ProjectWithEpisodes[];
 const uploadMutate = vi.fn<(_: { projectId: string; file: File }) => Promise<{ assetUrl: string }>>();
 const uploadProjectAssetMutate = vi.fn<(_: File) => Promise<{ assetUrl: string }>>();
-const patchProjectMutate = vi.fn<(_: { title?: string; description?: string | null; thumbnailUrl?: string | null }) => Promise<unknown>>();
+const patchProjectMutate = vi.fn<
+  (_: { title?: string; description?: string | null; thumbnailUrl?: string | null; isExperimental?: boolean }) => Promise<unknown>
+>();
 const updateEpisodeMutate = vi.fn<(_: { episodeId: string; payload: { coverImageUrl: string | null } }) => Promise<unknown>>();
 const exportBackupMutate = vi.fn<() => Promise<PromptoonBackupExport>>();
 const publishEpisodeMutate = vi.fn<(_: { projectId: string; episodeId: string }) => Promise<unknown>>();
@@ -195,6 +197,23 @@ describe('PromptoonProjectListPage Studio dashboard', () => {
     expect(screen.getByText('Thumbnail will be generated during processing.')).toBeTruthy();
   });
 
+  it('marks experimental projects in the Studio project list', () => {
+    projects = [
+      {
+        ...projects[0],
+        isExperimental: true
+      }
+    ];
+
+    render(
+      <MemoryRouter>
+        <PromptoonProjectListPage />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText('실험형')).toBeTruthy();
+  });
+
   it('shows a movingtoon project as published when a movingtoon episode is published', () => {
     projects = [
       {
@@ -320,6 +339,7 @@ describe('PromptoonProjectListPage Studio dashboard', () => {
     );
 
     expect(screen.getByAltText('현재 프로젝트 대표 이미지').getAttribute('src')).toBe('/uploads/current-cover.webp');
+    expect(screen.queryByLabelText('실험형')).toBeNull();
 
     const fileInput = document.querySelector<HTMLInputElement>('#project-cover-upload');
     expect(fileInput).toBeTruthy();
@@ -341,6 +361,37 @@ describe('PromptoonProjectListPage Studio dashboard', () => {
         title: 'Project Settings',
         description: null,
         thumbnailUrl: '/uploads/project-cover.webp'
+      });
+    });
+  });
+
+  it('lets platform admins toggle the experimental project setting', async () => {
+    projects = [
+      {
+        ...projects[0],
+        title: 'Project Settings',
+        canManageExperimentalAccess: true,
+        isExperimental: false
+      }
+    ];
+
+    render(
+      <MemoryRouter initialEntries={['/studio/projects/project-1/settings']}>
+        <Routes>
+          <Route element={<StudioProjectSettingsPage />} path="/studio/projects/:projectId/settings" />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByLabelText('실험형'));
+    fireEvent.click(screen.getByRole('button', { name: '저장' }));
+
+    await waitFor(() => {
+      expect(patchProjectMutate).toHaveBeenCalledWith({
+        title: 'Project Settings',
+        description: null,
+        thumbnailUrl: null,
+        isExperimental: true
       });
     });
   });

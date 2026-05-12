@@ -1,8 +1,11 @@
 import { BookOpen, ChevronRight, PaperPlane as Send, User01 as User } from 'react-coolicons';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { clearAuthSession } from '../../../features/auth/lib/auth-session';
 import { useAuthStore } from '../../../features/auth/store/use-auth-store';
+import { experimentalApi } from '../../../shared/api/experimental.api';
+import { promptoonKeys } from '../../../shared/api/query-keys';
 import { ConsumerResponsiveFrame } from '../components/ConsumerResponsiveFrame';
 
 function getUserInitial(loginId: string | null | undefined): string {
@@ -15,6 +18,17 @@ export function ConsumerMyPage() {
   const user = useAuthStore((state) => state.user);
   const studioRole = useAuthStore((state) => state.studioRole);
   const initial = getUserInitial(user?.loginId);
+  const snsProfileImageUrl = user?.snsProfileImageUrl?.trim() || null;
+  const experimentalAccessQuery = useQuery({
+    enabled: isAuthenticated,
+    queryKey: promptoonKeys.experimentalAccess(),
+    queryFn: experimentalApi.getMyAccess
+  });
+  const experimentalMenuStatus = !isAuthenticated
+    ? '로그인 필요'
+    : (experimentalAccessQuery.data?.grantCount ?? 0) > 0
+      ? `${experimentalAccessQuery.data?.grantCount ?? 0}개 접근 가능`
+      : '권한 필요';
 
   function handleLogout() {
     clearAuthSession();
@@ -29,8 +43,14 @@ export function ConsumerMyPage() {
             <p className="text-xs font-semibold uppercase text-white/42">My</p>
             <h1 className="mt-2 font-display text-3xl font-semibold tracking-normal">마이</h1>
           </div>
-          <div className="grid h-12 w-12 place-items-center rounded-full bg-white text-base font-black text-zinc-950">
-            {isAuthenticated ? initial : <User aria-hidden className="h-6 w-6" />}
+          <div className="grid h-12 w-12 place-items-center overflow-hidden rounded-full bg-white text-base font-black text-zinc-950">
+            {isAuthenticated && snsProfileImageUrl ? (
+              <img alt="" className="h-full w-full object-cover" src={snsProfileImageUrl} />
+            ) : isAuthenticated ? (
+              initial
+            ) : (
+              <User aria-hidden className="h-6 w-6" />
+            )}
           </div>
         </div>
 
@@ -82,6 +102,11 @@ export function ConsumerMyPage() {
             <span className="min-w-0 flex-1">내 지갑</span>
             <span className="text-xs text-white/44">0 코인</span>
           </div>
+          <Link className="flex min-h-14 items-center gap-3 bg-white/[0.03] px-4 text-sm font-semibold text-white" to="/experimental">
+            <span className="grid h-5 w-5 place-items-center text-base text-white/72">🧪</span>
+            <span className="min-w-0 flex-1">실험형 콘텐츠</span>
+            <span className="text-xs text-white/44">{experimentalMenuStatus}</span>
+          </Link>
           <Link className="flex min-h-14 items-center gap-3 bg-white/[0.03] px-4 text-sm font-semibold text-white" to="/studio/projects">
             <Send aria-hidden className="h-5 w-5 text-white/62" />
             <span className="min-w-0 flex-1">Studio</span>

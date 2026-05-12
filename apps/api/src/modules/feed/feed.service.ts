@@ -102,13 +102,14 @@ function toFeedRecommendationMeta(
 
 async function hydrateRecommendedFeed(
   response: RecommendationFeedResponse,
-  surface: RecommendationSurface
+  surface: RecommendationSurface,
+  userId?: string
 ): Promise<FeedResponse | null> {
   if (response.items.length === 0) {
     return null;
   }
 
-  const rows = await repository.listFeedItemProjectionsByPublishIds(db, response.items.map((item) => item.publishId));
+  const rows = await repository.listFeedItemProjectionsByPublishIds(db, response.items.map((item) => item.publishId), userId);
   const byPublishId = new Map(rows.map((row) => [row.publishId, row]));
   const items = response.items.flatMap<FeedItem>((recommendedItem) => {
     const row = byPublishId.get(recommendedItem.publishId);
@@ -174,7 +175,7 @@ async function getRecommendedFeed(input: {
     }
   });
 
-  return hydrateRecommendedFeed(response, input.surface);
+  return hydrateRecommendedFeed(response, input.surface, input.userId);
 }
 
 export async function getEpisodeFeed(input: {
@@ -196,11 +197,14 @@ export async function getEpisodeFeed(input: {
     logRecommendationFallback('discovery_feed', error);
   }
 
-  return projectionService.getEpisodeFeed(toProjectionFallbackInput(input));
+  return projectionService.getEpisodeFeed({
+    ...toProjectionFallbackInput(input),
+    userId: input.userId
+  });
 }
 
 export async function getFeedHome(input: { anonymousId?: string; userId?: string } = {}): Promise<FeedHomeResponse> {
-  const home = await projectionService.getFeedHome();
+  const home = await projectionService.getFeedHome(input.userId);
 
   try {
     const recommended = await getRecommendedFeed({
@@ -230,7 +234,7 @@ export async function getFeedHome(input: { anonymousId?: string; userId?: string
   }
 }
 
-export function searchFeed(input: { cursor?: string; itemTypes?: string[]; limit: number; query?: string }): Promise<FeedResponse> {
+export function searchFeed(input: { cursor?: string; itemTypes?: string[]; limit: number; query?: string; userId?: string }): Promise<FeedResponse> {
   return projectionService.searchFeed(input);
 }
 
@@ -238,8 +242,8 @@ export function getBookmarkedFeed(input: { cursor?: string; limit: number; userI
   return projectionService.getBookmarkedFeed(input);
 }
 
-export async function getFeedItemByPublishId(publishId: string) {
-  return assertExists(await repository.getFeedItemByPublicPublishId(db, publishId), 'Published content not found.');
+export async function getFeedItemByPublishId(publishId: string, userId?: string) {
+  return assertExists(await repository.getFeedItemByPublicPublishId(db, publishId, userId), 'Published content not found.');
 }
 
 export async function getContentInteractionStates(

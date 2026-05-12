@@ -1,4 +1,4 @@
-import type { ProjectMemberSummary, ProjectRole, StudioRole } from '@promptoon/shared';
+import type { PlatformRole, ProjectMemberSummary, ProjectRole, StudioRole } from '@promptoon/shared';
 
 import type { DbExecutor } from '../../db';
 
@@ -26,6 +26,11 @@ function mapProjectMember(row: ProjectMemberRow): ProjectMemberSummary {
 
 export async function getStudioMemberRole(db: DbExecutor, userId: string): Promise<StudioRole | null> {
   const result = await db.query<{ role: StudioRole }>('SELECT role FROM promptoon_studio_member WHERE user_id = $1', [userId]);
+  return result.rows[0]?.role ?? null;
+}
+
+export async function getPlatformAdminRole(db: DbExecutor, userId: string): Promise<PlatformRole | null> {
+  const result = await db.query<{ role: PlatformRole }>('SELECT role FROM promptoon_platform_admin WHERE user_id = $1', [userId]);
   return result.rows[0]?.role ?? null;
 }
 

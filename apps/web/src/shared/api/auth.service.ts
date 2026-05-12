@@ -15,7 +15,7 @@ export const authService = {
     return authApi.refresh();
   },
 
-  async getKakaoAuthorizationUrl(): Promise<string> {
-    return authApi.getKakaoAuthorizationUrl();
+  async getGoogleAuthorizationUrl(): Promise<string> {
+    return authApi.getGoogleAuthorizationUrl();
   }
 };

@@ -3,7 +3,7 @@ import multer from 'multer';
 import { z } from 'zod';
 
 import { asyncHandler } from '../../lib/async-handler';
-import { getRequiredAuthUser, requireAuth } from '../../lib/auth';
+import { getOptionalAuthUser, getRequiredAuthUser, optionalAuth, requireAuth } from '../../lib/auth';
 import { HttpError } from '../../lib/http-error';
 import * as service from './channel.service';
 
@@ -24,31 +24,37 @@ function getParam(value: string | string[] | undefined, name: string): string {
 export function createChannelRouter(): Router {
   const router = Router();
 
-  router.get('/:channelSlug', asyncHandler(async (request, response) => {
-    response.json(await service.getChannelHome(getParam(request.params.channelSlug, 'channelSlug')));
+  router.get('/:channelSlug', optionalAuth, asyncHandler(async (request, response) => {
+    const user = getOptionalAuthUser(request);
+    response.json(await service.getChannelHome(getParam(request.params.channelSlug, 'channelSlug'), user?.sub));
   }));
 
-  router.get('/:channelSlug/home', asyncHandler(async (request, response) => {
-    response.json(await service.getChannelHome(getParam(request.params.channelSlug, 'channelSlug')));
+  router.get('/:channelSlug/home', optionalAuth, asyncHandler(async (request, response) => {
+    const user = getOptionalAuthUser(request);
+    response.json(await service.getChannelHome(getParam(request.params.channelSlug, 'channelSlug'), user?.sub));
   }));
 
-  router.get('/:channelSlug/series', asyncHandler(async (request, response) => {
-    const home = await service.getChannelHome(getParam(request.params.channelSlug, 'channelSlug'));
+  router.get('/:channelSlug/series', optionalAuth, asyncHandler(async (request, response) => {
+    const user = getOptionalAuthUser(request);
+    const home = await service.getChannelHome(getParam(request.params.channelSlug, 'channelSlug'), user?.sub);
     response.json(home.featuredSeries);
   }));
 
-  router.get('/:channelSlug/episodes', asyncHandler(async (request, response) => {
-    const home = await service.getChannelHome(getParam(request.params.channelSlug, 'channelSlug'));
+  router.get('/:channelSlug/episodes', optionalAuth, asyncHandler(async (request, response) => {
+    const user = getOptionalAuthUser(request);
+    const home = await service.getChannelHome(getParam(request.params.channelSlug, 'channelSlug'), user?.sub);
     response.json(home.latestEpisodes);
   }));
 
-  router.get('/:channelSlug/shorts', asyncHandler(async (request, response) => {
-    const home = await service.getChannelHome(getParam(request.params.channelSlug, 'channelSlug'));
+  router.get('/:channelSlug/shorts', optionalAuth, asyncHandler(async (request, response) => {
+    const user = getOptionalAuthUser(request);
+    const home = await service.getChannelHome(getParam(request.params.channelSlug, 'channelSlug'), user?.sub);
     response.json(home.latestShorts);
   }));
 
-  router.get('/:channelSlug/community-meta', asyncHandler(async (request, response) => {
-    const home = await service.getChannelHome(getParam(request.params.channelSlug, 'channelSlug'));
+  router.get('/:channelSlug/community-meta', optionalAuth, asyncHandler(async (request, response) => {
+    const user = getOptionalAuthUser(request);
+    const home = await service.getChannelHome(getParam(request.params.channelSlug, 'channelSlug'), user?.sub);
     response.json(home.communityMeta ?? { commentCount: 0 });
   }));
 

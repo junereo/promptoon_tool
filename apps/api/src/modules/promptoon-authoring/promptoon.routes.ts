@@ -3,7 +3,7 @@ import { Router } from 'express';
 import multer from 'multer';
 
 import { asyncHandler } from '../../lib/async-handler';
-import { getRequiredAuthUser, requireAuth } from '../../lib/auth';
+import { getOptionalAuthUser, getRequiredAuthUser, optionalAuth, requireAuth } from '../../lib/auth';
 import { HttpError } from '../../lib/http-error';
 import {
   analyticsQuerySchema,
@@ -67,13 +67,15 @@ export function createPromptoonRouter(): Router {
     response.status(202).json({ accepted: true });
   }));
 
-  router.get('/episodes/feed', asyncHandler(async (request, response) => {
+  router.get('/episodes/feed', optionalAuth, asyncHandler(async (request, response) => {
     const query = feedQuerySchema.parse(request.query);
-    response.json(await service.getEpisodeFeed(query));
+    const user = getOptionalAuthUser(request);
+    response.json(await service.getEpisodeFeed({ ...query, userId: user?.sub }));
   }));
 
-  router.get('/episodes/published/:publishId', asyncHandler(async (request, response) => {
-    response.json(await service.getPublishedEpisode(getParam(request.params.publishId, 'publishId')));
+  router.get('/episodes/published/:publishId', optionalAuth, asyncHandler(async (request, response) => {
+    const user = getOptionalAuthUser(request);
+    response.json(await service.getPublishedEpisode(getParam(request.params.publishId, 'publishId'), user?.sub));
   }));
 
   router.get('/share/:publishId', asyncHandler(async (request, response) => {

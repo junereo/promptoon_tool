@@ -108,8 +108,8 @@ v0 추천은 PostgreSQL + RuleRanker 기반입니다. 후보군은 Latest, Trend
 - `requireAuth`는 JWT 검증 후 `promptoon_session` row가 존재하고 만료되지 않았는지 확인합니다.
 - `POST /api/auth/logout`은 현재 session만 만료합니다.
 - `POST /api/auth/refresh`는 body `refreshToken`, `x-refresh-token` header, refresh cookie 순서로 token을 찾습니다.
-- Google OAuth는 501 scaffold 상태입니다.
-- Kakao OAuth는 `/api/auth/kakao/start`, `/api/auth/kakao/callback`로 구현되어 있습니다.
+- Google OAuth는 `/api/auth/google/start`, `/api/auth/google/callback`로 구현되어 있습니다.
+- 운영 Google redirect URI는 배포 구조에 따라 `https://api.promptoon.ai/api/auth/google/callback` 또는 `https://promptoon.ai/api/auth/google/callback`를 사용합니다.
 
 권한은 두 층입니다.
 

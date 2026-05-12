@@ -17,6 +17,7 @@ import {
   normalizePublish,
   toPublicPublish
 } from './publication.service';
+import * as experimentalRepository from '../experimental/experimental.repository';
 import * as repository from './product.repository';
 
 type FeedProjectionInput = repository.FeedProjectionInput;
@@ -67,12 +68,13 @@ export async function getPublishedEpisode(publishId: string): Promise<Publish> {
   return toPublicPublish(normalizePublish(assertPublicPublish(await repository.getPublishById(db, publishId), 'Published episode not found.')));
 }
 
-export async function getEpisodeFeed(input: { cursor?: string; itemTypes?: string[]; limit: number }): Promise<FeedResponse> {
+export async function getEpisodeFeed(input: { cursor?: string; itemTypes?: string[]; limit: number; userId?: string }): Promise<FeedResponse> {
   const cursor = input.cursor ? decodeFeedCursor(input.cursor) : undefined;
   const rows = await repository.listFeedItemProjections(db, {
     cursor,
     itemTypes: input.itemTypes,
-    limit: input.limit + 1
+    limit: input.limit + 1,
+    userId: input.userId
   });
   const pageRows = rows.slice(0, input.limit);
   const lastRow = pageRows[pageRows.length - 1] ?? null;
@@ -105,16 +107,17 @@ function toFeedResponse(rows: Array<{ id: string; publishedAt: string; item: Fee
   };
 }
 
-export async function getFeedHome(): Promise<FeedHomeResponse> {
+export async function getFeedHome(userId?: string): Promise<FeedHomeResponse> {
   const [trendingRows, newRows, recommendedRows, shortsRows] = await Promise.all([
-    repository.listFeedItemProjections(db, { limit: 10, orderBy: 'trending' }),
-    repository.listFeedItemProjections(db, { limit: 12 }),
+    repository.listFeedItemProjections(db, { limit: 10, orderBy: 'trending', userId }),
+    repository.listFeedItemProjections(db, { limit: 12, userId }),
     repository.listFeedItemProjections(db, {
       itemTypes: ['promptoon', 'webtoon_episode'],
       limit: 12,
-      orderBy: 'trending'
+      orderBy: 'trending',
+      userId
     }),
-    repository.listFeedItemProjections(db, { itemTypes: ['short_drama'], limit: 12 })
+    repository.listFeedItemProjections(db, { itemTypes: ['short_drama'], limit: 12, userId })
   ]);
 
   return {
@@ -153,13 +156,15 @@ export async function searchFeed(input: {
   itemTypes?: string[];
   limit: number;
   query?: string;
+  userId?: string;
 }): Promise<FeedResponse> {
   const cursor = input.cursor ? decodeFeedCursor(input.cursor) : undefined;
   const rows = await repository.listFeedItemProjections(db, {
     cursor,
     itemTypes: input.itemTypes,
     limit: input.limit + 1,
-    query: input.query
+    query: input.query,
+    userId: input.userId
   });
 
   return toFeedResponse(rows, input.limit);
@@ -187,16 +192,32 @@ export async function getBookmarkedFeed(input: { cursor?: string; limit: number;
   };
 }
 
-export async function getChannelHome(channelSlug: string): Promise<ChannelHome> {
+async function filterChannelHomeForAccess(home: ChannelHome, userId?: string): Promise<ChannelHome> {
+  const publishIds = [...home.latestEpisodes, ...home.latestShorts]
+    .map((item) => item.publishId)
+    .filter((publishId): publishId is string => Boolean(publishId));
+  const allowedPublishIds = await experimentalRepository.listAccessibleResolvedPublishIds(db, {
+    publishIds,
+    userId
+  });
+
+  return {
+    ...home,
+    latestEpisodes: home.latestEpisodes.filter((episode) => allowedPublishIds.has(episode.publishId)),
+    latestShorts: home.latestShorts.filter((short) => Boolean(short.publishId) && allowedPublishIds.has(short.publishId ?? ''))
+  };
+}
+
+export async function getChannelHome(channelSlug: string, userId?: string): Promise<ChannelHome> {
   const channel = assertExists(await repository.getChannelBySlug(db, channelSlug), 'Channel not found.');
   const projected = await repository.getChannelHomeProjection(db, channel.id);
   if (projected) {
-    return projected;
+    return filterChannelHomeForAccess(projected, userId);
   }
 
   const rebuilt = assertExists(await repository.buildChannelHomeFromPublicTables(db, channel.id), 'Channel not found.');
   await repository.upsertChannelHomeProjection(db, channel.id, rebuilt);
-  return rebuilt;
+  return filterChannelHomeForAccess(rebuilt, userId);
 }
 
 export async function getRelatedShorts(publishId: string): Promise<RelatedShort[]> {

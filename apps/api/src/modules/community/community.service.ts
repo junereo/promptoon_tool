@@ -12,11 +12,13 @@ import type {
   CreateCommunityDiscourseCommentResponse,
   DiscourseThreadSyncResponse,
   FeedItemMetrics,
+  Publish,
   TelemetryEventPayload
 } from '@promptoon/shared';
 
 import { db, withTransaction } from '../../db';
 import { HttpError } from '../../lib/http-error';
+import * as experimentalService from '../experimental/experimental.service';
 import * as projectionService from '../promptoon-core/projection.service';
 import * as repository from '../promptoon-core/product.repository';
 import * as discourseService from './discourse.service';
@@ -252,6 +254,15 @@ async function refreshCommentProjections(publishId: string): Promise<void> {
   });
 }
 
+async function getPromptoonPublishWithAccess(publishId: string, userId?: string | null): Promise<Publish | null> {
+  const publish = await repository.getPublishById(db, publishId);
+  if (publish) {
+    await experimentalService.assertPublishAccess(publishId, userId ?? undefined);
+  }
+
+  return publish;
+}
+
 export async function ensureDiscussionForEpisode(episodeId: string, userId: string): Promise<void> {
   const projectId = await repository.getEpisodeProjectId(db, episodeId);
   if (!projectId) {
@@ -269,17 +280,19 @@ export async function ensureDiscussionForEpisode(episodeId: string, userId: stri
   await repository.ensureEpisodeDiscussion(db, { episodeId });
 }
 
-export function getCommentsMeta(publishId: string): Promise<CommentsMetaResponse> {
+export async function getCommentsMeta(publishId: string, userId?: string | null): Promise<CommentsMetaResponse> {
+  await getPromptoonPublishWithAccess(publishId, userId);
   return projectionService.getCommentsMeta(publishId);
 }
 
-export async function getCommunityEmbed(publishId: string): Promise<CommunityEmbedResponse> {
+export async function getCommunityEmbed(publishId: string, userId?: string | null): Promise<CommunityEmbedResponse> {
+  const promptoonPublish = await getPromptoonPublishWithAccess(publishId, userId);
   const [feedItem, meta, threadSync] = await Promise.all([
-    repository.getFeedItemByPublicPublishId(db, publishId),
+    repository.getFeedItemByPublicPublishId(db, publishId, userId ?? undefined),
     projectionService.getCommentsMeta(publishId),
     repository.getDiscourseThreadSync(db, publishId)
   ]);
-  const publish = feedItem ? null : await repository.getPublishById(db, publishId);
+  const publish = feedItem ? null : promptoonPublish;
 
   const discourseTopicId = threadSync?.status === 'synced' ? threadSync.discourseTopicId : null;
   const discourseUrl = discourseTopicId ? discourseService.getDiscourseTopicUrl(discourseTopicId) : null;
@@ -298,9 +311,10 @@ export async function getCommunityEmbed(publishId: string): Promise<CommunityEmb
   };
 }
 
-export async function listComments(publishId: string): Promise<CommunityCommentListResponse> {
+export async function listComments(publishId: string, userId?: string | null): Promise<CommunityCommentListResponse> {
+  const promptoonPublish = await getPromptoonPublishWithAccess(publishId, userId);
   assertExists(
-    (await repository.getPublishById(db, publishId)) ?? (await repository.getMovingtoonPublishProjectionContext(db, publishId)),
+    promptoonPublish ?? (await repository.getMovingtoonPublishProjectionContext(db, publishId)),
     'Published content not found.'
   );
 
@@ -311,7 +325,7 @@ export async function listComments(publishId: string): Promise<CommunityCommentL
 }
 
 export async function createComment(publishId: string, body: string, userId: string): Promise<CommunityComment> {
-  const promptoonPublish = await repository.getPublishById(db, publishId);
+  const promptoonPublish = await getPromptoonPublishWithAccess(publishId, userId);
   const movingtoonPublish = promptoonPublish ? null : await repository.getMovingtoonPublishProjectionContext(db, publishId);
   const projectId = assertExists(promptoonPublish?.projectId ?? movingtoonPublish?.project_id ?? null, 'Published content not found.');
   const episodeId = promptoonPublish?.episodeId ?? movingtoonPublish?.episode_id;
@@ -649,9 +663,10 @@ async function getEpisodeCommentTargetForPublish(
 
 export async function listDiscourseComments(
   publishId: string,
-  scope: CommunityDiscourseScope
+  scope: CommunityDiscourseScope,
+  userId?: string | null
 ): Promise<CommunityDiscourseCommentsResponse> {
-  const publish = assertExists(await repository.getPublishById(db, publishId), 'Published episode not found.');
+  const publish = assertExists(await getPromptoonPublishWithAccess(publishId, userId), 'Published episode not found.');
   const project = assertExists(await repository.getProjectById(db, publish.projectId), 'Project not found.');
 
   if (scope === 'episode') {
@@ -775,9 +790,9 @@ export async function getDiscourseInteraction(
   publishId: string,
   userId?: string | null
 ): Promise<CommunityDiscourseInteractionResponse> {
-  const publish = assertExists(await repository.getPublishById(db, publishId), 'Published episode not found.');
+  const publish = assertExists(await getPromptoonPublishWithAccess(publishId, userId), 'Published episode not found.');
   const [comments, likeTarget] = await Promise.all([
-    listDiscourseComments(publishId, 'project'),
+    listDiscourseComments(publishId, 'project', userId),
     getDiscoursePublishLikeTarget(publish, {
       createIfMissing: false,
       userId
@@ -810,7 +825,7 @@ export async function likeDiscoursePublish(
   publishId: string,
   userId: string
 ): Promise<CommunityDiscourseInteractionResponse> {
-  const publish = assertExists(await repository.getPublishById(db, publishId), 'Published episode not found.');
+  const publish = assertExists(await getPromptoonPublishWithAccess(publishId, userId), 'Published episode not found.');
   const target = assertExists(
     await getDiscoursePublishLikeTarget(publish, {
       createIfMissing: true,
@@ -846,7 +861,7 @@ export async function unlikeDiscoursePublish(
   publishId: string,
   userId: string
 ): Promise<CommunityDiscourseInteractionResponse> {
-  const publish = assertExists(await repository.getPublishById(db, publishId), 'Published episode not found.');
+  const publish = assertExists(await getPromptoonPublishWithAccess(publishId, userId), 'Published episode not found.');
   const target = await getDiscoursePublishLikeTarget(publish, {
     createIfMissing: false,
     userId
@@ -885,7 +900,7 @@ export async function createDiscourseComment(
   },
   userId: string
 ): Promise<CreateCommunityDiscourseCommentResponse> {
-  const publish = assertExists(await repository.getPublishById(db, publishId), 'Published episode not found.');
+  const publish = assertExists(await getPromptoonPublishWithAccess(publishId, userId), 'Published episode not found.');
   const scope = input.scope ?? 'episode';
   const target =
     scope === 'project'

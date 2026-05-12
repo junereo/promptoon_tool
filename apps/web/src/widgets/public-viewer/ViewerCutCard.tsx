@@ -1,6 +1,6 @@
 import type { ProductPublishManifest } from '@promptoon/shared';
 import type { CSSProperties } from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type SyntheticEvent } from 'react';
 
 import { getEdgeFadeOverlayClassNames, getEdgeFadeStyle } from '../../shared/lib/cut-effects';
 import { getContentSpacingClassName, getContentSpacingMinHeight, getCutContentBlocksByPlacement } from '../../shared/lib/cut-content';
@@ -18,6 +18,7 @@ interface ViewerCutCardProps {
   canGoBack?: boolean;
   compact?: boolean;
   cut: ViewerCut;
+  deferContentUntilImageReady?: boolean;
   disableCutBottomSpacing?: boolean;
   onChoiceClick?: (choice: ViewerChoice) => void;
   onReset?: () => void;
@@ -145,6 +146,7 @@ export function ViewerCutCard({
   canGoBack = false,
   compact = false,
   cut,
+  deferContentUntilImageReady = false,
   disableCutBottomSpacing = false,
   onChoiceClick,
   onReset,
@@ -156,20 +158,78 @@ export function ViewerCutCard({
   userName = '',
   visibleChoices
 }: ViewerCutCardProps) {
+  const imageRef = useRef<HTMLImageElement | null>(null);
   const [isImageFailed, setIsImageFailed] = useState(false);
+  const [readyImageKey, setReadyImageKey] = useState<string | null>(null);
   const [isCapturingResultCard, setIsCapturingResultCard] = useState(false);
   const [hasSavedResultCard, setHasSavedResultCard] = useState(false);
   const resultCardBlock = getResultCardBlock(cut);
+  const imageReadyKey = `${cut.id}:${cut.assetUrl ?? ''}`;
   const hasImage = Boolean(cut.assetUrl) && !isImageFailed;
   const hasOverlayContent = getCutContentBlocksByPlacement(cut, 'overlay').length > 0;
   const hasFlowContent = getCutContentBlocksByPlacement(cut, 'flow').length > 0;
   const cutBottomSpacingClassName = disableCutBottomSpacing || hasFlowContent ? '' : getContentSpacingClassName('mb', cut.marginBottomToken);
   const flowContentMinHeight = disableCutBottomSpacing ? undefined : getContentSpacingMinHeight(cut.marginBottomToken);
+  const isImageElementReady = readyImageKey === imageReadyKey;
+  const shouldRevealContent = !deferContentUntilImageReady || !hasImage || isImageElementReady;
 
   useEffect(() => {
     setIsImageFailed(false);
+    setReadyImageKey(null);
     setHasSavedResultCard(false);
   }, [cut.assetUrl, cut.id]);
+
+  useEffect(() => {
+    if (!deferContentUntilImageReady || !hasImage) {
+      setReadyImageKey(imageReadyKey);
+      return;
+    }
+
+    const imageElement = imageRef.current;
+    if (!imageElement?.complete) {
+      return;
+    }
+
+    if (typeof imageElement.decode === 'function') {
+      let isCancelled = false;
+
+      void imageElement.decode().then(
+        () => {
+          if (!isCancelled) {
+            setReadyImageKey(imageReadyKey);
+          }
+        },
+        () => {
+          if (!isCancelled) {
+            setReadyImageKey(imageReadyKey);
+          }
+        }
+      );
+
+      return () => {
+        isCancelled = true;
+      };
+    }
+
+    setReadyImageKey(imageReadyKey);
+  }, [deferContentUntilImageReady, hasImage, imageReadyKey]);
+
+  function revealContentAfterImageLoad(event: SyntheticEvent<HTMLImageElement>) {
+    if (!deferContentUntilImageReady) {
+      return;
+    }
+
+    const imageElement = event.currentTarget;
+    if (typeof imageElement.decode === 'function') {
+      void imageElement.decode().then(
+        () => setReadyImageKey(imageReadyKey),
+        () => setReadyImageKey(imageReadyKey)
+      );
+      return;
+    }
+
+    setReadyImageKey(imageReadyKey);
+  }
 
   async function handleResultCardSave() {
     if (!resultCardBlock) {
@@ -354,7 +414,12 @@ export function ViewerCutCard({
           <img
             alt={cut.title}
             className="relative z-0 block h-auto w-full"
-            onError={() => setIsImageFailed(true)}
+            onError={() => {
+              setIsImageFailed(true);
+              setReadyImageKey(imageReadyKey);
+            }}
+            onLoad={revealContentAfterImageLoad}
+            ref={imageRef}
             src={cut.assetUrl ?? undefined}
             style={getEdgeFadeStyle(cut.edgeFade, cut.edgeFadeIntensity)}
           />
@@ -362,10 +427,10 @@ export function ViewerCutCard({
             <div className={className} key={className} />
           ))}
 
-          {renderOverlayContent()}
+          {shouldRevealContent ? renderOverlayContent() : null}
         </div>
-        {renderFlowContent()}
-        {footer ? <div className="relative z-20 px-5 pb-7 pt-4 sm:px-8 sm:pb-9">{footer}</div> : null}
+        {shouldRevealContent ? renderFlowContent() : null}
+        {shouldRevealContent && footer ? <div className="relative z-20 px-5 pb-7 pt-4 sm:px-8 sm:pb-9">{footer}</div> : null}
       </article>
     );
   }

@@ -1,35 +1,34 @@
-import { Suspense, lazy, useState } from 'react';
+import { Suspense, useState, type ReactNode } from 'react';
 import { Link, Navigate, Outlet, createBrowserRouter, useNavigate } from 'react-router-dom';
 
-import { ChannelHomePage } from '../domains/channel/pages/ChannelHomePage';
-import { ChannelPage } from '../domains/channel/pages/ChannelPage';
-import { CommunityDiscussionPage } from '../domains/community/pages/CommunityDiscussionPage';
-import { ConsumerHomePage } from '../domains/consumer/pages/ConsumerHomePage';
-import { ConsumerLibraryPage } from '../domains/consumer/pages/ConsumerLibraryPage';
-import { ConsumerMyPage } from '../domains/consumer/pages/ConsumerMyPage';
-import { FeedHomePage } from '../domains/feed/pages/FeedHomePage';
-import { MovingtoonShortViewerPage } from '../domains/feed/pages/MovingtoonShortViewerPage';
-import { StudioAssetLibraryPage } from '../domains/studio/pages/StudioAssetLibraryPage';
-import { StudioAnalyticsPage } from '../domains/studio/pages/StudioAnalyticsPage';
-import { StudioCommunityModerationPage } from '../domains/studio/pages/StudioCommunityModerationPage';
-import { StudioEpisodeEditorPage } from '../domains/studio/pages/StudioEpisodeEditorPage';
-import { StudioProjectMembersPage } from '../domains/studio/pages/StudioProjectMembersPage';
-import { StudioProjectDetailPage } from '../domains/studio/pages/StudioProjectDetailPage';
-import { StudioProjectDashboardPage } from '../domains/studio/pages/StudioProjectDashboardPage';
-import { StudioProjectSettingsPage } from '../domains/studio/pages/StudioProjectSettingsPage';
-import { StudioPublishPage } from '../domains/studio/pages/StudioPublishPage';
-import { StudioPublishHistoryPage } from '../domains/studio/pages/StudioPublishHistoryPage';
-import { StudioSeriesPage } from '../domains/studio/pages/StudioSeriesPage';
 import { ProtectedRoute } from '../features/auth/components/ProtectedRoute';
 import { clearAuthSession } from '../features/auth/lib/auth-session';
 import { useAuthStore } from '../features/auth/store/use-auth-store';
-import { preloadPromptoonViewerPage } from '../features/viewer/lib/preload-viewer';
-import { LoginPage } from '../pages/LoginPage';
-import { RegisterPage } from '../pages/RegisterPage';
-
-const PromptoonViewerPage = lazy(() =>
-  preloadPromptoonViewerPage().then((module) => ({ default: module.PromptoonViewerPage }))
-);
+import {
+  ChannelHomePage,
+  ChannelPage,
+  CommunityDiscussionPage,
+  ConsumerHomePage,
+  ConsumerExperimentalPage,
+  ConsumerLibraryPage,
+  ConsumerMyPage,
+  FeedHomePage,
+  LoginPage,
+  MovingtoonShortViewerPage,
+  PromptoonViewerPage,
+  RegisterPage,
+  StudioAnalyticsPage,
+  StudioAssetLibraryPage,
+  StudioCommunityModerationPage,
+  StudioEpisodeEditorPage,
+  StudioProjectDashboardPage,
+  StudioProjectDetailPage,
+  StudioProjectMembersPage,
+  StudioProjectSettingsPage,
+  StudioPublishHistoryPage,
+  StudioPublishPage,
+  StudioSeriesPage
+} from './lazy-routes';
 
 function AppShell() {
   const navigate = useNavigate();
@@ -90,7 +89,9 @@ function AppShell() {
         ) : null}
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <Outlet />
+        <Suspense fallback={<div className="min-h-dvh bg-[#050506]" />}>
+          <Outlet />
+        </Suspense>
       </div>
     </div>
   );
@@ -98,30 +99,28 @@ function AppShell() {
 
 type AppRouter = ReturnType<typeof createBrowserRouter>;
 
+function RouteLoadingScreen() {
+  return <div className="min-h-dvh bg-[#050506]" />;
+}
+
+function withRouteSuspense(element: ReactNode) {
+  return <Suspense fallback={<RouteLoadingScreen />}>{element}</Suspense>;
+}
+
 export const router: AppRouter = createBrowserRouter([
   {
     path: '/v/:publishId',
-    element: (
-      <Suspense fallback={<div className="min-h-dvh bg-black" />}>
-        <PromptoonViewerPage />
-      </Suspense>
-    )
+    element: withRouteSuspense(<PromptoonViewerPage />)
   },
   {
     path: '/v/:publishId/:episodeNo',
-    element: (
-      <Suspense fallback={<div className="min-h-dvh bg-black" />}>
-        <PromptoonViewerPage />
-      </Suspense>
-    )
+    element: withRouteSuspense(<PromptoonViewerPage />)
   },
   {
     path: '/promptoon/projects/:projectId/episodes/:episodeId/test-viewer',
     element: (
       <ProtectedRoute requireStudio>
-        <Suspense fallback={<div className="min-h-dvh bg-black" />}>
-          <PromptoonViewerPage />
-        </Suspense>
+        {withRouteSuspense(<PromptoonViewerPage />)}
       </ProtectedRoute>
     )
   },
@@ -129,27 +128,29 @@ export const router: AppRouter = createBrowserRouter([
     path: '/studio/projects/:projectId/episodes/:episodeId/test-viewer',
     element: (
       <ProtectedRoute requireStudio>
-        <Suspense fallback={<div className="min-h-dvh bg-black" />}>
-          <PromptoonViewerPage />
-        </Suspense>
+        {withRouteSuspense(<PromptoonViewerPage />)}
       </ProtectedRoute>
     )
   },
   {
     path: '/',
-    element: <ConsumerHomePage />
+    element: withRouteSuspense(<ConsumerHomePage />)
   },
   {
     path: '/discovery',
-    element: <FeedHomePage />
+    element: withRouteSuspense(<FeedHomePage />)
+  },
+  {
+    path: '/experimental',
+    element: withRouteSuspense(<ConsumerExperimentalPage />)
   },
   {
     path: '/library',
-    element: <ConsumerLibraryPage />
+    element: withRouteSuspense(<ConsumerLibraryPage />)
   },
   {
     path: '/my',
-    element: <ConsumerMyPage />
+    element: withRouteSuspense(<ConsumerMyPage />)
   },
   {
     path: '/feed',
@@ -157,11 +158,11 @@ export const router: AppRouter = createBrowserRouter([
   },
   {
     path: '/shorts/:publishId',
-    element: <MovingtoonShortViewerPage />
+    element: withRouteSuspense(<MovingtoonShortViewerPage />)
   },
   {
     path: '/channel/:channelId',
-    element: <ChannelPage />
+    element: withRouteSuspense(<ChannelPage />)
   },
   {
     path: '/overview',
@@ -169,35 +170,35 @@ export const router: AppRouter = createBrowserRouter([
   },
   {
     path: '/c/:channelSlug',
-    element: <ChannelHomePage />
+    element: withRouteSuspense(<ChannelHomePage />)
   },
   {
     path: '/c/:channelSlug/series',
-    element: <ChannelHomePage />
+    element: withRouteSuspense(<ChannelHomePage />)
   },
   {
     path: '/c/:channelSlug/shorts',
-    element: <ChannelHomePage />
+    element: withRouteSuspense(<ChannelHomePage />)
   },
   {
     path: '/c/:channelSlug/promptoons',
-    element: <ChannelHomePage />
+    element: withRouteSuspense(<ChannelHomePage />)
   },
   {
     path: '/c/:channelSlug/community',
-    element: <ChannelHomePage />
+    element: withRouteSuspense(<ChannelHomePage />)
   },
   {
     path: '/login',
-    element: <LoginPage />
+    element: withRouteSuspense(<LoginPage />)
   },
   {
     path: '/register',
-    element: <RegisterPage />
+    element: withRouteSuspense(<RegisterPage />)
   },
   {
     path: '/community/publishes/:publishId',
-    element: <CommunityDiscussionPage />
+    element: withRouteSuspense(<CommunityDiscussionPage />)
   },
   {
     path: '/promptoon',

@@ -49,16 +49,16 @@ export function createCommunityRouter(): Router {
     response.status(201).json({ created: true });
   }));
 
-  router.get('/publishes/:publishId/comments-meta', asyncHandler(async (request, response) => {
-    response.json(await service.getCommentsMeta(getParam(request.params.publishId, 'publishId')));
+  router.get('/publishes/:publishId/comments-meta', optionalAuth, asyncHandler(async (request, response) => {
+    response.json(await service.getCommentsMeta(getParam(request.params.publishId, 'publishId'), getOptionalAuthUser(request)?.sub));
   }));
 
-  router.get('/publishes/:publishId/embed', asyncHandler(async (request, response) => {
-    response.json(await service.getCommunityEmbed(getParam(request.params.publishId, 'publishId')));
+  router.get('/publishes/:publishId/embed', optionalAuth, asyncHandler(async (request, response) => {
+    response.json(await service.getCommunityEmbed(getParam(request.params.publishId, 'publishId'), getOptionalAuthUser(request)?.sub));
   }));
 
-  router.get('/publishes/:publishId/comments', asyncHandler(async (request, response) => {
-    response.json(await service.listComments(getParam(request.params.publishId, 'publishId')));
+  router.get('/publishes/:publishId/comments', optionalAuth, asyncHandler(async (request, response) => {
+    response.json(await service.listComments(getParam(request.params.publishId, 'publishId'), getOptionalAuthUser(request)?.sub));
   }));
 
   router.post('/publishes/:publishId/comments', requireAuth, asyncHandler(async (request, response) => {
@@ -94,9 +94,11 @@ export function createCommunityRouter(): Router {
     );
   }));
 
-  router.get('/publishes/:publishId/discourse/comments', asyncHandler(async (request, response) => {
+  router.get('/publishes/:publishId/discourse/comments', optionalAuth, asyncHandler(async (request, response) => {
     const scope = request.query.scope === 'episode' ? 'episode' : 'project';
-    response.json(await service.listDiscourseComments(getParam(request.params.publishId, 'publishId'), scope));
+    response.json(
+      await service.listDiscourseComments(getParam(request.params.publishId, 'publishId'), scope, getOptionalAuthUser(request)?.sub)
+    );
   }));
 
   router.get('/publishes/:publishId/discourse/interaction', optionalAuth, asyncHandler(async (request, response) => {

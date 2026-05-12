@@ -1,4 +1,13 @@
 import type { AuthSession } from './auth';
+import type {
+  ExperimentalAccessGrant,
+  ExperimentalAccessTarget,
+  ExperimentalAccessTargetStatus,
+  ExperimentalAccessTargetType,
+  ExperimentalInviteCode,
+  ExperimentalInviteCodeCreateMode,
+  ExperimentalInviteCodeWithPlainText
+} from './experimental';
 import type { AuthUser } from './legacy';
 import type { ProjectRole, StudioRole } from './studio';
 
@@ -124,4 +133,49 @@ export interface AdminProjectMemberSummary {
   userId: string;
   loginId: string;
   role: ProjectRole;
+}
+
+export interface AdminExperimentalTargetListResponse {
+  targets: ExperimentalAccessTarget[];
+}
+
+export interface CreateAdminExperimentalTargetRequest {
+  targetType: ExperimentalAccessTargetType;
+  projectId?: string;
+  publishId?: string;
+}
+
+export interface PatchAdminExperimentalTargetRequest {
+  status: ExperimentalAccessTargetStatus;
+}
+
+export interface AdminExperimentalGrantListResponse {
+  grants: ExperimentalAccessGrant[];
+}
+
+export interface CreateAdminExperimentalGrantRequest {
+  loginId: string;
+}
+
+export interface PatchAdminExperimentalGrantRequest {
+  status: 'active' | 'revoked';
+}
+
+export interface AdminExperimentalInviteCodeListResponse {
+  codes: ExperimentalInviteCode[];
+  history: ExperimentalInviteCode[];
+  historyLimit: number;
+  historyOffset: number;
+  historyTotal: number;
+}
+
+export interface CreateAdminExperimentalInviteCodeRequest {
+  mode: ExperimentalInviteCodeCreateMode;
+  count?: number;
+  maxRedemptions?: number;
+  expiresAt?: string;
+}
+
+export interface CreateAdminExperimentalInviteCodeResponse {
+  codes: ExperimentalInviteCodeWithPlainText[];
 }

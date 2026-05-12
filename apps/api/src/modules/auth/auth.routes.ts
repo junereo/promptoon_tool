@@ -13,7 +13,7 @@ const refreshSchema = z.object({
   refreshToken: z.string().trim().min(1).optional()
 });
 
-const kakaoCallbackSchema = z.object({
+const googleCallbackSchema = z.object({
   code: z.string().trim().min(1)
 });
 
@@ -89,16 +89,8 @@ export function createAuthRouter(): Router {
     response.json(payload);
   }));
 
-  router.get('/google/start', asyncHandler(async () => {
-    throw new HttpError(501, 'Google OAuth is scaffolded but not configured.');
-  }));
-
-  router.get('/google/callback', asyncHandler(async () => {
-    throw new HttpError(501, 'Google OAuth is scaffolded but not configured.');
-  }));
-
-  router.get('/kakao/start', asyncHandler(async (request, response) => {
-    const authorizationUrl = service.getKakaoAuthorizationUrl(typeof request.query.state === 'string' ? request.query.state : undefined);
+  router.get('/google/start', asyncHandler(async (request, response) => {
+    const authorizationUrl = service.getGoogleAuthorizationUrl(typeof request.query.state === 'string' ? request.query.state : undefined);
     if (request.query.redirect === '1') {
       response.redirect(302, authorizationUrl);
       return;
@@ -106,9 +98,11 @@ export function createAuthRouter(): Router {
     response.json({ authorizationUrl });
   }));
 
-  router.get('/kakao/callback', asyncHandler(async (request, response) => {
-    const code = typeof request.query.code === 'string' ? request.query.code : '';
-    const payload = await service.loginWithKakaoCode(code);
+  router.get('/google/callback', asyncHandler(async (request, response) => {
+    const code = googleCallbackSchema.parse({
+      code: typeof request.query.code === 'string' ? request.query.code : ''
+    }).code;
+    const payload = await service.loginWithGoogleCode(code);
     setAuthCookies(response, payload);
 
     if (request.query.format === 'json') {
@@ -119,9 +113,9 @@ export function createAuthRouter(): Router {
     response.redirect(302, envSafeRedirectUrl(typeof request.query.state === 'string' ? request.query.state : undefined));
   }));
 
-  router.post('/kakao/callback', asyncHandler(async (request, response) => {
-    const body = kakaoCallbackSchema.parse(request.body);
-    const payload = await service.loginWithKakaoCode(body.code);
+  router.post('/google/callback', asyncHandler(async (request, response) => {
+    const body = googleCallbackSchema.parse(request.body);
+    const payload = await service.loginWithGoogleCode(body.code);
     setAuthCookies(response, payload);
     response.json(payload);
   }));

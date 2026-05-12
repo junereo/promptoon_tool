@@ -144,7 +144,7 @@ Publish는 draft 데이터를 manifest snapshot으로 고정하고 public produc
 - access token과 refresh token은 response payload와 cookie로 내려갑니다.
 - session bootstrap은 `/api/auth/me`로 active session을 확인합니다.
 - refresh token은 `/api/auth/refresh`로 재발급합니다.
-- Kakao OAuth start/callback이 구현되어 있고 Google OAuth는 scaffold 상태입니다.
+- Google OAuth start/callback이 구현되어 있습니다.
 
 ## 13. Admin 콘솔
 

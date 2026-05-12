@@ -208,6 +208,10 @@ maybeDescribe('promptoon api integration', () => {
   });
 
   beforeEach(async () => {
+    await query('DELETE FROM promptoon_experimental_invite_redemption');
+    await query('DELETE FROM promptoon_experimental_access_grant');
+    await query('DELETE FROM promptoon_experimental_invite_code');
+    await query('DELETE FROM promptoon_experimental_access_target');
     await query('DELETE FROM promptoon_telemetry_event');
     await query('DELETE FROM promptoon_feed_impression');
     await query('DELETE FROM promptoon_user_like');
@@ -249,6 +253,9 @@ maybeDescribe('promptoon api integration', () => {
     env.discourse.apiKey = process.env.DISCOURSE_API_KEY ?? null;
     env.discourse.apiUser = process.env.DISCOURSE_API_USER ?? 'system';
     env.discourse.categoryId = process.env.DISCOURSE_CATEGORY_ID ?? null;
+    env.google.clientId = process.env.GOOGLE_CLIENT_ID ?? null;
+    env.google.clientSecret = process.env.GOOGLE_CLIENT_SECRET ?? null;
+    env.google.redirectUri = process.env.GOOGLE_REDIRECT_URI ?? null;
   });
 
   afterAll(async () => {
@@ -302,7 +309,7 @@ maybeDescribe('promptoon api integration', () => {
     expect(failure.status).toBe(401);
   });
 
-  it('supports root auth me/logout routes without automatic Studio membership and oauth scaffold responses', async () => {
+  it('supports root auth me/logout routes without automatic Studio membership and requires Google OAuth config', async () => {
     const loginId = `root-auth-${randomUUID()}`;
     const register = await request(app)
       .post('/api/auth/register')
@@ -342,13 +349,199 @@ maybeDescribe('promptoon api integration', () => {
     expect(loggedOutMe.status).toBe(401);
     expect(secondSessionMe.status).toBe(200);
 
+    env.google.clientId = null;
+    env.google.clientSecret = null;
+    env.google.redirectUri = null;
     const oauthStart = await request(app).get('/api/auth/google/start');
-    expect(oauthStart.status).toBe(501);
-    expect(oauthStart.body.error).toContain('Google OAuth is scaffolded');
+    expect(oauthStart.status).toBe(503);
+    expect(oauthStart.body.error).toContain('Google OAuth is not configured');
 
     const kakaoStart = await request(app).get('/api/auth/kakao/start');
-    expect(kakaoStart.status).toBe(503);
-    expect(kakaoStart.body.error).toContain('Kakao OAuth is not configured');
+    expect(kakaoStart.status).toBe(404);
+  });
+
+  it('supports Google OAuth start, callback, admin redirect, and unverified email profiles', async () => {
+    env.google.clientId = 'google-client-id';
+    env.google.clientSecret = 'google-client-secret';
+    env.google.redirectUri = 'http://localhost:4000/api/auth/google/callback';
+
+    const start = await request(app).get('/api/auth/google/start?state=admin');
+    expect(start.status).toBe(200);
+    const authorizationUrl = new URL(start.body.authorizationUrl);
+    expect(`${authorizationUrl.origin}${authorizationUrl.pathname}`).toBe('https://accounts.google.com/o/oauth2/v2/auth');
+    expect(authorizationUrl.searchParams.get('response_type')).toBe('code');
+    expect(authorizationUrl.searchParams.get('client_id')).toBe('google-client-id');
+    expect(authorizationUrl.searchParams.get('redirect_uri')).toBe('http://localhost:4000/api/auth/google/callback');
+    expect(authorizationUrl.searchParams.get('scope')).toBe('openid email profile');
+    expect(authorizationUrl.searchParams.get('state')).toBe('admin');
+
+    const redirectStart = await request(app).get('/api/auth/google/start?state=admin&redirect=1');
+    expect(redirectStart.status).toBe(302);
+    expect(redirectStart.header.location).toContain('https://accounts.google.com/o/oauth2/v2/auth?');
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ access_token: 'google-access-token' }), {
+          headers: { 'Content-Type': 'application/json' },
+          status: 200
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sub: 'google-sub-1',
+            email: 'google-user@example.com',
+            email_verified: true,
+            name: 'Google User',
+            picture: 'https://cdn.example.com/google-user.png'
+          }),
+          {
+            headers: { 'Content-Type': 'application/json' },
+            status: 200
+          }
+        )
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const callback = await request(app).get('/api/auth/google/callback?code=auth-code&format=json');
+    expect(callback.status).toBe(200);
+    expect(callback.body.user.loginId).toBe('google:google-sub-1');
+    expect(callback.body.user.snsProfileImageUrl).toBe('https://cdn.example.com/google-user.png');
+    expect(callback.body.token).toEqual(expect.any(String));
+    expect(callback.body.refreshToken).toEqual(expect.any(String));
+    expect(callback.header['set-cookie'].join('\n')).toContain('pt_refresh_token=');
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://oauth2.googleapis.com/token');
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('https://www.googleapis.com/oauth2/v3/userinfo');
+
+    const oauthAccount = await query<{ provider: string; provider_account_id: string; email: string | null }>(
+      'SELECT provider, provider_account_id, email FROM promptoon_oauth_account WHERE provider = $1 AND provider_account_id = $2',
+      ['google', 'google-sub-1']
+    );
+    expect(oauthAccount.rows[0]).toEqual({
+      provider: 'google',
+      provider_account_id: 'google-sub-1',
+      email: 'google-user@example.com'
+    });
+    const googleMe = await withAuth(request(app).get('/api/auth/me'), callback.body.token);
+    expect(googleMe.status).toBe(200);
+    expect(googleMe.body.user.snsProfileImageUrl).toBe('https://cdn.example.com/google-user.png');
+
+    const previousAdminRedirectUrl = process.env.ADMIN_CLIENT_REDIRECT_URL;
+    process.env.ADMIN_CLIENT_REDIRECT_URL = 'http://admin.local/login?oauth=1';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ access_token: 'google-access-token-2' }), {
+            headers: { 'Content-Type': 'application/json' },
+            status: 200
+          })
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ sub: 'google-sub-2', email_verified: false, name: 'Admin User' }), {
+            headers: { 'Content-Type': 'application/json' },
+            status: 200
+          })
+        )
+    );
+    const adminCallback = await request(app).get('/api/auth/google/callback?code=admin-code&state=admin');
+    expect(adminCallback.status).toBe(302);
+    expect(adminCallback.header.location).toBe('http://admin.local/login?oauth=1');
+    if (previousAdminRedirectUrl === undefined) {
+      delete process.env.ADMIN_CLIENT_REDIRECT_URL;
+    } else {
+      process.env.ADMIN_CLIENT_REDIRECT_URL = previousAdminRedirectUrl;
+    }
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ access_token: 'google-access-token-3' }), {
+            headers: { 'Content-Type': 'application/json' },
+            status: 200
+          })
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              sub: 'google-sub-unverified',
+              email: 'unverified-google-user@example.com',
+              email_verified: false,
+              name: 'Unverified User'
+            }),
+            {
+              headers: { 'Content-Type': 'application/json' },
+              status: 200
+            }
+          )
+        )
+    );
+    const unverifiedEmailCallback = await request(app).post('/api/auth/google/callback').send({ code: 'unverified-code' });
+    expect(unverifiedEmailCallback.status).toBe(200);
+    const unverifiedUser = await query<{ email: string | null }>('SELECT email FROM users WHERE login_id = $1', [
+      'google:google-sub-unverified'
+    ]);
+    expect(unverifiedUser.rows[0].email).toBeNull();
+  });
+
+  it('rejects failed Google OAuth token and profile responses', async () => {
+    env.google.clientId = 'google-client-id';
+    env.google.clientSecret = 'google-client-secret';
+    env.google.redirectUri = 'http://localhost:4000/api/auth/google/callback';
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: 'invalid_grant' }), {
+          headers: { 'Content-Type': 'application/json' },
+          status: 400
+        })
+      )
+    );
+    const failedToken = await request(app).post('/api/auth/google/callback').send({ code: 'bad-token-code' });
+    expect(failedToken.status).toBe(502);
+    expect(failedToken.body.error).toContain('Failed to exchange Google authorization code.');
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ access_token: 'google-access-token' }), {
+            headers: { 'Content-Type': 'application/json' },
+            status: 200
+          })
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ error: 'temporarily_unavailable' }), {
+            headers: { 'Content-Type': 'application/json' },
+            status: 503
+          })
+        )
+    );
+    const failedUserinfo = await request(app).post('/api/auth/google/callback').send({ code: 'bad-profile-code' });
+    expect(failedUserinfo.status).toBe(502);
+    expect(failedUserinfo.body.error).toContain('Failed to fetch Google profile.');
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ access_token: 'google-access-token' }), {
+            headers: { 'Content-Type': 'application/json' },
+            status: 200
+          })
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ email: 'missing-sub@example.com', email_verified: true }), {
+            headers: { 'Content-Type': 'application/json' },
+            status: 200
+          })
+        )
+    );
+    const missingSubject = await request(app).post('/api/auth/google/callback').send({ code: 'missing-sub-code' });
+    expect(missingSubject.status).toBe(502);
+    expect(missingSubject.body.error).toContain('Google profile response did not include a subject.');
   });
 
   it('protects platform admin routes and lets platform admins manage Studio roles', async () => {
@@ -1240,6 +1433,65 @@ maybeDescribe('promptoon api integration', () => {
     expect(communityEmbed.status).toBe(200);
     expect(communityEmbed.body.provider).toBe('promptoon');
     expect(communityEmbed.body.title).toBe('Product Episode 댓글');
+
+    const deniedExperimentalSettings = await withAuth(
+      request(app).patch(`/api/studio/projects/${fixture.project.body.id}`),
+      fixture.auth.token
+    ).send({
+      isExperimental: true
+    });
+    expect(deniedExperimentalSettings.status).toBe(403);
+
+    await query(
+      `INSERT INTO promptoon_platform_admin (user_id, role, granted_by)
+       VALUES ($1, 'platform_admin', $1)
+       ON CONFLICT (user_id) DO UPDATE
+         SET role = 'platform_admin',
+             updated_at = NOW()`,
+      [fixture.auth.user.id]
+    );
+
+    const experimentalSettings = await withAuth(
+      request(app).patch(`/api/studio/projects/${fixture.project.body.id}`),
+      fixture.auth.token
+    ).send({
+      isExperimental: true
+    });
+    const platformAdminProjects = await withAuth(request(app).get('/api/studio/projects'), fixture.auth.token);
+    const projectTarget = await query<{ status: string }>(
+      `SELECT status
+       FROM promptoon_experimental_access_target
+       WHERE target_type = 'project'
+         AND project_id = $1`,
+      [fixture.project.body.id]
+    );
+    expect(experimentalSettings.status).toBe(200);
+    expect(experimentalSettings.body.isExperimental).toBe(true);
+    expect(platformAdminProjects.status).toBe(200);
+    expect(platformAdminProjects.body.find((project: { id: string }) => project.id === fixture.project.body.id)).toEqual(
+      expect.objectContaining({
+        canManageExperimentalAccess: true,
+        isExperimental: true
+      })
+    );
+    expect(projectTarget.rows[0]?.status).toBe('active');
+
+    const disabledExperimentalSettings = await withAuth(
+      request(app).patch(`/api/studio/projects/${fixture.project.body.id}`),
+      fixture.auth.token
+    ).send({
+      isExperimental: false
+    });
+    const disabledProjectTarget = await query<{ status: string }>(
+      `SELECT status
+       FROM promptoon_experimental_access_target
+       WHERE target_type = 'project'
+         AND project_id = $1`,
+      [fixture.project.body.id]
+    );
+    expect(disabledExperimentalSettings.status).toBe(200);
+    expect(disabledExperimentalSettings.body.isExperimental).toBe(false);
+    expect(disabledProjectTarget.rows[0]?.status).toBe('disabled');
   });
 
   it('supports Community comments, moderation, and Discourse thread sync', async () => {
@@ -2520,6 +2772,328 @@ maybeDescribe('promptoon api integration', () => {
     const noShorts = await request(app).get('/api/feed/search?q=Product&type=short_drama&limit=10');
     expect(noShorts.status).toBe(200);
     expect(noShorts.body.items).toHaveLength(0);
+  });
+
+  it('manages experimental content access and filters restricted publishes from public surfaces', async () => {
+    const previousBootstrapLoginIds = process.env.PROMPTOON_PLATFORM_ADMIN_LOGIN_IDS;
+    const fixture = await createFeedReadyPublishedEpisodeFixture();
+    const admin = await registerUser(`experimental-admin-${randomUUID()}`);
+    const reader = await registerUser(`experimental-reader-${randomUUID()}`);
+    const otherReader = await registerUser(`experimental-other-${randomUUID()}`);
+    const globalReader = await registerUser(`experimental-global-${randomUUID()}`);
+
+    function collectHomePublishIds(home: {
+      hero?: { publishId?: string } | null;
+      sections?: Array<{ items?: Array<{ publishId?: string }> }>;
+    }): string[] {
+      return [
+        home.hero?.publishId,
+        ...(home.sections ?? []).flatMap((section) => section.items?.map((item) => item.publishId) ?? [])
+      ].filter((publishId): publishId is string => Boolean(publishId));
+    }
+
+    try {
+      process.env.PROMPTOON_PLATFORM_ADMIN_LOGIN_IDS = admin.user.loginId;
+
+      const createTarget = await withAuth(request(app).post('/api/admin/experimental/targets'), admin.token).send({
+        targetType: 'publish',
+        publishId: fixture.publish.body.id
+      });
+      expect(createTarget.status).toBe(201);
+      expect(createTarget.body).toEqual(
+        expect.objectContaining({
+          targetType: 'publish',
+          publishId: fixture.publish.body.id,
+          status: 'active'
+        })
+      );
+      const targetId = createTarget.body.id as string;
+
+      const publicViewer = await request(app).get(`/api/viewer/publishes/${fixture.publish.body.id}`);
+      const deniedReaderViewer = await withAuth(request(app).get(`/api/viewer/publishes/${fixture.publish.body.id}`), reader.token);
+      const publicHome = await request(app).get('/api/feed/home');
+      const publicSearch = await request(app).get('/api/feed/search?q=Product&limit=10');
+      const publicMixed = await request(app).get('/api/feed/mixed?limit=10');
+
+      expect(publicViewer.status).toBe(401);
+      expect(deniedReaderViewer.status).toBe(403);
+      expect(publicHome.status).toBe(200);
+      expect(collectHomePublishIds(publicHome.body)).not.toContain(fixture.publish.body.id);
+      expect(publicSearch.status).toBe(200);
+      expect(publicSearch.body.items.map((item: { publishId: string }) => item.publishId)).not.toContain(fixture.publish.body.id);
+      expect(publicMixed.status).toBe(200);
+      expect(publicMixed.body.items.map((item: { publishId: string }) => item.publishId)).not.toContain(fixture.publish.body.id);
+
+      const secondPublish = await withAuth(request(app).post(`/api/promptoon/projects/${fixture.project.body.id}/publish`), fixture.auth.token).send({
+        episodeId: fixture.episode.body.id
+      });
+      expect(secondPublish.status).toBe(201);
+      expect(secondPublish.body.id).not.toBe(fixture.publish.body.id);
+
+      const publicSecondViewer = await request(app).get(`/api/viewer/publishes/${secondPublish.body.id}`);
+      const deniedReaderSecondViewer = await withAuth(request(app).get(`/api/viewer/publishes/${secondPublish.body.id}`), reader.token);
+      const publicSecondMixed = await request(app).get('/api/feed/mixed?limit=10');
+      const publicCommentsMeta = await request(app).get(`/api/community/publishes/${fixture.publish.body.id}/comments-meta`);
+      const deniedReaderCommentsMeta = await withAuth(
+        request(app).get(`/api/community/publishes/${fixture.publish.body.id}/comments-meta`),
+        reader.token
+      );
+      expect(publicSecondViewer.status).toBe(401);
+      expect(deniedReaderSecondViewer.status).toBe(403);
+      expect(publicSecondMixed.status).toBe(200);
+      expect(publicSecondMixed.body.items.map((item: { publishId: string }) => item.publishId)).not.toContain(secondPublish.body.id);
+      expect(publicCommentsMeta.status).toBe(401);
+      expect(deniedReaderCommentsMeta.status).toBe(403);
+
+      const manualGrant = await withAuth(
+        request(app).post(`/api/admin/experimental/targets/${targetId}/grants`),
+        admin.token
+      ).send({
+        loginId: reader.user.loginId
+      });
+      expect(manualGrant.status).toBe(201);
+      expect(manualGrant.body).toEqual(
+        expect.objectContaining({
+          loginId: reader.user.loginId,
+          source: 'manual',
+          status: 'active'
+        })
+      );
+
+      const allowedReaderViewer = await withAuth(
+        request(app).get(`/api/viewer/publishes/${fixture.publish.body.id}`),
+        reader.token
+      );
+      expect(allowedReaderViewer.status).toBe(200);
+      expect(allowedReaderViewer.body.publish.id).toBe(fixture.publish.body.id);
+
+      const allowedReaderSecondViewer = await withAuth(
+        request(app).get(`/api/viewer/publishes/${secondPublish.body.id}`),
+        reader.token
+      );
+      const allowedReaderCommentsMeta = await withAuth(
+        request(app).get(`/api/community/publishes/${fixture.publish.body.id}/comments-meta`),
+        reader.token
+      );
+      expect(allowedReaderSecondViewer.status).toBe(200);
+      expect(allowedReaderSecondViewer.body.publish.id).toBe(secondPublish.body.id);
+      expect(allowedReaderCommentsMeta.status).toBe(200);
+
+      const revokedManualGrant = await withAuth(
+        request(app).patch(`/api/admin/experimental/grants/${manualGrant.body.id}`),
+        admin.token
+      ).send({
+        status: 'revoked'
+      });
+      expect(revokedManualGrant.status).toBe(200);
+      expect(revokedManualGrant.body.status).toBe('revoked');
+
+      const revokedReaderViewer = await withAuth(
+        request(app).get(`/api/viewer/publishes/${fixture.publish.body.id}`),
+        reader.token
+      );
+      expect(revokedReaderViewer.status).toBe(403);
+
+      const createCodes = await withAuth(
+        request(app).post(`/api/admin/experimental/targets/${targetId}/invite-codes`),
+        admin.token
+      ).send({
+        mode: 'single_use_batch',
+        count: 2
+      });
+      expect(createCodes.status).toBe(201);
+      expect(createCodes.body.codes).toHaveLength(2);
+      expect(new Set(createCodes.body.codes.map((code: { code: string }) => code.code)).size).toBe(2);
+      expect(createCodes.body.codes[0]).toEqual(
+        expect.objectContaining({
+          maskedCode: expect.stringContaining('****'),
+          maxRedemptions: 1,
+          redeemedCount: 0,
+          status: 'active',
+          code: expect.stringMatching(/^[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$/)
+        })
+      );
+      expect(createCodes.body.codes[0].codeHash).toBeUndefined();
+
+      const listedCodes = await withAuth(
+        request(app).get(`/api/admin/experimental/targets/${targetId}/invite-codes`),
+        admin.token
+      );
+      expect(listedCodes.status).toBe(200);
+      expect(listedCodes.body.codes).toHaveLength(2);
+      expect(listedCodes.body.codes[0].code).toBeUndefined();
+      expect(listedCodes.body.codes[0].maskedCode).toContain('****');
+
+      const firstPlainCode = createCodes.body.codes[0].code as string;
+      const secondPlainCode = createCodes.body.codes[1].code as string;
+      const redeemed = await withAuth(request(app).post('/api/experimental/redeem'), reader.token).send({
+        code: firstPlainCode.toLowerCase().replace(/-/g, ' ')
+      });
+      expect(redeemed.status).toBe(200);
+      expect(redeemed.body.target.id).toBe(targetId);
+      expect(redeemed.body.grant).toEqual(
+        expect.objectContaining({
+          source: 'invite_code',
+          status: 'active',
+          userId: reader.user.id
+        })
+      );
+
+      const readerAccess = await withAuth(request(app).get('/api/experimental/me'), reader.token);
+      const readerExperimentalFeed = await withAuth(request(app).get('/api/experimental/feed'), reader.token);
+      const readerViewerAfterRedeem = await withAuth(
+        request(app).get(`/api/viewer/publishes/${fixture.publish.body.id}`),
+        reader.token
+      );
+      expect(readerAccess.status).toBe(200);
+      expect(readerAccess.body.grantCount).toBe(1);
+      expect(readerExperimentalFeed.status).toBe(200);
+      expect(readerExperimentalFeed.body.items.map((item: { publishId: string }) => item.publishId)).toContain(
+        fixture.publish.body.id
+      );
+      expect(
+        readerExperimentalFeed.body.items.find((item: { publishId: string }) => item.publishId === fixture.publish.body.id)
+          ?.isExperimental
+      ).toBe(true);
+      const readerMixedFeed = await withAuth(request(app).get('/api/feed/mixed?limit=20'), reader.token);
+      expect(readerMixedFeed.status).toBe(200);
+      expect(
+        readerMixedFeed.body.items.find((item: { publishId: string }) => item.publishId === fixture.publish.body.id)
+          ?.isExperimental
+      ).toBe(true);
+      expect(readerViewerAfterRedeem.status).toBe(200);
+
+      const duplicateRedeem = await withAuth(request(app).post('/api/experimental/redeem'), reader.token).send({
+        code: firstPlainCode
+      });
+      const exhaustedRedeem = await withAuth(request(app).post('/api/experimental/redeem'), otherReader.token).send({
+        code: firstPlainCode
+      });
+      expect(duplicateRedeem.status).toBe(400);
+      expect(exhaustedRedeem.status).toBe(400);
+
+      const secondRedeem = await withAuth(request(app).post('/api/experimental/redeem'), otherReader.token).send({
+        code: secondPlainCode
+      });
+      expect(secondRedeem.status).toBe(200);
+
+      const revokedCode = await withAuth(
+        request(app).patch(`/api/admin/experimental/invite-codes/${secondRedeem.body.grant.sourceInviteCodeId}`),
+        admin.token
+      ).send({
+        status: 'revoked'
+      });
+      expect(revokedCode.status).toBe(200);
+      expect(revokedCode.body.status).toBe('revoked');
+
+      const createMultiUseCode = await withAuth(
+        request(app).post(`/api/admin/experimental/targets/${targetId}/invite-codes`),
+        admin.token
+      ).send({
+        mode: 'multi_use',
+        maxRedemptions: 2
+      });
+      expect(createMultiUseCode.status).toBe(201);
+      expect(createMultiUseCode.body.codes).toHaveLength(1);
+      expect(createMultiUseCode.body.codes[0].maxRedemptions).toBe(2);
+
+      const multiRedeem = await withAuth(request(app).post('/api/experimental/redeem'), reader.token).send({
+        code: createMultiUseCode.body.codes[0].code
+      });
+      expect(multiRedeem.status).toBe(200);
+
+      const revokedInviteGrant = await withAuth(
+        request(app).patch(`/api/admin/experimental/grants/${multiRedeem.body.grant.id}`),
+        admin.token
+      ).send({
+        status: 'revoked'
+      });
+      const repeatMultiRedeem = await withAuth(request(app).post('/api/experimental/redeem'), reader.token).send({
+        code: createMultiUseCode.body.codes[0].code
+      });
+      expect(revokedInviteGrant.status).toBe(200);
+      expect(revokedInviteGrant.body.status).toBe('revoked');
+      expect(repeatMultiRedeem.status).toBe(400);
+
+      const disabledTarget = await withAuth(request(app).patch(`/api/admin/experimental/targets/${targetId}`), admin.token).send({
+        status: 'disabled'
+      });
+      const unrestrictedViewer = await request(app).get(`/api/viewer/publishes/${fixture.publish.body.id}`);
+      expect(disabledTarget.status).toBe(200);
+      expect(disabledTarget.body.status).toBe('disabled');
+      expect(unrestrictedViewer.status).toBe(200);
+
+      const globalTarget = await withAuth(request(app).post('/api/admin/experimental/targets'), admin.token).send({
+        targetType: 'all'
+      });
+      const unrestrictedViewerWithGlobalTargetOnly = await request(app).get(`/api/viewer/publishes/${fixture.publish.body.id}`);
+      expect(globalTarget.status).toBe(201);
+      expect(globalTarget.body).toEqual(
+        expect.objectContaining({
+          targetType: 'all',
+          projectId: null,
+          publishId: null,
+          status: 'active'
+        })
+      );
+      expect(unrestrictedViewerWithGlobalTargetOnly.status).toBe(200);
+
+      const projectTarget = await withAuth(request(app).post('/api/admin/experimental/targets'), admin.token).send({
+        targetType: 'project',
+        projectId: fixture.project.body.id
+      });
+      const projectGrant = await withAuth(
+        request(app).post(`/api/admin/experimental/targets/${projectTarget.body.id}/grants`),
+        admin.token
+      ).send({
+        loginId: reader.user.loginId
+      });
+      const futurePublish = await withAuth(
+        request(app).post(`/api/promptoon/projects/${fixture.project.body.id}/publish/update`),
+        fixture.auth.token
+      ).send({
+        episodeId: fixture.episode.body.id
+      });
+      const unauthenticatedFutureViewer = await request(app).get(`/api/viewer/publishes/${futurePublish.body.id}`);
+      const deniedGlobalFutureViewer = await withAuth(
+        request(app).get(`/api/viewer/publishes/${futurePublish.body.id}`),
+        globalReader.token
+      );
+      const authorizedFutureViewer = await withAuth(
+        request(app).get(`/api/viewer/publishes/${futurePublish.body.id}`),
+        reader.token
+      );
+      const globalGrant = await withAuth(
+        request(app).post(`/api/admin/experimental/targets/${globalTarget.body.id}/grants`),
+        admin.token
+      ).send({
+        loginId: globalReader.user.loginId
+      });
+      const authorizedGlobalFutureViewer = await withAuth(
+        request(app).get(`/api/viewer/publishes/${futurePublish.body.id}`),
+        globalReader.token
+      );
+      const globalExperimentalFeed = await withAuth(request(app).get('/api/experimental/feed'), globalReader.token);
+      expect(projectTarget.status).toBe(201);
+      expect(projectGrant.status).toBe(201);
+      expect(futurePublish.status).toBe(200);
+      expect(unauthenticatedFutureViewer.status).toBe(401);
+      expect(deniedGlobalFutureViewer.status).toBe(403);
+      expect(authorizedFutureViewer.status).toBe(200);
+      expect(authorizedFutureViewer.body.publish.id).toBe(futurePublish.body.id);
+      expect(globalGrant.status).toBe(201);
+      expect(globalGrant.body.targetId).toBe(globalTarget.body.id);
+      expect(authorizedGlobalFutureViewer.status).toBe(200);
+      expect(authorizedGlobalFutureViewer.body.publish.id).toBe(futurePublish.body.id);
+      expect(globalExperimentalFeed.status).toBe(200);
+      expect(globalExperimentalFeed.body.items.map((item: { publishId: string }) => item.publishId)).toContain(futurePublish.body.id);
+    } finally {
+      if (previousBootstrapLoginIds === undefined) {
+        delete process.env.PROMPTOON_PLATFORM_ADMIN_LOGIN_IDS;
+      } else {
+        process.env.PROMPTOON_PLATFORM_ADMIN_LOGIN_IDS = previousBootstrapLoginIds;
+      }
+    }
   });
 
   it('returns authenticated bookmark library across promptoon and movingtoon publishes', async () => {

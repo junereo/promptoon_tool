@@ -7,8 +7,10 @@ import { useAuthStore } from '../src/features/auth/store/use-auth-store';
 import { LoginPage } from '../src/pages/LoginPage';
 import { RegisterPage } from '../src/pages/RegisterPage';
 
-const loginMutateAsync = vi.fn();
-const registerMutateAsync = vi.fn();
+const loginMutateAsync = vi.hoisted(() => vi.fn());
+const registerMutateAsync = vi.hoisted(() => vi.fn());
+const authRefreshMock = vi.hoisted(() => vi.fn());
+const getGoogleAuthorizationUrlMock = vi.hoisted(() => vi.fn());
 const authResponse = {
   token: 'test-token',
   session: {
@@ -34,6 +36,13 @@ vi.mock('../src/features/auth/hooks/use-auth-query', () => ({
   })
 }));
 
+vi.mock('../src/shared/api/auth.service', () => ({
+  authService: {
+    refresh: authRefreshMock,
+    getGoogleAuthorizationUrl: getGoogleAuthorizationUrlMock
+  }
+}));
+
 afterEach(() => {
   cleanup();
 });
@@ -42,6 +51,8 @@ beforeEach(() => {
   window.localStorage.clear();
   loginMutateAsync.mockReset();
   registerMutateAsync.mockReset();
+  authRefreshMock.mockReset();
+  getGoogleAuthorizationUrlMock.mockReset();
   useAuthStore.setState({
     user: null,
     session: null,
@@ -100,6 +111,17 @@ describe('auth pages', () => {
 
     expect(await screen.findByText('Consumer Home')).toBeTruthy();
     expect(screen.queryByText('Dashboard')).toBeNull();
+  });
+
+  it('starts Google login from the login page', async () => {
+    const user = userEvent.setup();
+    getGoogleAuthorizationUrlMock.mockRejectedValue(new Error('blocked'));
+    renderPage('/login');
+
+    await user.click(screen.getByRole('button', { name: 'Google로 로그인' }));
+
+    expect(getGoogleAuthorizationUrlMock).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText('Google 로그인을 시작할 수 없습니다.')).toBeTruthy();
   });
 
   it('routes to home after register instead of projects', async () => {

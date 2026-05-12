@@ -121,13 +121,13 @@ export function LoginPage() {
     }
   }
 
-  async function handleKakaoLogin() {
+  async function handleGoogleLogin() {
     try {
       setErrorMessage(null);
-      const authorizationUrl = await authService.getKakaoAuthorizationUrl();
+      const authorizationUrl = await authService.getGoogleAuthorizationUrl();
       window.location.assign(authorizationUrl);
     } catch (error) {
-      setErrorMessage(error instanceof ApiError ? error.message : '카카오 로그인을 시작할 수 없습니다.');
+      setErrorMessage(error instanceof ApiError ? error.message : 'Google 로그인을 시작할 수 없습니다.');
     }
   }
 
@@ -203,11 +203,11 @@ export function LoginPage() {
           </form>
 
           <button
-            className="mt-4 h-14 w-full rounded-xl bg-[#fee500] px-5 text-base font-bold text-zinc-950 transition hover:bg-[#ffdd00]"
-            onClick={handleKakaoLogin}
+            className="mt-4 h-14 w-full rounded-xl bg-white px-5 text-base font-bold text-zinc-950 transition hover:bg-zinc-100"
+            onClick={handleGoogleLogin}
             type="button"
           >
-            Kakao로 로그인
+            Google로 로그인
           </button>
 
           <p className="mt-7 text-center text-sm leading-6 text-white/48">

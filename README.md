@@ -221,7 +221,7 @@ Auth / role:
 - `POST /api/studio/projects/:projectId/members`
 - `PATCH /api/studio/projects/:projectId/members/:userId`
 - `DELETE /api/studio/projects/:projectId/members/:userId`
-- Google OAuth는 scaffold 상태이며 실제 provider 설정은 별도 작업입니다.
+- Google OAuth는 `/api/auth/google/start`, `/api/auth/google/callback`에서 처리합니다.
 
 ## 검증된 상태
 

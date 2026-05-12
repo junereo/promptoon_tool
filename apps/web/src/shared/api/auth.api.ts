@@ -27,8 +27,8 @@ export const authApi = {
     return data;
   },
 
-  async getKakaoAuthorizationUrl(): Promise<string> {
-    const { data } = await publicRootApiClient.get<{ authorizationUrl: string }>('/auth/kakao/start');
+  async getGoogleAuthorizationUrl(): Promise<string> {
+    const { data } = await publicRootApiClient.get<{ authorizationUrl: string }>('/auth/google/start');
     return data.authorizationUrl;
   }
 };

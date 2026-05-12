@@ -23,6 +23,7 @@ import type {
 import { randomUUID } from 'node:crypto';
 
 import type { DbExecutor } from '../../db';
+import { buildFeedItemAccessPredicate, buildFeedItemExperimentalPredicate } from '../experimental/experimental.repository';
 
 interface ProjectRow {
   id: string;
@@ -96,6 +97,7 @@ interface FeedItemProjectionRow {
   metrics_json: FeedItemMetrics | null;
   payload_json: FeedItem;
   published_at: Date;
+  is_experimental: boolean | null;
 }
 
 interface ResolvedFeedItemProjectionRow extends FeedItemProjectionRow {
@@ -367,7 +369,6 @@ interface ChannelOwnerRow {
   id: string;
   login_id: string;
   display_name: string | null;
-  profile_image_url: string | null;
 }
 
 function getChannelOwnerDisplayName(owner: ChannelOwnerRow): string {
@@ -478,12 +479,11 @@ export async function ensureDefaultChannelForProject(
   }
 
   const ownerResult = await db.query<ChannelOwnerRow>(
-    'SELECT id, login_id, display_name, profile_image_url FROM users WHERE id = $1',
+    'SELECT id, login_id, display_name FROM users WHERE id = $1',
     [channelOwnerId]
   );
   const owner = ownerResult.rows[0];
   const displayName = owner ? getChannelOwnerDisplayName(owner) : project.title;
-  const avatarUrl = owner?.profile_image_url ?? null;
   const slug = slugify(displayName, channelOwnerId);
   const result = await db.query<ProductChannelRow>(
     `INSERT INTO promptoon_channel (project_id, owner_user_id, slug, display_name, handle, avatar_url, bio, is_default)
@@ -497,7 +497,7 @@ export async function ensureDefaultChannelForProject(
            is_default = TRUE,
            updated_at = NOW()
      RETURNING *`,
-    [channelOwnerId, slug, displayName, `@${slug}`, avatarUrl]
+    [channelOwnerId, slug, displayName, `@${slug}`, null]
   );
 
   return result.rows[0];
@@ -517,12 +517,11 @@ export async function ensureDefaultChannelForOwner(db: DbExecutor, ownerUserId: 
   }
 
   const ownerResult = await db.query<ChannelOwnerRow>(
-    'SELECT id, login_id, display_name, profile_image_url FROM users WHERE id = $1',
+    'SELECT id, login_id, display_name FROM users WHERE id = $1',
     [ownerUserId]
   );
   const owner = ownerResult.rows[0];
   const displayName = owner ? getChannelOwnerDisplayName(owner) : 'Promptoon Creator';
-  const avatarUrl = owner?.profile_image_url ?? null;
   const slug = slugify(displayName, ownerUserId);
   const result = await db.query<ProductChannelRow>(
     `INSERT INTO promptoon_channel (project_id, owner_user_id, slug, display_name, handle, avatar_url, bio, is_default)
@@ -536,7 +535,7 @@ export async function ensureDefaultChannelForOwner(db: DbExecutor, ownerUserId: 
            is_default = TRUE,
            updated_at = NOW()
      RETURNING *`,
-    [ownerUserId, slug, displayName, `@${slug}`, avatarUrl]
+    [ownerUserId, slug, displayName, `@${slug}`, null]
   );
 
   return result.rows[0];
@@ -599,16 +598,6 @@ export async function updateChannelProfile(
   );
 
   return result.rows[0] ?? null;
-}
-
-export async function updateUserProfileImageUrl(db: DbExecutor, input: { profileImageUrl: string | null; userId: string }): Promise<void> {
-  await db.query(
-    `UPDATE users
-     SET profile_image_url = $2,
-         updated_at = NOW()
-     WHERE id = $1`,
-    [input.userId, input.profileImageUrl]
-  );
 }
 
 export async function syncFeedItemChannelProfilePayload(db: DbExecutor, channelId: string): Promise<void> {
@@ -743,6 +732,7 @@ export async function listFeedItemProjections(
     limit: number;
     orderBy?: FeedProjectionOrder;
     query?: string;
+    userId?: string;
   }
 ): Promise<Array<{ id: string; publishedAt: string; item: FeedItem }>> {
   const values: unknown[] = [];
@@ -765,6 +755,8 @@ export async function listFeedItemProjections(
       OR COALESCE(payload_json->>'channelName', '') ILIKE $${values.length}
     )`);
   }
+  const accessUserParam = input.userId ? `$${values.push(input.userId)}` : undefined;
+  whereClauses.push(buildFeedItemAccessPredicate('promptoon_feed_item', accessUserParam));
   const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
   const orderBy =
     input.orderBy === 'trending'
@@ -780,7 +772,8 @@ export async function listFeedItemProjections(
   values.push(input.limit);
 
   const result = await db.query<FeedItemProjectionRow>(
-    `SELECT id, publish_id, movingtoon_publish_id, project_id, channel_id, series_id, episode_id, metrics_json, payload_json, published_at
+    `SELECT id, publish_id, movingtoon_publish_id, project_id, channel_id, series_id, episode_id, metrics_json, payload_json, published_at,
+       ${buildFeedItemExperimentalPredicate('promptoon_feed_item', accessUserParam)} AS is_experimental
      FROM promptoon_feed_item
      ${whereClause}
      ${orderBy}
@@ -793,12 +786,15 @@ export async function listFeedItemProjections(
 
 export async function listFeedItemProjectionsByPublishIds(
   db: DbExecutor,
-  publishIds: string[]
+  publishIds: string[],
+  userId?: string
 ): Promise<Array<{ publishId: string; id: string; publishedAt: string; item: FeedItem }>> {
   if (publishIds.length === 0) {
     return [];
   }
 
+  const values: unknown[] = [publishIds];
+  const accessUserParam = userId ? `$${values.push(userId)}` : undefined;
   const result = await db.query<ResolvedFeedItemProjectionRow>(
     `SELECT
        id,
@@ -811,10 +807,12 @@ export async function listFeedItemProjectionsByPublishIds(
        episode_id,
        metrics_json,
        payload_json,
-       published_at
+       published_at,
+       ${buildFeedItemExperimentalPredicate('promptoon_feed_item', accessUserParam)} AS is_experimental
      FROM promptoon_feed_item
-     WHERE COALESCE(publish_id, movingtoon_publish_id) = ANY($1::uuid[])`,
-    [publishIds]
+     WHERE COALESCE(publish_id, movingtoon_publish_id) = ANY($1::uuid[])
+       AND ${buildFeedItemAccessPredicate('promptoon_feed_item', accessUserParam)}`,
+    values
   );
 
   return result.rows.map((row) => ({
@@ -824,12 +822,15 @@ export async function listFeedItemProjectionsByPublishIds(
 }
 
 function mapFeedItemProjectionRow(row: FeedItemProjectionRow): { id: string; publishedAt: string; item: FeedItem } {
+  const isExperimental = Boolean(row.is_experimental ?? row.payload_json.isExperimental);
+
   return {
     id: row.id,
     publishedAt: toIsoString(row.published_at),
     item: {
       ...row.payload_json,
-      metrics: normalizeFeedMetrics(row.metrics_json ?? row.payload_json.metrics)
+      metrics: normalizeFeedMetrics(row.metrics_json ?? row.payload_json.metrics),
+      ...(isExperimental ? { isExperimental: true } : {})
     }
   };
 }
@@ -882,13 +883,14 @@ export async function listBookmarkedFeedItemProjections(
        item.metrics_json,
        item.payload_json,
        item.published_at,
+       ${buildFeedItemExperimentalPredicate('item', '$1')} AS is_experimental,
        bookmarked.bookmarked_at,
        bookmarked.bookmark_publish_id::text AS bookmark_publish_id
      FROM bookmarked
      INNER JOIN promptoon_feed_item AS item
        ON item.publish_id = bookmarked.publish_id
        OR item.movingtoon_publish_id = bookmarked.movingtoon_publish_id
-     ${whereClause}
+     ${whereClause ? `${whereClause} AND` : 'WHERE'} ${buildFeedItemAccessPredicate('item', '$1')}
      ORDER BY bookmarked.bookmarked_at DESC, bookmarked.bookmark_publish_id DESC
      LIMIT $${values.length}`,
     values
@@ -901,23 +903,49 @@ export async function listBookmarkedFeedItemProjections(
   }));
 }
 
-export async function getFeedItemByPublicPublishId(db: DbExecutor, publishId: string): Promise<FeedItem | null> {
+export async function getFeedItemByPublicPublishId(db: DbExecutor, publishId: string, userId?: string): Promise<FeedItem | null> {
+  const values: unknown[] = [publishId];
+  const accessUserParam = userId ? `$${values.push(userId)}` : undefined;
   const result = await db.query<FeedItemProjectionRow>(
-    `SELECT id, publish_id, movingtoon_publish_id, project_id, channel_id, series_id, episode_id, metrics_json, payload_json, published_at
+    `SELECT id, publish_id, movingtoon_publish_id, project_id, channel_id, series_id, episode_id, metrics_json, payload_json, published_at,
+       ${buildFeedItemExperimentalPredicate('promptoon_feed_item', accessUserParam)} AS is_experimental
      FROM promptoon_feed_item
-     WHERE publish_id = $1 OR movingtoon_publish_id = $1
+     WHERE (publish_id = $1 OR movingtoon_publish_id = $1)
+       AND ${buildFeedItemAccessPredicate('promptoon_feed_item', accessUserParam)}
      LIMIT 1`,
-    [publishId]
+    values
   );
   const row = result.rows[0];
   if (!row) {
     return null;
   }
 
-  return {
-    ...row.payload_json,
-    metrics: normalizeFeedMetrics(row.metrics_json ?? row.payload_json.metrics)
-  };
+  return mapFeedItemProjectionRow(row).item;
+}
+
+export async function listExperimentalFeedItemsForUser(db: DbExecutor, userId: string): Promise<FeedItem[]> {
+  const result = await db.query<FeedItemProjectionRow>(
+    `SELECT DISTINCT
+       item.id,
+       item.publish_id,
+       item.movingtoon_publish_id,
+       item.project_id,
+       item.channel_id,
+       item.series_id,
+       item.episode_id,
+       item.metrics_json,
+       item.payload_json,
+       item.published_at,
+       TRUE AS is_experimental
+     FROM promptoon_feed_item AS item
+     WHERE COALESCE(item.publish_id, item.movingtoon_publish_id) IS NOT NULL
+       AND ${buildFeedItemExperimentalPredicate('item', '$1')}
+     ORDER BY item.published_at DESC, item.id DESC
+     LIMIT 100`,
+    [userId]
+  );
+
+  return result.rows.map((row) => mapFeedItemProjectionRow(row).item);
 }
 
 export async function getPublishProjectionContext(db: DbExecutor, publishId: string): Promise<ProductPublishProjectionContextRow | null> {

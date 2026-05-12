@@ -49,6 +49,7 @@ import {
 import { randomUUID } from 'node:crypto';
 
 import type { DbExecutor } from '../../db';
+import { buildFeedItemAccessPredicate, buildFeedItemExperimentalPredicate } from '../experimental/experimental.repository';
 
 interface ProjectRow {
   id: string;
@@ -256,6 +257,7 @@ interface FeedItemProjectionRow {
   metrics_json: import('@promptoon/shared').FeedItemMetrics | null;
   payload_json: import('@promptoon/shared').FeedItem;
   published_at: Date;
+  is_experimental: boolean | null;
 }
 
 interface ContentInteractionStateRow {
@@ -1693,7 +1695,6 @@ interface ChannelOwnerRow {
   id: string;
   login_id: string;
   display_name: string | null;
-  profile_image_url: string | null;
 }
 
 function getChannelOwnerDisplayName(owner: ChannelOwnerRow): string {
@@ -1715,12 +1716,11 @@ export async function ensureDefaultChannelForProject(db: DbExecutor, project: Pr
   }
 
   const ownerResult = await db.query<ChannelOwnerRow>(
-    'SELECT id, login_id, display_name, profile_image_url FROM users WHERE id = $1',
+    'SELECT id, login_id, display_name FROM users WHERE id = $1',
     [channelOwnerId]
   );
   const owner = ownerResult.rows[0];
   const displayName = owner ? getChannelOwnerDisplayName(owner) : project.title;
-  const avatarUrl = owner?.profile_image_url ?? null;
   const slug = slugify(displayName, channelOwnerId);
   const result = await db.query<ChannelRow>(
     `INSERT INTO promptoon_channel (project_id, owner_user_id, slug, display_name, handle, avatar_url, bio, is_default)
@@ -1734,7 +1734,7 @@ export async function ensureDefaultChannelForProject(db: DbExecutor, project: Pr
            is_default = TRUE,
            updated_at = NOW()
      RETURNING *`,
-    [channelOwnerId, slug, displayName, `@${slug}`, avatarUrl]
+    [channelOwnerId, slug, displayName, `@${slug}`, null]
   );
 
   return result.rows[0];
@@ -1871,22 +1871,26 @@ export async function listFeedItemProjections(
   input: {
     cursor?: FeedCursorInput;
     limit: number;
+    userId?: string;
   }
 ): Promise<Array<{ id: string; publishedAt: string; item: import('@promptoon/shared').FeedItem }>> {
   const values: unknown[] = [];
-  const cursorClause = input.cursor
-    ? (() => {
-        values.push(input.cursor.createdAt, input.cursor.publishId);
-        return `WHERE (published_at, id) < ($${values.length - 1}::timestamptz, $${values.length}::uuid)`;
-      })()
-    : '';
+  const whereClauses: string[] = [];
+  if (input.cursor) {
+    values.push(input.cursor.createdAt, input.cursor.publishId);
+    whereClauses.push(`(published_at, id) < ($${values.length - 1}::timestamptz, $${values.length}::uuid)`);
+  }
+  const accessUserParam = input.userId ? `$${values.push(input.userId)}` : undefined;
+  whereClauses.push(buildFeedItemAccessPredicate('promptoon_feed_item', accessUserParam));
+  const whereClause = `WHERE ${whereClauses.join(' AND ')}`;
 
   values.push(input.limit);
 
   const result = await db.query<FeedItemProjectionRow>(
-    `SELECT id, publish_id, project_id, channel_id, series_id, episode_id, metrics_json, payload_json, published_at
+    `SELECT id, publish_id, project_id, channel_id, series_id, episode_id, metrics_json, payload_json, published_at,
+       ${buildFeedItemExperimentalPredicate('promptoon_feed_item', accessUserParam)} AS is_experimental
      FROM promptoon_feed_item
-     ${cursorClause}
+     ${whereClause}
      ORDER BY published_at DESC, id DESC
      LIMIT $${values.length}`,
     values
@@ -1897,7 +1901,8 @@ export async function listFeedItemProjections(
     publishedAt: toIsoString(row.published_at),
     item: {
       ...row.payload_json,
-      metrics: normalizeFeedMetrics(row.metrics_json ?? row.payload_json.metrics)
+      metrics: normalizeFeedMetrics(row.metrics_json ?? row.payload_json.metrics),
+      ...(row.is_experimental ? { isExperimental: true } : {})
     }
   }));
 }

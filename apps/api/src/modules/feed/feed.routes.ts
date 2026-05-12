@@ -80,14 +80,16 @@ export function createFeedRouter(): Router {
       userId: user?.sub
     }));
   }));
-  router.get('/search', asyncHandler(async (request, response) => {
+  router.get('/search', optionalAuth, asyncHandler(async (request, response) => {
     const query = feedSearchQuerySchema.parse(request.query);
+    const user = getOptionalAuthUser(request);
     response.json(
       await service.searchFeed({
         cursor: query.cursor,
         itemTypes: query.type === 'all' ? undefined : [query.type],
         limit: query.limit,
-        query: query.q
+        query: query.q,
+        userId: user?.sub
       })
     );
   }));
@@ -103,8 +105,9 @@ export function createFeedRouter(): Router {
   router.get('/mixed', optionalAuth, asyncHandler(async (request, response) => getFeed(request, response)));
   router.get('/episodes', optionalAuth, asyncHandler(async (request, response) => getFeed(request, response, ['promptoon', 'webtoon_episode'])));
   router.get('/shorts', optionalAuth, asyncHandler(async (request, response) => getFeed(request, response, ['short_drama'])));
-  router.get('/shorts/:publishId', asyncHandler(async (request, response) => {
-    response.json(await service.getFeedItemByPublishId(uuidSchema.parse(getParam(request.params.publishId, 'publishId'))));
+  router.get('/shorts/:publishId', optionalAuth, asyncHandler(async (request, response) => {
+    const user = getOptionalAuthUser(request);
+    response.json(await service.getFeedItemByPublishId(uuidSchema.parse(getParam(request.params.publishId, 'publishId')), user?.sub));
   }));
 
   router.get('/state', requireAuth, asyncHandler(async (request, response) => {

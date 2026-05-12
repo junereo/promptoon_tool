@@ -80,6 +80,11 @@ export function FeedSlide({
                 <span className="truncate">{item.channelName ?? item.projectTitle}</span>
               </Link>
             ) : null}
+            {item.isExperimental ? (
+              <span className="mb-3 inline-flex w-fit rounded-full bg-amber-300 px-3 py-1 text-xs font-black text-zinc-950 shadow-sm">
+                실험용
+              </span>
+            ) : null}
             <div className="flex w-full min-w-0 overflow-hidden">
               <h1 className="truncate font-display text-2xl font-semibold leading-tight tracking-tight text-white sm:text-3xl">
                 {item.episodeTitle}

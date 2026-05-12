@@ -3,7 +3,7 @@ import type { Request } from 'express';
 import { z } from 'zod';
 
 import { asyncHandler } from '../../lib/async-handler';
-import { getRequiredAuthUser, requireAuth } from '../../lib/auth';
+import { getOptionalAuthUser, getRequiredAuthUser, optionalAuth, requireAuth } from '../../lib/auth';
 import { HttpError } from '../../lib/http-error';
 import * as service from './viewer.service';
 
@@ -34,16 +34,19 @@ function getBaseOrigin(request: Request): string {
 export function createViewerRouter(): Router {
   const router = Router();
 
-  router.get('/publishes/:publishId', asyncHandler(async (request, response) => {
-    response.json(await service.getPublishedEpisode(uuidSchema.parse(getParam(request.params.publishId, 'publishId'))));
+  router.get('/publishes/:publishId', optionalAuth, asyncHandler(async (request, response) => {
+    const user = getOptionalAuthUser(request);
+    response.json(await service.getPublishedEpisode(uuidSchema.parse(getParam(request.params.publishId, 'publishId')), user?.sub));
   }));
 
-  router.get('/publishes/:publishId/episodes/:episodeNo', asyncHandler(async (request, response) => {
-    response.json(await service.getPublishedEpisode(uuidSchema.parse(getParam(request.params.publishId, 'publishId'))));
+  router.get('/publishes/:publishId/episodes/:episodeNo', optionalAuth, asyncHandler(async (request, response) => {
+    const user = getOptionalAuthUser(request);
+    response.json(await service.getPublishedEpisode(uuidSchema.parse(getParam(request.params.publishId, 'publishId')), user?.sub));
   }));
 
-  router.get('/publishes/:publishId/related-shorts', asyncHandler(async (request, response) => {
-    response.json(await service.getRelatedShorts(uuidSchema.parse(getParam(request.params.publishId, 'publishId'))));
+  router.get('/publishes/:publishId/related-shorts', optionalAuth, asyncHandler(async (request, response) => {
+    const user = getOptionalAuthUser(request);
+    response.json(await service.getRelatedShorts(uuidSchema.parse(getParam(request.params.publishId, 'publishId')), user?.sub));
   }));
 
   router.get('/publishes/:publishId/share', asyncHandler(async (request, response) => {

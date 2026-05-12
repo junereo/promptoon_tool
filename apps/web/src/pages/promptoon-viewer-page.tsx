@@ -1,13 +1,17 @@
 import type { CommentsMetaResponse, ProductPublishManifest, ViewerInteractionStateResponse } from '@promptoon/shared';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { useAuthStore } from '../features/auth/store/use-auth-store';
 import { usePublishedEpisode, useTestViewerEpisode } from '../features/viewer/hooks/use-published-episode';
 import { useViewerTelemetry } from '../features/viewer/hooks/use-viewer-telemetry';
 import { useViewerStore } from '../features/viewer/store/use-viewer-store';
+import { ApiError } from '../shared/api/client';
 import { communityApi } from '../shared/api/community.api';
+import { experimentalApi } from '../shared/api/experimental.api';
 import { feedApi } from '../shared/api/feed.api';
+import { promptoonKeys } from '../shared/api/query-keys';
 import { viewerApi } from '../shared/api/viewer.api';
 import { getCutEffectDurationMs } from '../shared/lib/cut-effects';
 import { preloadImageAsset } from '../shared/lib/image-preload';
@@ -34,6 +38,68 @@ interface ViewerPathStep {
   cut: ViewerCut;
   renderCut: ViewerCut;
   visibleChoices: ViewerChoice[];
+}
+
+function ExperimentalAccessRequired({
+  error,
+  isAuthenticated,
+  onRedeem,
+  publishId
+}: {
+  error: unknown;
+  isAuthenticated: boolean;
+  onRedeem: (code: string) => void;
+  publishId: string;
+}) {
+  const [code, setCode] = useState('');
+  const errorMessage = error instanceof ApiError ? error.message : null;
+
+  return (
+    <div className="flex min-h-dvh items-center justify-center bg-black px-5 text-white">
+      <section className="w-full max-w-sm rounded-lg border border-white/12 bg-white/[0.05] p-5 text-center">
+        <p className="text-xs font-semibold uppercase text-white/42">Experimental</p>
+        <h1 className="mt-2 font-display text-2xl font-semibold tracking-normal">실험형 콘텐츠 권한이 필요합니다.</h1>
+        <p className="mt-3 text-sm leading-6 text-white/58">초대 코드를 등록하면 이 콘텐츠를 바로 이어서 볼 수 있습니다.</p>
+
+        {!isAuthenticated ? (
+          <Link
+            className="mt-5 inline-flex h-11 items-center rounded-md bg-white px-4 text-sm font-bold text-zinc-950"
+            state={{ from: `/v/${publishId}` }}
+            to="/login"
+          >
+            로그인
+          </Link>
+        ) : (
+          <form
+            className="mt-5"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const normalizedCode = code.trim();
+              if (normalizedCode) {
+                onRedeem(normalizedCode);
+              }
+            }}
+          >
+            <label className="sr-only" htmlFor="viewer-experimental-code">
+              초대 코드
+            </label>
+            <input
+              className="h-11 w-full rounded-md border border-white/12 bg-black/45 px-3 text-center text-sm font-semibold text-white outline-none transition placeholder:text-white/30 focus:border-white/38"
+              id="viewer-experimental-code"
+              onChange={(event) => setCode(event.target.value)}
+              placeholder="XXXX-XXXX-XXXX-XXXX"
+              value={code}
+            />
+            <button className="mt-3 h-11 w-full rounded-md bg-white px-4 text-sm font-bold text-zinc-950" type="submit">
+              코드 등록
+            </button>
+          </form>
+        )}
+
+        {errorMessage ? <p className="mt-4 text-xs text-white/44">{errorMessage}</p> : null}
+      </section>
+    </div>
+  );
 }
 
 function getSortedViewerChoices(cut: ViewerCut): ViewerChoice[] {
@@ -165,6 +231,7 @@ function resolveViewerPathSteps(
 export function PromptoonViewerPage() {
   const location = useLocation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { publishId = '', projectId = '', episodeId = '' } = useParams();
   const [searchParams] = useSearchParams();
   const isTestViewer = Boolean(episodeId) && !publishId;
@@ -198,6 +265,22 @@ export function PromptoonViewerPage() {
     isExpanded: true,
     pathStartCutId: null
   });
+  const redeemAccessMutation = useMutation({
+    mutationFn: experimentalApi.redeemInviteCode,
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: promptoonKeys.publishedEpisode(publishId) }),
+        queryClient.invalidateQueries({ queryKey: promptoonKeys.experimentalAccess() }),
+        queryClient.invalidateQueries({ queryKey: promptoonKeys.experimentalFeed() }),
+        queryClient.invalidateQueries({ queryKey: promptoonKeys.feedHome() }),
+        queryClient.invalidateQueries({ queryKey: promptoonKeys.feed() })
+      ]);
+    }
+  });
+  const isExperimentalAccessError =
+    !isTestViewer &&
+    viewerEpisode.error instanceof ApiError &&
+    (viewerEpisode.error.status === 401 || viewerEpisode.error.status === 403);
 
   const manifest = viewerEpisode.data?.manifest ?? null;
   const startCutId = useMemo(() => (manifest ? getStartCutId(manifest) : null), [manifest]);
@@ -500,6 +583,17 @@ export function PromptoonViewerPage() {
       <div className="flex min-h-dvh items-center justify-center bg-black text-zinc-400">
         {isTestViewer ? '테스트 뷰어를 준비하는 중입니다.' : '발행된 에피소드를 불러오는 중입니다.'}
       </div>
+    );
+  }
+
+  if (isExperimentalAccessError) {
+    return (
+      <ExperimentalAccessRequired
+        error={redeemAccessMutation.error ?? viewerEpisode.error}
+        isAuthenticated={isAuthenticated}
+        onRedeem={(nextCode) => redeemAccessMutation.mutate(nextCode)}
+        publishId={publishId}
+      />
     );
   }
 

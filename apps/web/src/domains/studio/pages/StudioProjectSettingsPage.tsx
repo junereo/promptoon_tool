@@ -20,11 +20,13 @@ export function StudioProjectSettingsPage() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [thumbnailUrl, setThumbnailUrl] = useState('');
+  const [isExperimental, setIsExperimental] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isPreviewUnavailable, setIsPreviewUnavailable] = useState(false);
   const trimmedThumbnailUrl = thumbnailUrl.trim();
   const hasCoverPreview = trimmedThumbnailUrl.length > 0 && !isPreviewUnavailable;
+  const canManageExperimental = Boolean(project?.canManageExperimentalAccess);
 
   useEffect(() => {
     if (!project) {
@@ -34,6 +36,7 @@ export function StudioProjectSettingsPage() {
     setTitle(project.title);
     setDescription(project.description ?? '');
     setThumbnailUrl(project.thumbnailUrl ?? '');
+    setIsExperimental(Boolean(project.isExperimental));
   }, [project]);
 
   useEffect(() => {
@@ -69,7 +72,8 @@ export function StudioProjectSettingsPage() {
     await patchProject.mutateAsync({
       title,
       description: description.trim().length > 0 ? description : null,
-      thumbnailUrl: thumbnailUrl.trim().length > 0 ? thumbnailUrl : null
+      thumbnailUrl: thumbnailUrl.trim().length > 0 ? thumbnailUrl : null,
+      ...(canManageExperimental ? { isExperimental } : {})
     });
     setNotice('프로젝트 설정이 저장되었습니다.');
     setUploadError(null);
@@ -177,6 +181,25 @@ export function StudioProjectSettingsPage() {
             </div>
           </div>
         </section>
+        {canManageExperimental ? (
+          <section className="grid gap-4 rounded-2xl border border-editor-border bg-black/20 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="text-sm font-semibold text-zinc-100">프로젝트 성격</h2>
+                <p className="mt-1 text-xs leading-5 text-zinc-500">플랫폼 관리자만 실험형 프로젝트 여부를 변경할 수 있습니다.</p>
+              </div>
+              <label className="inline-flex min-h-11 cursor-pointer items-center gap-3 rounded-2xl border border-editor-border bg-white/8 px-4 text-sm font-semibold text-zinc-100 transition hover:border-editor-accentSoft hover:bg-white/12">
+                <input
+                  checked={isExperimental}
+                  className="h-4 w-4 rounded border-editor-border bg-black/40 accent-editor-accent"
+                  onChange={(event) => setIsExperimental(event.target.checked)}
+                  type="checkbox"
+                />
+                실험형
+              </label>
+            </div>
+          </section>
+        ) : null}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           {notice ? <p className="text-sm text-emerald-200">{notice}</p> : <span />}
           <button

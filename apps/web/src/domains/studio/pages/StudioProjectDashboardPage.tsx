@@ -391,6 +391,10 @@ function StatusBadge({ status }: { status: string }) {
   return <span className="rounded-md border border-editor-border bg-black/35 px-2 py-1 text-xs text-zinc-300">{status.replace('_', ' ')}</span>;
 }
 
+function ExperimentalBadge() {
+  return <span className="rounded-md border border-fuchsia-300/30 bg-fuchsia-400/12 px-2 py-1 text-xs font-bold text-fuchsia-100">실험형</span>;
+}
+
 function ViewModeToggle({ mode, onChange }: { mode: StudioViewMode; onChange: (mode: StudioViewMode) => void }) {
   return (
     <div aria-label="Project view mode" className="grid grid-cols-2 rounded-md border border-editor-border bg-black/20 p-1" role="group">
@@ -456,6 +460,7 @@ function ProjectCard({
           <div className="flex flex-wrap items-center gap-2">
             <KindBadge kind={kind} />
             <StatusBadge status={getProjectDisplayStatus(project)} />
+            {project.isExperimental ? <ExperimentalBadge /> : null}
           </div>
           <h2 className="mt-3 truncate font-display text-2xl font-semibold text-zinc-50">{project.title}</h2>
           <p className="mt-2 line-clamp-2 text-sm leading-6 text-zinc-400">{getProjectDescription(project)}</p>
@@ -521,6 +526,7 @@ function ProjectListRow({
             <div className="flex flex-wrap items-center gap-2">
               <KindBadge kind={kind} />
               <StatusBadge status={getProjectDisplayStatus(project)} />
+              {project.isExperimental ? <ExperimentalBadge /> : null}
             </div>
             <button className="mt-2 block max-w-full text-left" onClick={onOpen} type="button">
               <h2 className="truncate font-display text-xl font-semibold text-zinc-50">{project.title}</h2>

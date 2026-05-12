@@ -39,6 +39,8 @@ interface ProjectRow {
   title: string;
   description: string | null;
   thumbnail_url: string | null;
+  is_experimental?: boolean | null;
+  can_manage_experimental_access?: boolean | null;
   kind: StudioProjectKind;
   status: StudioProjectStatus;
   created_by: string;
@@ -173,6 +175,8 @@ function mapProject(row: ProjectRow): Project {
     title: row.title,
     description: row.description,
     thumbnailUrl: row.thumbnail_url,
+    isExperimental: Boolean(row.is_experimental),
+    canManageExperimentalAccess: Boolean(row.can_manage_experimental_access),
     kind: row.kind,
     status: row.status,
     createdBy: row.created_by,
@@ -298,24 +302,37 @@ function groupByKey<T>(items: T[], getKey: (item: T) => string): Map<string, T[]
 
 export async function listProjectsWithEpisodes(db: DbExecutor, userId?: string): Promise<ProjectWithEpisodes[]> {
   const values: unknown[] = [];
-  const accessFilter = userId
-    ? (() => {
-        values.push(userId);
-        return `WHERE project.created_by = $${values.length}
+  const userParam = userId ? `$${values.push(userId)}` : null;
+  const accessFilter = userParam
+    ? `WHERE project.created_by = ${userParam}
            OR EXISTS (
              SELECT 1
              FROM promptoon_project_member AS member
              WHERE member.project_id = project.id
-               AND member.user_id = $${values.length}
-           )`;
-      })()
+               AND member.user_id = ${userParam}
+           )`
     : '';
+  const canManageExperimentalAccessSelect = userParam
+    ? `EXISTS (
+         SELECT 1
+         FROM promptoon_platform_admin AS platform_admin
+         WHERE platform_admin.user_id = ${userParam}
+       )`
+    : 'FALSE';
   const result = await db.query<ProjectWithEpisodesRow>(
     `SELECT
        project.id,
        project.title,
        project.description,
        project.thumbnail_url,
+       EXISTS (
+         SELECT 1
+         FROM promptoon_experimental_access_target AS experimental_target
+         WHERE experimental_target.target_type = 'project'
+           AND experimental_target.project_id = project.id
+           AND experimental_target.status = 'active'
+       ) AS is_experimental,
+       ${canManageExperimentalAccessSelect} AS can_manage_experimental_access,
        project.kind,
        project.status,
        project.created_by,
@@ -399,7 +416,21 @@ export async function createProject(
 }
 
 export async function getProjectById(db: DbExecutor, projectId: string): Promise<Project | null> {
-  const result = await db.query<ProjectRow>('SELECT * FROM promptoon_project WHERE id = $1', [projectId]);
+  const result = await db.query<ProjectRow>(
+    `SELECT
+       project.*,
+       EXISTS (
+         SELECT 1
+         FROM promptoon_experimental_access_target AS experimental_target
+         WHERE experimental_target.target_type = 'project'
+           AND experimental_target.project_id = project.id
+           AND experimental_target.status = 'active'
+       ) AS is_experimental,
+       FALSE AS can_manage_experimental_access
+     FROM promptoon_project AS project
+     WHERE project.id = $1`,
+    [projectId]
+  );
   return result.rows[0] ? mapProject(result.rows[0]) : null;
 }
 
@@ -433,7 +464,7 @@ export async function updateProject(
     ]
   );
 
-  return result.rows[0] ? mapProject(result.rows[0]) : null;
+  return result.rows[0] ? getProjectById(db, result.rows[0].id) : null;
 }
 
 export async function listProjectAssets(db: DbExecutor, projectId: string): Promise<ProjectAssetListResponse> {

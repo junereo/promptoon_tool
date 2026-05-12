@@ -13,6 +13,7 @@ import type { FormEvent } from 'react';
 import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
+import { preloadFeedItemRoute } from '../../../app/lazy-routes';
 import { useAuthStore } from '../../../features/auth/store/use-auth-store';
 import { useFeedQuery, type FeedSource } from '../../../features/feed/hooks/use-feed-query';
 import { useFeedTelemetry } from '../../../features/feed/hooks/use-feed-telemetry';
@@ -286,10 +287,10 @@ export function FeedHomePage() {
   }
 
   function handlePreloadFeedItem(item: FeedItem) {
-    if (item.type === 'short_drama') {
-      return;
-    }
-    void preloadViewerForPublish(item.publishId).catch(() => undefined);
+    void preloadFeedItemRoute(
+      item,
+      item.entry?.href ?? (item.type === 'short_drama' ? `/shorts/${item.publishId}` : `/v/${item.publishId}`)
+    ).catch(() => undefined);
   }
 
   async function handleOpenFeedItem(item: FeedItem) {

@@ -39,7 +39,7 @@ cp apps/web/.env.example apps/web/.env
 - `CLIENT_REDIRECT_URL`: Web OAuth/login redirect.
 - `ADMIN_CLIENT_REDIRECT_URL`: Admin OAuth redirect.
 - `PROMPTOON_PLATFORM_ADMIN_LOGIN_IDS`: admin bootstrap 대상 loginId 목록.
-- `KAKAO_REST_API_KEY`, `KAKAO_CLIENT_SECRET`, `KAKAO_REDIRECT_URI`: Kakao OAuth.
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`: Google OAuth. 로컬 redirect URI는 `http://localhost:4000/api/auth/google/callback`, 운영 redirect URI는 `https://api.promptoon.ai/api/auth/google/callback` 또는 `https://promptoon.ai/api/auth/google/callback`입니다.
 - `DISCOURSE_BASE_URL`, `DISCOURSE_API_KEY`, `DISCOURSE_API_USER`, `DISCOURSE_CATEGORY_ID`, `DISCOURSE_ORIGIN`: Discourse bridge.
 - `PORT`: API 서버 포트, 기본 `4000`.
 - `RECOMMENDATION_API_URL`: Feed API가 호출하는 추천 API origin, 기본 `http://127.0.0.1:4100`.

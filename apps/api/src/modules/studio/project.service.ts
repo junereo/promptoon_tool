@@ -17,6 +17,7 @@ import sharp from 'sharp';
 import { db, withTransaction } from '../../db';
 import { HttpError } from '../../lib/http-error';
 import { resolveFromApiRoot, resolveFromWorkspaceRoot } from '../../lib/workspace-paths';
+import * as experimentalRepository from '../experimental/experimental.repository';
 import * as projectionService from '../promptoon-core/projection.service';
 import * as productRepository from '../promptoon-core/product.repository';
 import * as accessRepository from './access.repository';
@@ -254,10 +255,22 @@ export async function createProject(request: CreateProjectRequest, userId: strin
 
 export async function updateProject(projectId: string, request: PatchProjectRequest, userId: string): Promise<Project> {
   await authorizationService.ensureProjectWritableByUser(projectId, userId);
+  const hasExperimentalPatch = Object.prototype.hasOwnProperty.call(request, 'isExperimental');
+  if (hasExperimentalPatch && (await accessRepository.getPlatformAdminRole(db, userId)) !== 'platform_admin') {
+    throw new HttpError(403, 'Platform admin role is required to update experimental project settings.');
+  }
+
   return withTransaction(async (client) => {
     const project = assertExists(await repository.updateProject(client, projectId, request), 'Project not found.');
+    if (hasExperimentalPatch) {
+      await experimentalRepository.setProjectTargetActive(client, {
+        actorUserId: userId,
+        isExperimental: Boolean(request.isExperimental),
+        projectId
+      });
+    }
     await projectionService.rebuildPublicProjections(client, projectId);
-    return project;
+    return hasExperimentalPatch ? assertExists(await repository.getProjectById(client, project.id), 'Project not found.') : project;
   });
 }
 

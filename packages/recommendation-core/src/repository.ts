@@ -75,6 +75,61 @@ function buildCandidateFilters(input: RecommendationFeedRequest): { whereClause:
     whereClauses.push(`NOT (COALESCE(publish_id, movingtoon_publish_id) = ANY($${values.length}::uuid[]))`);
   }
 
+  const userParam = input.user.userId ? `$${values.push(input.user.userId)}` : null;
+  whereClauses.push(`(
+    NOT EXISTS (
+      SELECT 1
+      FROM promptoon_experimental_access_target AS restricted_target
+      WHERE restricted_target.status = 'active'
+        AND (
+          (restricted_target.target_type = 'project' AND restricted_target.project_id = promptoon_feed_item.project_id)
+          OR (
+            restricted_target.target_type = 'publish'
+            AND promptoon_feed_item.publish_id IS NOT NULL
+            AND (
+              restricted_target.publish_id = promptoon_feed_item.publish_id
+              OR EXISTS (
+                SELECT 1
+                FROM promptoon_publish AS target_publish
+                WHERE target_publish.id = restricted_target.publish_id
+                  AND target_publish.episode_id = promptoon_feed_item.episode_id
+              )
+            )
+          )
+        )
+    )
+    OR ${
+      userParam
+        ? `EXISTS (
+            SELECT 1
+            FROM promptoon_experimental_access_target AS grant_target
+            INNER JOIN promptoon_experimental_access_grant AS access_grant
+              ON access_grant.target_id = grant_target.id
+             AND access_grant.user_id = ${userParam}
+             AND access_grant.status = 'active'
+            WHERE grant_target.status = 'active'
+              AND (
+                grant_target.target_type = 'all'
+                OR (grant_target.target_type = 'project' AND grant_target.project_id = promptoon_feed_item.project_id)
+                OR (
+                  grant_target.target_type = 'publish'
+                  AND promptoon_feed_item.publish_id IS NOT NULL
+                  AND (
+                    grant_target.publish_id = promptoon_feed_item.publish_id
+                    OR EXISTS (
+                      SELECT 1
+                      FROM promptoon_publish AS target_publish
+                      WHERE target_publish.id = grant_target.publish_id
+                        AND target_publish.episode_id = promptoon_feed_item.episode_id
+                    )
+                  )
+                )
+              )
+          )`
+        : 'FALSE'
+    }
+  )`);
+
   return {
     whereClause: `WHERE ${whereClauses.join(' AND ')}`,
     values

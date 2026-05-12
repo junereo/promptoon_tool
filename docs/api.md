@@ -44,13 +44,11 @@ Public read API는 대체로 인증 없이 접근합니다. Studio/Admin/interac
 - `POST /api/auth/refresh`
   - Body: `{ refreshToken? }`
   - header `x-refresh-token` 또는 refresh cookie도 허용.
-- `GET /api/auth/google/start`, `GET /api/auth/google/callback`
-  - 현재 501 scaffold.
-- `GET /api/auth/kakao/start`
+- `GET /api/auth/google/start`
   - Query: `state?`, `redirect=1?`
-  - Kakao authorization URL 반환 또는 redirect.
-- `GET /api/auth/kakao/callback`, `POST /api/auth/kakao/callback`
-  - Kakao code로 로그인. `state=admin`이면 admin redirect URL 사용.
+  - Google authorization URL 반환 또는 redirect.
+- `GET /api/auth/google/callback`, `POST /api/auth/google/callback`
+  - Google code로 로그인. `state=admin`이면 admin redirect URL 사용.
 
 ## 4. Public Product API
 

@@ -106,6 +106,7 @@ beforeEach(() => {
       {
         publishId: 'publish-1',
         episodeId: 'episode-1',
+        isExperimental: true,
         channelAvatarUrl: 'https://cdn.example.com/channel-avatar.webp',
         channelName: 'Serial Studio',
         channelSlug: 'serial-studio',
@@ -222,6 +223,7 @@ describe('MainFeedPage', () => {
       'https://forms.gle/WhsQ9jH7WVg9UUjK6'
     );
     expect(document.querySelector('img[src="https://cdn.example.com/channel-avatar.webp"]')).toBeTruthy();
+    expect(screen.getByText('실험용')).toBeTruthy();
 
     await waitFor(() => {
       expect(trackImpressionMock).toHaveBeenCalledTimes(1);

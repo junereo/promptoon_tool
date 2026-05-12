@@ -79,6 +79,7 @@ import sharp from 'sharp';
 import { db, withTransaction, type DbExecutor } from '../../db';
 import { HttpError } from '../../lib/http-error';
 import { resolveFromApiRoot, resolveFromWorkspaceRoot } from '../../lib/workspace-paths';
+import * as experimentalService from '../experimental/experimental.service';
 import * as coreProjectionService from '../promptoon-core/projection.service';
 import * as repository from './promptoon.repository';
 import { validateEpisodeGraph } from './promptoon.validators';
@@ -1885,15 +1886,17 @@ export async function validateEpisode(episodeId: string, userId: string): Promis
   return validation;
 }
 
-export async function getPublishedEpisode(publishId: string): Promise<Publish> {
+export async function getPublishedEpisode(publishId: string, userId?: string): Promise<Publish> {
+  await experimentalService.assertPublishAccess(publishId, userId);
   return toPublicPublish(normalizePublish(assertPublicPublish(await repository.getPublishById(db, publishId), 'Published episode not found.')));
 }
 
-export async function getEpisodeFeed(input: { cursor?: string; limit: number }): Promise<FeedResponse> {
+export async function getEpisodeFeed(input: { cursor?: string; limit: number; userId?: string }): Promise<FeedResponse> {
   const cursor = input.cursor ? decodeFeedCursor(input.cursor) : undefined;
   const rows = await repository.listFeedItemProjections(db, {
     cursor,
-    limit: input.limit + 1
+    limit: input.limit + 1,
+    userId: input.userId
   });
   const pageRows = rows.slice(0, input.limit);
   const lastRow = pageRows[pageRows.length - 1] ?? null;

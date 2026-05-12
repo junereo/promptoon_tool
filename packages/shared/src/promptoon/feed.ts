@@ -42,6 +42,7 @@ export interface FeedRecommendationMeta {
 export interface FeedItem {
   id?: string;
   type?: FeedItemType;
+  isExperimental?: boolean;
   publishId: string;
   episodeId: string;
   channelId?: string | null;

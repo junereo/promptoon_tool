@@ -2,6 +2,7 @@ import type { ComponentType, SVGProps } from 'react';
 import { BookOpen, Compass, House01 as Home, User01 as User } from 'react-coolicons';
 import { Link, useLocation } from 'react-router-dom';
 
+import { preloadAppRoute } from '../../../app/lazy-routes';
 import { cn } from '../../../shared/lib/cn';
 
 interface ConsumerNavItem {
@@ -37,6 +38,9 @@ export function ConsumerBottomNav({ className, containerClassName }: ConsumerBot
           {CONSUMER_NAV_ITEMS.map((item) => {
             const Icon = item.icon;
             const isActive = location.pathname === item.to;
+            const preloadRoute = () => {
+              void preloadAppRoute(item.to).catch(() => undefined);
+            };
 
             return (
               <Link
@@ -46,6 +50,10 @@ export function ConsumerBottomNav({ className, containerClassName }: ConsumerBot
                   isActive ? 'text-white' : 'text-white/52 hover:text-white/82'
                 )}
                 key={item.to}
+                onFocus={preloadRoute}
+                onPointerDown={preloadRoute}
+                onPointerEnter={preloadRoute}
+                onTouchStart={preloadRoute}
                 to={item.to}
               >
                 <span

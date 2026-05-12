@@ -179,6 +179,7 @@ export const patchProjectSchema = z.object({
   title: z.string().trim().min(1).optional(),
   description: z.string().trim().nullable().optional(),
   thumbnailUrl: z.string().trim().nullable().optional(),
+  isExperimental: z.boolean().optional(),
   kind: studioProjectKindSchema.optional(),
   status: studioProjectStatusSchema.optional()
 }).refine((value) => Object.keys(value).length > 0, {

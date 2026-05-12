@@ -1,5 +1,6 @@
 import type { Publish } from '@promptoon/shared';
 import { DEFAULT_CUT_EFFECT_DURATION_MS } from '@promptoon/shared';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -7,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAuthStore } from '../src/features/auth/store/use-auth-store';
 import { useViewerStore } from '../src/features/viewer/store/use-viewer-store';
 import { PromptoonViewerPage } from '../src/pages/promptoon-viewer-page';
+import { ApiError } from '../src/shared/api/client';
 import { readPromptoonViewerState } from '../src/shared/lib/promptoon-state-variants';
 
 let publishedEpisode: Publish;
@@ -20,19 +22,14 @@ const likePublishMock = vi.hoisted(() => vi.fn());
 const unlikePublishMock = vi.hoisted(() => vi.fn());
 const bookmarkPublishMock = vi.hoisted(() => vi.fn());
 const unbookmarkPublishMock = vi.hoisted(() => vi.fn());
+const usePublishedEpisodeMock = vi.hoisted(() => vi.fn());
+const useTestViewerEpisodeMock = vi.hoisted(() => vi.fn());
+const redeemExperimentalInviteCodeMock = vi.hoisted(() => vi.fn());
 const originalImage = globalThis.Image;
 
 vi.mock('../src/features/viewer/hooks/use-published-episode', () => ({
-  usePublishedEpisode: () => ({
-    isLoading: false,
-    isError: false,
-    data: publishedEpisode
-  }),
-  useTestViewerEpisode: () => ({
-    isLoading: false,
-    isError: false,
-    data: publishedEpisode
-  })
+  usePublishedEpisode: () => usePublishedEpisodeMock(),
+  useTestViewerEpisode: () => useTestViewerEpisodeMock()
 }));
 
 vi.mock('../src/shared/api/viewer.api', () => ({
@@ -56,6 +53,12 @@ vi.mock('../src/shared/api/community.api', () => ({
   }
 }));
 
+vi.mock('../src/shared/api/experimental.api', () => ({
+  experimentalApi: {
+    redeemInviteCode: redeemExperimentalInviteCodeMock
+  }
+}));
+
 afterEach(() => {
   cleanup();
   Object.defineProperty(globalThis, 'Image', {
@@ -76,6 +79,20 @@ beforeEach(() => {
   unlikePublishMock.mockReset();
   bookmarkPublishMock.mockReset();
   unbookmarkPublishMock.mockReset();
+  usePublishedEpisodeMock.mockReset();
+  useTestViewerEpisodeMock.mockReset();
+  redeemExperimentalInviteCodeMock.mockReset();
+  usePublishedEpisodeMock.mockImplementation(() => ({
+    isLoading: false,
+    isError: false,
+    data: publishedEpisode
+  }));
+  useTestViewerEpisodeMock.mockImplementation(() => ({
+    isLoading: false,
+    isError: false,
+    data: publishedEpisode
+  }));
+  redeemExperimentalInviteCodeMock.mockResolvedValue({});
   getInteractionStateMock.mockResolvedValue({
     publishId: 'publish-1',
     liked: false,
@@ -216,13 +233,26 @@ beforeEach(() => {
 });
 
 function renderPage(initialEntry = '/v/publish-1') {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      mutations: {
+        retry: false
+      },
+      queries: {
+        retry: false
+      }
+    }
+  });
+
   return render(
-    <MemoryRouter initialEntries={[initialEntry]}>
-      <Routes>
-        <Route element={<PromptoonViewerPage />} path="/v/:publishId" />
-        <Route element={<div>Feed</div>} path="/" />
-      </Routes>
-    </MemoryRouter>
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[initialEntry]}>
+        <Routes>
+          <Route element={<PromptoonViewerPage />} path="/v/:publishId" />
+          <Route element={<div>Feed</div>} path="/" />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>
   );
 }
 
@@ -326,6 +356,10 @@ describe('PromptoonViewerPage', () => {
       expect(screen.queryByTestId('viewer-media-loading')).toBeNull();
     });
     expect(container.querySelector('[data-media-ready="true"]')).toBeTruthy();
+    expect(screen.queryByText('어디로 갈까요?')).toBeNull();
+
+    fireEvent.load(screen.getByAltText('시작'));
+
     expect(await screen.findByText('어디로 갈까요?')).toBeTruthy();
   });
 
@@ -362,18 +396,59 @@ describe('PromptoonViewerPage', () => {
   });
 
   it('redirects unauthenticated viewer interaction attempts to login', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        mutations: {
+          retry: false
+        },
+        queries: {
+          retry: false
+        }
+      }
+    });
+
     render(
-      <MemoryRouter initialEntries={['/v/publish-1']}>
-        <Routes>
-          <Route element={<PromptoonViewerPage />} path="/v/:publishId" />
-          <Route element={<div>Login Screen</div>} path="/login" />
-        </Routes>
-      </MemoryRouter>
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/v/publish-1']}>
+          <Routes>
+            <Route element={<PromptoonViewerPage />} path="/v/:publishId" />
+            <Route element={<div>Login Screen</div>} path="/login" />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
     );
 
     fireEvent.click(await screen.findByRole('button', { name: '좋아요' }));
 
     expect(await screen.findByText('Login Screen')).toBeTruthy();
+  });
+
+  it('shows an experimental access form and redeems a code when viewer access is denied', async () => {
+    useAuthStore.setState({
+      user: { id: 'user-1', loginId: 'viewer0001' },
+      session: null,
+      isAuthenticated: true,
+      hasHydrated: true,
+      sessionStatus: 'valid'
+    });
+    usePublishedEpisodeMock.mockReturnValue({
+      isLoading: false,
+      isError: true,
+      error: new ApiError('Experimental content access is required.', 403),
+      data: undefined
+    });
+
+    renderPage();
+
+    expect(await screen.findByText('실험형 콘텐츠 권한이 필요합니다.')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('초대 코드'), {
+      target: { value: 'ABCD-EFGH-JK23-4567' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: '코드 등록' }));
+
+    await waitFor(() => {
+      expect(redeemExperimentalInviteCodeMock.mock.calls[0]?.[0]).toBe('ABCD-EFGH-JK23-4567');
+    });
   });
 
   it('moves forward to the next cut, supports back navigation, and can reset from ending', async () => {

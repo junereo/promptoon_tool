@@ -13,6 +13,7 @@ interface ViewerContentProps {
   canGoBack: boolean;
   compact?: boolean;
   cut: ViewerCut;
+  deferContentUntilImageReady?: boolean;
   isTerminal: boolean;
   onChoiceClick: (choice: ViewerChoice) => void;
   onReset: () => void;
@@ -28,6 +29,7 @@ export function ViewerContent({
   canGoBack,
   compact = false,
   cut,
+  deferContentUntilImageReady = false,
   isTerminal,
   onChoiceClick,
   onReset,
@@ -43,6 +45,7 @@ export function ViewerContent({
       canGoBack={canGoBack}
       compact={compact}
       cut={cut}
+      deferContentUntilImageReady={deferContentUntilImageReady}
       onChoiceClick={onChoiceClick}
       onReset={onReset}
       onUserNameChange={onUserNameChange}

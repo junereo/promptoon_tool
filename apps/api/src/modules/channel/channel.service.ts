@@ -37,8 +37,8 @@ function assertExists<T>(value: T | null, message: string): T {
   return value;
 }
 
-export function getChannelHome(channelSlug: string): Promise<ChannelHome> {
-  return projectionService.getChannelHome(channelSlug);
+export function getChannelHome(channelSlug: string, userId?: string): Promise<ChannelHome> {
+  return projectionService.getChannelHome(channelSlug, userId);
 }
 
 export async function getMyChannelHome(userId: string): Promise<ChannelHome> {
@@ -48,7 +48,7 @@ export async function getMyChannelHome(userId: string): Promise<ChannelHome> {
     return defaultChannel;
   });
 
-  return projectionService.getChannelHome(channel.slug);
+  return projectionService.getChannelHome(channel.slug, userId);
 }
 
 function padDatePart(value: number): string {
@@ -381,10 +381,6 @@ export async function uploadMyChannelAvatar(file: Express.Multer.File | undefine
       }),
       'Channel not found.'
     );
-    await repository.updateUserProfileImageUrl(client, {
-      userId,
-      profileImageUrl: avatarUrl
-    });
     await repository.syncFeedItemChannelProfilePayload(client, updatedChannel.id);
     await projectionService.rebuildChannelProjectionForChannel(client, updatedChannel.id);
     await repository.insertTelemetryEvent(client, {
@@ -421,10 +417,6 @@ export async function deleteMyChannelAvatar(userId: string): Promise<ChannelProf
       }),
       'Channel not found.'
     );
-    await repository.updateUserProfileImageUrl(client, {
-      userId,
-      profileImageUrl: null
-    });
     await repository.syncFeedItemChannelProfilePayload(client, updatedChannel.id);
     await projectionService.rebuildChannelProjectionForChannel(client, updatedChannel.id);
     await repository.insertTelemetryEvent(client, {

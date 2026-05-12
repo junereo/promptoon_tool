@@ -151,6 +151,8 @@ export interface Project {
   title: string;
   description: string | null;
   thumbnailUrl: string | null;
+  isExperimental?: boolean;
+  canManageExperimentalAccess?: boolean;
   kind?: import('./studio').StudioProjectKind;
   status: PromptoonProjectStatus;
   createdBy: string;
@@ -338,6 +340,7 @@ export interface Publish {
 export interface AuthUser {
   id: string;
   loginId: string;
+  snsProfileImageUrl?: string | null;
 }
 
 export interface AuthResponse {
@@ -431,6 +434,7 @@ export interface PatchProjectRequest {
   title?: string;
   description?: string | null;
   thumbnailUrl?: string | null;
+  isExperimental?: boolean;
   kind?: import('./studio').StudioProjectKind;
   status?: import('./studio').StudioProjectStatus;
 }
