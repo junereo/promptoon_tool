@@ -1,14 +1,14 @@
 import type { FeedItem } from '@promptoon/shared';
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Bookmark } from 'react-coolicons';
-import { Navigate, useLocation } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useMemo } from 'react';
 
 import { useAuthStore } from '../../../features/auth/store/use-auth-store';
 import { feedApi } from '../../../shared/api/feed.api';
 import { promptoonKeys } from '../../../shared/api/query-keys';
 import { ConsumerContentCard } from '../components/ConsumerContentCard';
-import { ConsumerMobileShell } from '../components/ConsumerMobileShell';
+import { ConsumerResponsiveFrame } from '../components/ConsumerResponsiveFrame';
 
 const LIBRARY_PAGE_SIZE = 12;
 
@@ -16,8 +16,17 @@ function flattenFeedItems(pages: Array<{ items: FeedItem[] }> | undefined): Feed
   return pages?.flatMap((page) => page.items) ?? [];
 }
 
+function LibraryHeader() {
+  return (
+    <header className="px-5 pb-5 pt-[max(env(safe-area-inset-top),1.25rem)]">
+      <p className="text-xs font-semibold uppercase text-white/42">Library</p>
+      <h1 className="mt-2 font-display text-3xl font-semibold tracking-normal">보관함</h1>
+      <p className="mt-2 text-sm leading-6 text-white/58">저장한 프롬툰, 웹툰, 숏드라마를 한곳에서 다시 볼 수 있습니다.</p>
+    </header>
+  );
+}
+
 export function ConsumerLibraryPage() {
-  const location = useLocation();
   const queryClient = useQueryClient();
   const hasHydrated = useAuthStore((state) => state.hasHydrated);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -45,23 +54,33 @@ export function ConsumerLibraryPage() {
 
   if (!hasHydrated) {
     return (
-      <ConsumerMobileShell>
+      <ConsumerResponsiveFrame>
         <p className="px-5 py-16 text-sm text-white/56">인증 상태를 확인하고 있습니다.</p>
-      </ConsumerMobileShell>
+      </ConsumerResponsiveFrame>
     );
   }
 
   if (!isAuthenticated) {
-    return <Navigate replace state={{ from: `${location.pathname}${location.search}` }} to="/login" />;
+    return (
+      <ConsumerResponsiveFrame>
+        <LibraryHeader />
+        <section className="px-5 pb-8">
+          <div className="rounded-lg border border-white/10 bg-white/[0.04] px-5 py-10 text-center">
+            <Bookmark aria-hidden className="mx-auto h-10 w-10 text-white/36" />
+            <p className="mt-4 text-sm font-semibold text-white">로그인하고 보관함을 확인하세요.</p>
+            <p className="mt-2 text-sm leading-6 text-white/52">저장한 콘텐츠와 이어보기 목록을 한곳에서 관리할 수 있습니다.</p>
+            <Link className="mt-5 inline-flex h-11 items-center rounded-md bg-white px-4 text-sm font-bold text-zinc-950" to="/login">
+              로그인
+            </Link>
+          </div>
+        </section>
+      </ConsumerResponsiveFrame>
+    );
   }
 
   return (
-    <ConsumerMobileShell>
-      <header className="px-5 pb-5 pt-[max(env(safe-area-inset-top),1.25rem)]">
-        <p className="text-xs font-semibold uppercase text-white/42">Library</p>
-        <h1 className="mt-2 font-display text-3xl font-semibold tracking-normal">보관함</h1>
-        <p className="mt-2 text-sm leading-6 text-white/58">저장한 프롬툰, 웹툰, 숏드라마를 한곳에서 다시 볼 수 있습니다.</p>
-      </header>
+    <ConsumerResponsiveFrame>
+      <LibraryHeader />
 
       <section className="px-5 pb-6">
         {bookmarksQuery.isLoading ? <p className="py-10 text-sm text-white/56">보관함을 불러오는 중입니다.</p> : null}
@@ -103,6 +122,6 @@ export function ConsumerLibraryPage() {
           </button>
         ) : null}
       </section>
-    </ConsumerMobileShell>
+    </ConsumerResponsiveFrame>
   );
 }

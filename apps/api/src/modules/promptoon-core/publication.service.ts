@@ -197,8 +197,17 @@ function isRealFeedChoice(choice: ProductPublishedChoice) {
 
 function getFeedStartCut(manifest: ProductPublishManifest): ProductPublishedCut | null {
   const sortedCuts = manifest.cuts.slice().sort((left, right) => left.orderIndex - right.orderIndex);
+  const configuredStartCut = manifest.episode.startCutId
+    ? sortedCuts.find((cut) => cut.id === manifest.episode.startCutId)
+    : null;
 
-  return sortedCuts.find((cut) => cut.choices.filter(isRealFeedChoice).length >= 2) ?? null;
+  return (
+    sortedCuts.find((cut) => cut.choices.filter(isRealFeedChoice).length >= 2) ??
+    configuredStartCut ??
+    sortedCuts.find((cut) => cut.isStart) ??
+    sortedCuts[0] ??
+    null
+  );
 }
 
 export function buildFeedItem(publish: Publish): FeedItem | null {
@@ -214,7 +223,7 @@ export function buildFeedItem(publish: Publish): FeedItem | null {
     episodeId: publish.episodeId,
     episodeTitle: publish.manifest.episode.title,
     projectTitle: publish.manifest.project.title,
-    coverImageUrl: publish.manifest.episode.coverImageUrl ?? null,
+    coverImageUrl: publish.manifest.project.thumbnailUrl ?? publish.manifest.episode.coverImageUrl ?? null,
     publishedAt: publish.createdAt,
     startCut: {
       id: startCut.id,

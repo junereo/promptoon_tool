@@ -1204,12 +1204,17 @@ maybeDescribe('promptoon api integration', () => {
     });
     const assets = await withAuth(request(app).get(`/api/studio/projects/${fixture.project.body.id}/assets`), fixture.auth.token);
     const history = await withAuth(request(app).get(`/api/studio/projects/${fixture.project.body.id}/publishes`), fixture.auth.token);
+    const home = await request(app).get('/api/feed/home');
     const commentsMeta = await request(app).get(`/api/community/publishes/${fixture.publish.body.id}/comments-meta`);
     const communityEmbed = await request(app).get(`/api/community/publishes/${fixture.publish.body.id}/embed`);
+    const homeItems = home.body.sections.flatMap((section: { items: Array<{ publishId: string; coverImageUrl: string | null }> }) => section.items);
+    const updatedHomeItem = homeItems.find((item: { publishId: string }) => item.publishId === fixture.publish.body.id);
 
     expect(settings.status).toBe(200);
     expect(settings.body.title).toBe('Updated Product Flow Project');
     expect(settings.body.thumbnailUrl).toBe('https://cdn.example.com/project-thumb.jpg');
+    expect(home.status).toBe(200);
+    expect(updatedHomeItem?.coverImageUrl).toBe('https://cdn.example.com/project-thumb.jpg');
     expect(assets.status).toBe(200);
     expect(assets.body.assets).toEqual(
       expect.arrayContaining([

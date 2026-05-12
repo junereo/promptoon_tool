@@ -375,7 +375,10 @@ function validateLoopCuts(
   return errors;
 }
 
-export function validateEpisodeGraph(draft: EpisodeDraftResponse): ValidateEpisodeResponse {
+export function validateEpisodeGraph(
+  draft: EpisodeDraftResponse,
+  options: { projectThumbnailUrl?: string | null } = {}
+): ValidateEpisodeResponse {
   const errors: ValidationIssue[] = [];
   const warnings: ValidationIssue[] = [];
 
@@ -389,10 +392,11 @@ export function validateEpisodeGraph(draft: EpisodeDraftResponse): ValidateEpiso
   const startCuts = draft.cuts.filter((cut) => cut.isStart);
   const endingCuts = draft.cuts.filter(isEndingLikeCut);
 
-  if (!draft.episode.coverImageUrl) {
+  const feedCoverImageUrl = options.projectThumbnailUrl?.trim() || draft.episode.coverImageUrl?.trim() || null;
+  if (!feedCoverImageUrl) {
     warnings.push({
       code: 'missing_episode_cover',
-      message: 'Episode cover image is recommended for the published shorts feed.'
+      message: 'Project representative image or episode cover image is recommended for the published shorts feed.'
     });
   }
 

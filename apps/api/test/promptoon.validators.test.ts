@@ -348,6 +348,23 @@ describe('validateEpisodeGraph', () => {
     expect(result.warnings.some((issue) => issue.code === 'missing_episode_cover')).toBe(true);
   });
 
+  it('does not warn when the project representative image is available', () => {
+    const result = validateEpisodeGraph(
+      buildDraft({
+        episode: {
+          ...buildDraft().episode,
+          coverImageUrl: null
+        }
+      }),
+      {
+        projectThumbnailUrl: '/uploads/project-cover.jpg'
+      }
+    );
+
+    expect(result.isValid).toBe(true);
+    expect(result.warnings.some((issue) => issue.code === 'missing_episode_cover')).toBe(false);
+  });
+
   it('rejects multiple start cuts', () => {
     const draft = buildDraft({
       cuts: [

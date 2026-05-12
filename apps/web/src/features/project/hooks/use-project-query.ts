@@ -1,4 +1,5 @@
 import type {
+  AssetUploadResponse,
   CreateEpisodeRequest,
   CreateMovingtoonEpisodeRequest,
   CreateProjectRequest,
@@ -46,6 +47,17 @@ export function useProjectAssets(projectId?: string) {
     queryKey: promptoonKeys.projectAssets(projectId ?? ''),
     queryFn: () => studioApi.listProjectAssets(projectId ?? ''),
     enabled: Boolean(projectId)
+  });
+}
+
+export function useUploadProjectAsset(projectId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation<AssetUploadResponse, Error, File>({
+    mutationFn: (file) => studioApi.uploadAsset(projectId, file),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: promptoonKeys.projectAssets(projectId) });
+    }
   });
 }
 

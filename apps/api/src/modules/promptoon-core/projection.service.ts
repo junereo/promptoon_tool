@@ -271,8 +271,8 @@ export async function upsertPublishPublicProjections(
   };
 }
 
-export async function rebuildPublicProjections(executor: DbExecutor): Promise<RebuildPublicProjectionsResponse> {
-  const publishes = await repository.listLatestPublishesForProjectionRebuild(executor);
+export async function rebuildPublicProjections(executor: DbExecutor, projectId?: string): Promise<RebuildPublicProjectionsResponse> {
+  const publishes = await repository.listLatestPublishesForProjectionRebuild(executor, projectId);
   const touchedChannelIds = new Set<string>();
   const touchedSeriesIds = new Set<string>();
   let feedItems = 0;
@@ -281,6 +281,19 @@ export async function rebuildPublicProjections(executor: DbExecutor): Promise<Re
   for (const rawPublish of publishes) {
     const publish = normalizePublish(rawPublish);
     const project = assertExists(await repository.getProjectById(executor, publish.projectId), 'Project not found.');
+    const projectedPublish: Publish = {
+      ...publish,
+      manifest: {
+        ...publish.manifest,
+        project: {
+          ...publish.manifest.project,
+          title: project.title,
+          description: project.description,
+          thumbnailUrl: project.thumbnailUrl,
+          status: project.status
+        }
+      }
+    };
     const channel = await repository.ensureDefaultChannelForProject(executor, project, publish.createdBy);
     const series = await repository.ensureDefaultSeriesForProject(executor, {
       project,
@@ -294,7 +307,7 @@ export async function rebuildPublicProjections(executor: DbExecutor): Promise<Re
     });
 
     const result = await upsertPublishPublicProjections(executor, {
-      publish,
+      publish: projectedPublish,
       channel,
       series
     });

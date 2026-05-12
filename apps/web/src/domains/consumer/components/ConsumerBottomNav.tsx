@@ -17,12 +17,22 @@ const CONSUMER_NAV_ITEMS: ConsumerNavItem[] = [
   { icon: User, label: '마이', to: '/my' }
 ];
 
-export function ConsumerBottomNav() {
+interface ConsumerBottomNavProps {
+  className?: string;
+  containerClassName?: string;
+}
+
+export function ConsumerBottomNav({ className, containerClassName }: ConsumerBottomNavProps = {}) {
   const location = useLocation();
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-50 text-white" aria-label="주요 메뉴">
-      <div className="mx-auto w-full max-w-[480px] border-t border-white/10 bg-[#09090b]/92 px-3 pb-[max(env(safe-area-inset-bottom),0.65rem)] pt-2 shadow-[0_-16px_40px_rgba(0,0,0,0.38)] backdrop-blur-xl">
+    <nav className={cn('fixed inset-x-0 bottom-0 z-50 text-white', className)} aria-label="주요 메뉴">
+      <div
+        className={cn(
+          'mx-auto w-full max-w-[480px] border-t border-white/10 bg-[#09090b]/92 px-3 pb-[max(env(safe-area-inset-bottom),0.65rem)] pt-2 shadow-[0_-16px_40px_rgba(0,0,0,0.38)] backdrop-blur-xl',
+          containerClassName
+        )}
+      >
         <div className="grid grid-cols-4 gap-1">
           {CONSUMER_NAV_ITEMS.map((item) => {
             const Icon = item.icon;

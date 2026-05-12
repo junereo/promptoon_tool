@@ -39,7 +39,7 @@ export function ConsumerContentCard({ item, rank }: { item: FeedItem; rank?: num
               src={posterUrl}
             />
           ) : (
-            <div className="h-full w-full bg-[linear-gradient(135deg,#151518,#27272a_58%,#09090b)]" />
+            <div className="h-full w-full bg-black" />
           )}
           {rank ? (
             <span className="absolute left-2 top-2 grid h-7 min-w-7 place-items-center rounded-md bg-white px-2 text-xs font-black text-zinc-950">

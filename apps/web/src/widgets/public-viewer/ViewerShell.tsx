@@ -1,9 +1,10 @@
-import type { CommentsMetaResponse, ProductPublishManifest, RelatedShort, ViewerInteractionStateResponse } from '@promptoon/shared';
+import type { ProductPublishManifest, ViewerInteractionStateResponse } from '@promptoon/shared';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { TouchEvent, WheelEvent } from 'react';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { buildCutEffectMotionCustom, cutEffectVariants } from '../../shared/lib/cut-effects';
+import { preloadImageAsset } from '../../shared/lib/image-preload';
 import { isPromptoonEndingCut } from '../../shared/lib/promptoon-ending';
 import { ViewerContent } from './ViewerContent';
 import { ViewerControls } from './ViewerControls';
@@ -38,12 +39,22 @@ interface ViewerShellProps {
   pendingChoice: { cutId: string; choiceId: string; reactionText: string | null } | null;
   interactionState?: ViewerInteractionStateResponse | null;
   isInteractionPending?: boolean;
-  relatedShorts?: RelatedShort[];
-  commentsMeta?: CommentsMetaResponse | null;
   shareBanner: string | null;
   shareNotice: string | null;
   terminalCut: ViewerCut;
   userName: string;
+}
+
+function getPathStepAssetUrls(pathSteps: ViewerPathStep[]): string[] {
+  const assetUrls = new Set<string>();
+
+  for (const step of pathSteps) {
+    if (step.renderCut.assetUrl) {
+      assetUrls.add(step.renderCut.assetUrl);
+    }
+  }
+
+  return Array.from(assetUrls);
 }
 
 export function ViewerShell({
@@ -67,8 +78,6 @@ export function ViewerShell({
   pendingChoice,
   interactionState,
   isInteractionPending,
-  relatedShorts = [],
-  commentsMeta,
   shareBanner,
   shareNotice,
   terminalCut,
@@ -79,9 +88,33 @@ export function ViewerShell({
   const [isScrollBoundary, setIsScrollBoundary] = useState(true);
   const terminalStep = pathSteps[pathSteps.length - 1] ?? null;
   const pathStartStep = pathSteps[0] ?? null;
-  const areControlsVisible = isChromeVisible && isScrollBoundary;
   const pathStepKey = pathSteps.map((step) => `${step.cut.id}:${step.renderCut.id}`).join('|');
   const pathStartKey = pathStartStep ? `${pathStartStep.cut.id}:${pathStartStep.renderCut.id}` : 'empty-path';
+  const requiredAssetUrls = useMemo(() => getPathStepAssetUrls(pathSteps), [pathStepKey, pathSteps]);
+  const [readyPathStepKey, setReadyPathStepKey] = useState<string | null>(requiredAssetUrls.length === 0 ? pathStepKey : null);
+  const isMediaReady = requiredAssetUrls.length === 0 || readyPathStepKey === pathStepKey;
+  const areControlsVisible = isChromeVisible && isScrollBoundary && isMediaReady;
+  const readyClassName = isMediaReady ? 'opacity-100' : 'pointer-events-none opacity-0';
+
+  useEffect(() => {
+    if (requiredAssetUrls.length === 0) {
+      setReadyPathStepKey(pathStepKey);
+      return;
+    }
+
+    let isCancelled = false;
+    setReadyPathStepKey((currentPathStepKey) => (currentPathStepKey === pathStepKey ? currentPathStepKey : null));
+
+    void Promise.all(requiredAssetUrls.map((assetUrl) => preloadImageAsset(assetUrl))).then(() => {
+      if (!isCancelled) {
+        setReadyPathStepKey(pathStepKey);
+      }
+    });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [pathStepKey, requiredAssetUrls]);
 
   const updateScrollBoundary = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;
@@ -170,19 +203,23 @@ export function ViewerShell({
 
   return (
     <section
+      aria-busy={!isMediaReady}
       className="relative min-h-dvh overflow-hidden bg-black text-white"
+      data-media-ready={isMediaReady ? 'true' : 'false'}
       onClick={onInteraction}
     >
       <div className="absolute inset-0 bg-gradient-to-br from-[#18181d] via-[#111115] to-black" />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(122,48,64,0.18),transparent_42%)]" />
 
-      <ViewerControls
-        canGoBack={canGoBack}
-        isVisible={areControlsVisible}
-        onBack={onBack}
-        onClose={onClose}
-        onReset={onReset}
-      />
+      {isMediaReady ? (
+        <ViewerControls
+          canGoBack={canGoBack}
+          isVisible={areControlsVisible}
+          onBack={onBack}
+          onClose={onClose}
+          onReset={onReset}
+        />
+      ) : null}
 
       {areControlsVisible ? (
         <div className="absolute right-4 top-24 z-20 flex flex-col items-center gap-2 sm:right-6 sm:top-28">
@@ -225,8 +262,8 @@ export function ViewerShell({
         </div>
       ) : null}
 
-      {shareBanner ? (
-        <div className="pointer-events-none absolute inset-x-0 top-20 z-20 flex justify-center px-4 sm:top-24">
+      {isMediaReady && shareBanner ? (
+        <div className={`pointer-events-none absolute inset-x-0 top-20 z-20 flex justify-center px-4 transition-opacity duration-150 sm:top-24 ${readyClassName}`}>
           <div className="pointer-events-auto flex w-full max-w-2xl items-start justify-between gap-4 rounded-2xl border border-amber-300/20 bg-black/55 px-4 py-3 text-sm text-amber-50/90 backdrop-blur">
             <div>
               <p className="text-[11px] uppercase tracking-[0.24em] text-amber-200/70">Shared Ending</p>
@@ -259,14 +296,21 @@ export function ViewerShell({
             data-testid="viewer-frame"
           >
             <div className="relative h-full w-full bg-[#101015]">
+              {!isMediaReady ? (
+                <div
+                  aria-hidden
+                  className="absolute inset-0 z-20 bg-black"
+                  data-testid="viewer-media-loading"
+                />
+              ) : null}
               <div
-                className="scrollbar-hidden relative z-10 h-full overflow-x-hidden overflow-y-auto"
+                className={`scrollbar-hidden relative z-10 h-full overflow-x-hidden overflow-y-auto transition-opacity duration-150 ${readyClassName}`}
                 data-testid="viewer-scroll-container"
                 onScroll={handleViewerScroll}
                 ref={scrollContainerRef}
               >
                 <AnimatePresence mode="wait">
-                  {pathStartStep && terminalStep ? (
+                  {isMediaReady && pathStartStep && terminalStep ? (
                     <motion.div
                       animate="animate"
                       className="w-full overflow-hidden will-change-transform"
@@ -335,29 +379,6 @@ export function ViewerShell({
             {shareNotice}
           </div>
         </div>
-      ) : null}
-
-      {(relatedShorts.length > 0 || commentsMeta) && areControlsVisible ? (
-        <aside className="absolute inset-x-0 bottom-6 z-20 mx-auto w-[min(28rem,calc(100vw-2rem))] rounded-2xl border border-white/10 bg-black/55 p-3 text-sm text-white/85 shadow-2xl backdrop-blur sm:bottom-8">
-          {relatedShorts.length > 0 ? (
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.2em] text-white/45">Related Shorts</p>
-              <div className="mt-2 flex gap-2 overflow-x-auto">
-                {relatedShorts.slice(0, 3).map((short) => (
-                  <a className="min-w-0 flex-1 rounded-lg bg-white/8 px-3 py-2 transition hover:bg-white/12" href={short.href} key={short.id}>
-                    <span className="block truncate text-xs font-medium">{short.title}</span>
-                    <span className="mt-1 block text-[11px] text-white/45">{short.durationSec}s</span>
-                  </a>
-                ))}
-              </div>
-            </div>
-          ) : null}
-          {commentsMeta ? (
-            <p className={relatedShorts.length > 0 ? 'mt-3 text-xs text-white/55' : 'text-xs text-white/55'}>
-              댓글 {commentsMeta.commentCount.toLocaleString('ko-KR')}개
-            </p>
-          ) : null}
-        </aside>
       ) : null}
 
       <div className="sr-only">{episodeTitle}</div>

@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 
 import { clearAuthSession } from '../../../features/auth/lib/auth-session';
 import { useAuthStore } from '../../../features/auth/store/use-auth-store';
-import { ConsumerMobileShell } from '../components/ConsumerMobileShell';
+import { ConsumerResponsiveFrame } from '../components/ConsumerResponsiveFrame';
 
 function getUserInitial(loginId: string | null | undefined): string {
   return loginId?.trim().slice(0, 1).toUpperCase() || 'P';
@@ -22,7 +22,7 @@ export function ConsumerMyPage() {
   }
 
   return (
-    <ConsumerMobileShell>
+    <ConsumerResponsiveFrame>
       <header className="px-5 pb-6 pt-[max(env(safe-area-inset-top),1.25rem)]">
         <div className="flex items-center justify-between gap-4">
           <div>
@@ -114,6 +114,6 @@ export function ConsumerMyPage() {
           ) : null}
         </div>
       </section>
-    </ConsumerMobileShell>
+    </ConsumerResponsiveFrame>
   );
 }

@@ -17,6 +17,7 @@ import sharp from 'sharp';
 import { db, withTransaction } from '../../db';
 import { HttpError } from '../../lib/http-error';
 import { resolveFromApiRoot, resolveFromWorkspaceRoot } from '../../lib/workspace-paths';
+import * as projectionService from '../promptoon-core/projection.service';
 import * as productRepository from '../promptoon-core/product.repository';
 import * as accessRepository from './access.repository';
 import * as assetRepository from './asset.repository';
@@ -253,7 +254,11 @@ export async function createProject(request: CreateProjectRequest, userId: strin
 
 export async function updateProject(projectId: string, request: PatchProjectRequest, userId: string): Promise<Project> {
   await authorizationService.ensureProjectWritableByUser(projectId, userId);
-  return assertExists(await repository.updateProject(db, projectId, request), 'Project not found.');
+  return withTransaction(async (client) => {
+    const project = assertExists(await repository.updateProject(client, projectId, request), 'Project not found.');
+    await projectionService.rebuildPublicProjections(client, projectId);
+    return project;
+  });
 }
 
 export async function listProjectAssets(projectId: string, userId: string): Promise<ProjectAssetListResponse> {

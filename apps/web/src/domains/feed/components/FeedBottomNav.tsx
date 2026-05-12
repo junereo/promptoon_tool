@@ -2,6 +2,8 @@ import type { ComponentType, SVGProps } from 'react';
 import { BookOpen, Compass, House01 as Home, User01 as User } from 'react-coolicons';
 import { Link, useLocation } from 'react-router-dom';
 
+import { cn } from '../../../shared/lib/cn';
+
 interface BottomNavItem {
   label: string;
   to: string;
@@ -20,10 +22,14 @@ function getUserInitial(loginId: string | null | undefined) {
 }
 
 export function FeedBottomNav({
+  className,
+  containerClassName,
   isAuthenticated = false,
   isVisible = false,
   userLoginId
 }: {
+  className?: string;
+  containerClassName?: string;
   isAuthenticated?: boolean;
   isVisible?: boolean;
   userLoginId?: string | null;
@@ -34,12 +40,18 @@ export function FeedBottomNav({
   return (
     <nav
       aria-hidden={!isVisible}
-      className={[
+      className={cn(
         'fixed inset-x-0 bottom-0 z-40 text-white transition-transform duration-200 ease-out',
-        isVisible ? 'translate-y-0' : 'pointer-events-none translate-y-full'
-      ].join(' ')}
+        isVisible ? 'translate-y-0' : 'pointer-events-none translate-y-full',
+        className
+      )}
     >
-      <div className="mx-auto w-full max-w-[480px] border-t border-white/10 bg-black/55 px-3 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-2 backdrop-blur-xl">
+      <div
+        className={cn(
+          'mx-auto w-full max-w-[480px] border-t border-white/10 bg-black/55 px-3 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-2 backdrop-blur-xl',
+          containerClassName
+        )}
+      >
         <div className="grid w-full grid-cols-4 items-end gap-1">
           {BOTTOM_NAV_ITEMS.map((item) => {
             const Icon = item.icon;

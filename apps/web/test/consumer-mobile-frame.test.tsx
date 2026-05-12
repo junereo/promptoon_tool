@@ -135,16 +135,19 @@ describe('consumer mobile frame', () => {
     expect(screen.getAllByText('추천').length).toBeGreaterThan(0);
     expect(screen.getAllByText('모아보기').length).toBeGreaterThan(0);
     expect(screen.getAllByText('랭킹').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: '앱 준비중' }).hasAttribute('disabled')).toBe(true);
     expect(screen.getByRole('link', { name: /홈/ }).getAttribute('aria-current')).toBe('page');
     expect(screen.getByRole('link', { name: /^탐색$/ })).toBeTruthy();
     expect(screen.getByRole('link', { name: /^보관함$/ })).toBeTruthy();
     expect(screen.getByRole('link', { name: /^마이$/ })).toBeTruthy();
   });
 
-  it('redirects unauthenticated library access to login', async () => {
+  it('keeps unauthenticated library access inside the consumer frame', async () => {
     renderWithProviders('/library', <ConsumerLibraryPage />);
 
-    expect(await screen.findByText('Login Screen')).toBeTruthy();
+    expect(await screen.findByText('로그인하고 보관함을 확인하세요.')).toBeTruthy();
+    expect(screen.getByRole('link', { name: '로그인' }).getAttribute('href')).toBe('/login');
+    expect(screen.queryByText('Login Screen')).toBeNull();
   });
 
   it('renders authenticated library and can remove a bookmark', async () => {

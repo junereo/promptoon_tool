@@ -1,6 +1,6 @@
 import type { Publish } from '@promptoon/shared';
 import { DEFAULT_CUT_EFFECT_DURATION_MS } from '@promptoon/shared';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -14,13 +14,13 @@ const sendBeaconMock = vi.fn(() => true);
 const fetchMock = vi.fn();
 const shareMock = vi.fn();
 const clipboardWriteTextMock = vi.fn();
-const getRelatedShortsMock = vi.hoisted(() => vi.fn());
 const getInteractionStateMock = vi.hoisted(() => vi.fn());
 const getCommentsMetaMock = vi.hoisted(() => vi.fn());
 const likePublishMock = vi.hoisted(() => vi.fn());
 const unlikePublishMock = vi.hoisted(() => vi.fn());
 const bookmarkPublishMock = vi.hoisted(() => vi.fn());
 const unbookmarkPublishMock = vi.hoisted(() => vi.fn());
+const originalImage = globalThis.Image;
 
 vi.mock('../src/features/viewer/hooks/use-published-episode', () => ({
   usePublishedEpisode: () => ({
@@ -37,8 +37,7 @@ vi.mock('../src/features/viewer/hooks/use-published-episode', () => ({
 
 vi.mock('../src/shared/api/viewer.api', () => ({
   viewerApi: {
-    getInteractionState: getInteractionStateMock,
-    getRelatedShorts: getRelatedShortsMock
+    getInteractionState: getInteractionStateMock
   }
 }));
 
@@ -59,6 +58,10 @@ vi.mock('../src/shared/api/community.api', () => ({
 
 afterEach(() => {
   cleanup();
+  Object.defineProperty(globalThis, 'Image', {
+    configurable: true,
+    value: originalImage
+  });
 });
 
 beforeEach(() => {
@@ -67,14 +70,12 @@ beforeEach(() => {
   fetchMock.mockClear();
   shareMock.mockReset();
   clipboardWriteTextMock.mockReset();
-  getRelatedShortsMock.mockReset();
   getInteractionStateMock.mockReset();
   getCommentsMetaMock.mockReset();
   likePublishMock.mockReset();
   unlikePublishMock.mockReset();
   bookmarkPublishMock.mockReset();
   unbookmarkPublishMock.mockReset();
-  getRelatedShortsMock.mockResolvedValue([]);
   getInteractionStateMock.mockResolvedValue({
     publishId: 'publish-1',
     liked: false,
@@ -265,8 +266,70 @@ describe('PromptoonViewerPage', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('keeps rendering the episode when related shorts and comments metadata fail', async () => {
-    getRelatedShortsMock.mockRejectedValue(new Error('related shorts failed'));
+  it('keeps the viewer chrome hidden until the current cut image is ready', async () => {
+    const createdImages: Array<{
+      complete: boolean;
+      decode: () => Promise<void>;
+      onerror: (() => void) | null;
+      onload: (() => void) | null;
+      src: string;
+    }> = [];
+
+    class ImageMock {
+      complete = false;
+      decode = vi.fn(() => Promise.resolve());
+      onerror: (() => void) | null = null;
+      onload: (() => void) | null = null;
+      src = '';
+
+      constructor() {
+        createdImages.push(this);
+      }
+    }
+
+    Object.defineProperty(globalThis, 'Image', {
+      configurable: true,
+      value: ImageMock
+    });
+
+    publishedEpisode = {
+      ...publishedEpisode,
+      manifest: {
+        ...publishedEpisode.manifest,
+        cuts: publishedEpisode.manifest.cuts.map((cut) =>
+          cut.id === 'cut-start'
+            ? {
+                ...cut,
+                assetUrl: 'https://cdn.example.com/start-cut.webp'
+              }
+            : cut
+        )
+      }
+    };
+
+    const { container } = renderPage();
+
+    await screen.findByTestId('viewer-media-loading');
+    expect(container.querySelector('[data-media-ready="false"]')).toBeTruthy();
+    expect(screen.getByTestId('viewer-scroll-container').className).toContain('opacity-0');
+    expect(screen.queryByText('어디로 갈까요?')).toBeNull();
+    await waitFor(() => {
+      expect(createdImages[0]?.src).toBe('https://cdn.example.com/start-cut.webp');
+    });
+
+    await act(async () => {
+      createdImages[0].complete = true;
+      createdImages[0].onload?.();
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('viewer-media-loading')).toBeNull();
+    });
+    expect(container.querySelector('[data-media-ready="true"]')).toBeTruthy();
+    expect(await screen.findByText('어디로 갈까요?')).toBeTruthy();
+  });
+
+  it('keeps rendering the episode when comments metadata fails', async () => {
     getCommentsMetaMock.mockRejectedValue(new Error('comments failed'));
 
     renderPage();
@@ -275,7 +338,6 @@ describe('PromptoonViewerPage', () => {
     expect(screen.getByRole('button', { name: '앞으로' })).toBeTruthy();
 
     await waitFor(() => {
-      expect(getRelatedShortsMock).toHaveBeenCalledWith('publish-1');
       expect(getCommentsMetaMock).toHaveBeenCalledWith('publish-1');
     });
   });

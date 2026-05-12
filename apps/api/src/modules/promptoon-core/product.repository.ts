@@ -428,7 +428,7 @@ export async function getPublishById(db: DbExecutor, publishId: string): Promise
   return result.rows[0] ? mapPublish(result.rows[0]) : null;
 }
 
-export async function listLatestPublishesForProjectionRebuild(db: DbExecutor): Promise<Publish[]> {
+export async function listLatestPublishesForProjectionRebuild(db: DbExecutor, projectId?: string): Promise<Publish[]> {
   const result = await db.query<PublishRow>(
     `WITH ranked_publishes AS (
        SELECT
@@ -439,6 +439,7 @@ export async function listLatestPublishesForProjectionRebuild(db: DbExecutor): P
          ) AS publish_rank
        FROM promptoon_publish AS publish
        WHERE publish.status = 'published'
+         AND ($1::uuid IS NULL OR publish.project_id = $1::uuid)
      )
      SELECT
        id,
@@ -451,7 +452,8 @@ export async function listLatestPublishesForProjectionRebuild(db: DbExecutor): P
        created_at
      FROM ranked_publishes
      WHERE publish_rank = 1
-     ORDER BY created_at DESC, id DESC`
+     ORDER BY created_at DESC, id DESC`,
+    [projectId ?? null]
   );
 
   return result.rows.map(mapPublish);

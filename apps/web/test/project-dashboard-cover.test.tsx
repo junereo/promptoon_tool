@@ -4,11 +4,14 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { StudioProjectDetailPage } from '../src/domains/studio/pages/StudioProjectDetailPage';
+import { StudioProjectSettingsPage } from '../src/domains/studio/pages/StudioProjectSettingsPage';
 import { StudioPublishPage } from '../src/domains/studio/pages/StudioPublishPage';
 import { PromptoonProjectListPage } from '../src/pages/promptoon-project-list-page';
 
 let projects: ProjectWithEpisodes[];
 const uploadMutate = vi.fn<(_: { projectId: string; file: File }) => Promise<{ assetUrl: string }>>();
+const uploadProjectAssetMutate = vi.fn<(_: File) => Promise<{ assetUrl: string }>>();
+const patchProjectMutate = vi.fn<(_: { title?: string; description?: string | null; thumbnailUrl?: string | null }) => Promise<unknown>>();
 const updateEpisodeMutate = vi.fn<(_: { episodeId: string; payload: { coverImageUrl: string | null } }) => Promise<unknown>>();
 const exportBackupMutate = vi.fn<() => Promise<PromptoonBackupExport>>();
 const publishEpisodeMutate = vi.fn<(_: { projectId: string; episodeId: string }) => Promise<unknown>>();
@@ -40,6 +43,14 @@ vi.mock('../src/features/project/hooks/use-project-query', () => ({
     isLoading: false,
     isError: false,
     data: projects
+  }),
+  usePatchProject: () => ({
+    isPending: false,
+    mutateAsync: patchProjectMutate
+  }),
+  useUploadProjectAsset: () => ({
+    isPending: false,
+    mutateAsync: uploadProjectAssetMutate
   }),
   useUploadQueue: () => ({
     data: {
@@ -82,6 +93,8 @@ afterEach(() => {
 
 beforeEach(() => {
   uploadMutate.mockReset();
+  uploadProjectAssetMutate.mockReset();
+  patchProjectMutate.mockReset();
   updateEpisodeMutate.mockReset();
   exportBackupMutate.mockReset();
   publishEpisodeMutate.mockReset();
@@ -90,6 +103,8 @@ beforeEach(() => {
   publishMovingtoonMutate.mockReset();
   unpublishMovingtoonMutate.mockReset();
   uploadMutate.mockResolvedValue({ assetUrl: '/uploads/cover.webp' });
+  uploadProjectAssetMutate.mockResolvedValue({ assetUrl: '/uploads/project-cover.webp' });
+  patchProjectMutate.mockResolvedValue({});
   updateEpisodeMutate.mockResolvedValue({});
   publishEpisodeMutate.mockResolvedValue({});
   updatePublishedEpisodeMutate.mockResolvedValue({});
@@ -284,6 +299,50 @@ describe('PromptoonProjectListPage Studio dashboard', () => {
     expect(unpublishMovingtoonMutate).toHaveBeenCalledWith('movingtoon-episode-1');
     expect(screen.getByText('프롬툰 에피소드는 아직 없습니다. 위의 무빙툰 에피소드 목록에서 업로드 영상을 확인하세요.')).toBeTruthy();
     expect(screen.queryByText('아직 에피소드가 없습니다.')).toBeNull();
+  });
+
+  it('shows and uploads the project settings cover image', async () => {
+    projects = [
+      {
+        ...projects[0],
+        title: 'Project Settings',
+        thumbnailUrl: '/uploads/current-cover.webp',
+        description: null
+      }
+    ];
+
+    render(
+      <MemoryRouter initialEntries={['/studio/projects/project-1/settings']}>
+        <Routes>
+          <Route element={<StudioProjectSettingsPage />} path="/studio/projects/:projectId/settings" />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByAltText('현재 프로젝트 대표 이미지').getAttribute('src')).toBe('/uploads/current-cover.webp');
+
+    const fileInput = document.querySelector<HTMLInputElement>('#project-cover-upload');
+    expect(fileInput).toBeTruthy();
+    fireEvent.change(fileInput!, {
+      target: {
+        files: [new File(['cover'], 'cover.png', { type: 'image/png' })]
+      }
+    });
+
+    await waitFor(() => {
+      expect(uploadProjectAssetMutate).toHaveBeenCalled();
+    });
+    expect(screen.getByDisplayValue('/uploads/project-cover.webp')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '저장' }));
+
+    await waitFor(() => {
+      expect(patchProjectMutate).toHaveBeenCalledWith({
+        title: 'Project Settings',
+        description: null,
+        thumbnailUrl: '/uploads/project-cover.webp'
+      });
+    });
   });
 
   it('manages movingtoon publish state on the Studio publish page', async () => {

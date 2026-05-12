@@ -65,7 +65,10 @@ async function getValidatedDraft(episodeId: string): Promise<{
   validation: ValidateEpisodeResponse;
 }> {
   const draft = assertExists(await repository.getEpisodeDraft(db, episodeId), 'Episode not found.');
-  const validation = validateEpisodeGraph(draft);
+  const project = assertExists(await repository.getProjectById(db, draft.episode.projectId), 'Project not found.');
+  const validation = validateEpisodeGraph(draft, {
+    projectThumbnailUrl: project.thumbnailUrl
+  });
   return { draft, validation };
 }
 

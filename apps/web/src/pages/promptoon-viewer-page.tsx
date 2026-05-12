@@ -1,4 +1,4 @@
-import type { CommentsMetaResponse, ProductPublishManifest, RelatedShort, ViewerInteractionStateResponse } from '@promptoon/shared';
+import type { CommentsMetaResponse, ProductPublishManifest, ViewerInteractionStateResponse } from '@promptoon/shared';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
@@ -10,6 +10,7 @@ import { communityApi } from '../shared/api/community.api';
 import { feedApi } from '../shared/api/feed.api';
 import { viewerApi } from '../shared/api/viewer.api';
 import { getCutEffectDurationMs } from '../shared/lib/cut-effects';
+import { preloadImageAsset } from '../shared/lib/image-preload';
 import { isPromptoonEndingCut } from '../shared/lib/promptoon-ending';
 import {
   applyChoiceStateWrites,
@@ -96,8 +97,7 @@ function preloadConnectedAssets(
     .filter((assetUrl): assetUrl is string => Boolean(assetUrl));
 
   for (const assetUrl of preloadTargets) {
-    const image = new Image();
-    image.src = assetUrl;
+    void preloadImageAsset(assetUrl);
   }
 }
 
@@ -190,7 +190,6 @@ export function PromptoonViewerPage() {
   const [userName, setUserName] = useState('');
   const [viewerState, setViewerState] = useState<PromptoonViewerState>({});
   const [pendingChoice, setPendingChoice] = useState<{ cutId: string; choiceId: string; reactionText: string | null } | null>(null);
-  const [relatedShorts, setRelatedShorts] = useState<RelatedShort[]>([]);
   const [commentsMeta, setCommentsMeta] = useState<CommentsMetaResponse | null>(null);
   const [interactionState, setInteractionState] = useState<ViewerInteractionStateResponse | null>(null);
   const [isInteractionPending, setIsInteractionPending] = useState(false);
@@ -277,24 +276,23 @@ export function PromptoonViewerPage() {
 
   useEffect(() => {
     if (!publicPublishId) {
-      setRelatedShorts([]);
       setCommentsMeta(null);
       return;
     }
 
     let isCancelled = false;
 
-    void Promise.allSettled([
-      viewerApi.getRelatedShorts(publicPublishId),
-      communityApi.getCommentsMeta(publicPublishId)
-    ]).then(([shortsResult, commentsResult]) => {
-      if (isCancelled) {
-        return;
-      }
-
-      setRelatedShorts(shortsResult.status === 'fulfilled' ? shortsResult.value : []);
-      setCommentsMeta(commentsResult.status === 'fulfilled' ? commentsResult.value : null);
-    });
+    void communityApi.getCommentsMeta(publicPublishId)
+      .then((nextCommentsMeta) => {
+        if (!isCancelled) {
+          setCommentsMeta(nextCommentsMeta);
+        }
+      })
+      .catch(() => {
+        if (!isCancelled) {
+          setCommentsMeta(null);
+        }
+      });
 
     return () => {
       isCancelled = true;
@@ -652,8 +650,6 @@ export function PromptoonViewerPage() {
       pendingChoice={pendingChoice}
       interactionState={interactionState}
       isInteractionPending={isInteractionPending}
-      relatedShorts={relatedShorts}
-      commentsMeta={commentsMeta}
       shareBanner={shareBanner}
       shareNotice={shareNotice}
       terminalCut={terminalCut}

@@ -20,7 +20,14 @@ import { preloadViewerForPublish } from '../../../features/viewer/lib/preload-vi
 import { communityApi } from '../../../shared/api/community.api';
 import { feedApi } from '../../../shared/api/feed.api';
 import { promptoonKeys } from '../../../shared/api/query-keys';
-import { FeedBottomNav } from '../components/FeedBottomNav';
+import {
+  CONSUMER_FLOATING_RIGHT_CLASS,
+  CONSUMER_FRAME_CLASS,
+  CONSUMER_RIGHT_FRAME_CLASS,
+  CONSUMER_RIGHT_NAV_CLASS,
+  ConsumerDesktopLandingPanel
+} from '../../consumer/components/ConsumerResponsiveFrame';
+import { ConsumerBottomNav } from '../../consumer/components/ConsumerBottomNav';
 import { FeedCommentsPanel } from '../components/FeedCommentsPanel';
 import { FeedDiscourseCommentsPanel } from '../components/FeedDiscourseCommentsPanel';
 import { FeedSlide } from '../components/FeedSlide';
@@ -495,7 +502,10 @@ export function FeedHomePage() {
     );
 
   return (
-    <main className="feed-page relative mx-auto min-h-dvh max-w-[480px] overflow-hidden bg-black text-white shadow-[0_0_80px_rgba(0,0,0,0.42)]">
+    <main className="min-h-dvh bg-[#050506] text-white">
+      <div className={CONSUMER_FRAME_CLASS}>
+        <ConsumerDesktopLandingPanel />
+        <section className={`${CONSUMER_RIGHT_FRAME_CLASS} feed-page relative overflow-hidden !bg-black shadow-[0_0_80px_rgba(0,0,0,0.42)]`}>
       <header className="pointer-events-none fixed inset-x-0 top-0 z-40 hidden h-14 items-center bg-black/92 px-4 text-white shadow-[0_1px_0_rgba(255,255,255,0.08)]">
         <div className="pointer-events-auto flex min-w-0 flex-1 items-center gap-3">
           <button
@@ -573,7 +583,7 @@ export function FeedHomePage() {
         </div>
       </header>
 
-      <div className="pointer-events-none fixed left-1/2 top-0 z-40 w-full max-w-[480px] -translate-x-1/2 px-4 pt-[max(env(safe-area-inset-top),1rem)] sm:px-6">
+      <div className={`pointer-events-none fixed left-1/2 top-0 z-40 w-full max-w-[480px] -translate-x-1/2 px-4 pt-[max(env(safe-area-inset-top),1rem)] sm:px-6 ${CONSUMER_FLOATING_RIGHT_CLASS}`}>
         <div className="pointer-events-auto flex items-center justify-end">
           <div className="flex shrink-0 items-center gap-3 drop-shadow-[0_1px_8px_rgba(0,0,0,0.65)]">
             <button
@@ -602,8 +612,6 @@ export function FeedHomePage() {
       <div className="feed-snap-scroller overflow-y-auto snap-y snap-mandatory scrollbar-hidden" onScroll={handleFeedScroll} ref={containerRef}>
         {content}
       </div>
-
-      <FeedBottomNav isAuthenticated={isAuthenticated} isVisible userLoginId={user?.loginId} />
 
       {isCommentsPanelOpen && commentsPanelItem ? (
         commentsPanelItem.type === 'short_drama' ? (
@@ -661,6 +669,9 @@ export function FeedHomePage() {
           </section>
         </div>
       ) : null}
+        </section>
+      </div>
+      <ConsumerBottomNav className={CONSUMER_RIGHT_NAV_CLASS} />
     </main>
   );
 }
