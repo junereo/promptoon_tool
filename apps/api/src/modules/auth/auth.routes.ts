@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { asyncHandler } from '../../lib/async-handler';
 import { getRequiredAuthUser, requireAuth } from '../../lib/auth';
 import { HttpError } from '../../lib/http-error';
-import { loginSchema, registerSchema } from './auth.schemas';
+import { loginSchema, registerSchema, updateProfileSchema } from './auth.schemas';
 import * as service from './auth.service';
 
 const refreshSchema = z.object({
@@ -34,6 +34,7 @@ function getCookieValue(cookieHeader: string | undefined, name: string): string 
 
 function setAuthCookies(response: Response, payload: AuthResponse): void {
   response.cookie(service.authCookieNames.access, payload.token, service.authCookieOptions.access);
+  response.cookie(service.authCookieNames.sessionHint, '1', service.authCookieOptions.sessionHint);
   if (payload.refreshToken) {
     response.cookie(service.authCookieNames.refresh, payload.refreshToken, service.authCookieOptions.refresh);
   }
@@ -42,8 +43,10 @@ function setAuthCookies(response: Response, payload: AuthResponse): void {
 function clearAuthCookies(response: Response): void {
   const { maxAge: _accessMaxAge, ...accessOptions } = service.authCookieOptions.access;
   const { maxAge: _refreshMaxAge, ...refreshOptions } = service.authCookieOptions.refresh;
+  const { maxAge: _sessionHintMaxAge, ...sessionHintOptions } = service.authCookieOptions.sessionHint;
   response.clearCookie(service.authCookieNames.access, accessOptions);
   response.clearCookie(service.authCookieNames.refresh, refreshOptions);
+  response.clearCookie(service.authCookieNames.sessionHint, sessionHintOptions);
 }
 
 export function createAuthRouter(): Router {
@@ -66,6 +69,12 @@ export function createAuthRouter(): Router {
   router.get('/me', requireAuth, asyncHandler(async (request, response) => {
     const user = getRequiredAuthUser(request);
     response.json(await service.me(user.sub, user.sid));
+  }));
+
+  router.patch('/me/profile', requireAuth, asyncHandler(async (request, response) => {
+    const user = getRequiredAuthUser(request);
+    const body = updateProfileSchema.parse(request.body);
+    response.json({ user: await service.updateProfile(user.sub, body) });
   }));
 
   router.post('/logout', requireAuth, asyncHandler(async (request, response) => {

@@ -1,4 +1,4 @@
-import type { AuthResponse, LoginRequest, RegisterRequest } from '@promptoon/shared';
+import type { AuthResponse, LoginRequest, RegisterRequest, UpdateProfileRequest, UpdateProfileResponse } from '@promptoon/shared';
 
 import { authApi } from './auth.api';
 
@@ -9,6 +9,10 @@ export const authService = {
 
   async register(payload: RegisterRequest): Promise<AuthResponse> {
     return authApi.register(payload);
+  },
+
+  async updateProfile(payload: UpdateProfileRequest): Promise<UpdateProfileResponse> {
+    return authApi.updateProfile(payload);
   },
 
   async refresh(): Promise<AuthResponse> {

@@ -1,15 +1,47 @@
-import { BookOpen, ChevronRight, PaperPlane as Send, User01 as User } from 'react-coolicons';
-import { useQuery } from '@tanstack/react-query';
+import type { AuthUser } from '@promptoon/shared';
+import { type FormEvent, useEffect, useState } from 'react';
+import { BookOpen, Check, ChevronRight, CloseMd as X, EditPencilLine01 as Pencil, PaperPlane as Send, User01 as User } from 'react-coolicons';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { clearAuthSession } from '../../../features/auth/lib/auth-session';
 import { useAuthStore } from '../../../features/auth/store/use-auth-store';
+import { authService } from '../../../shared/api/auth.service';
 import { experimentalApi } from '../../../shared/api/experimental.api';
 import { promptoonKeys } from '../../../shared/api/query-keys';
 import { ConsumerResponsiveFrame } from '../components/ConsumerResponsiveFrame';
 
-function getUserInitial(loginId: string | null | undefined): string {
-  return loginId?.trim().slice(0, 1).toUpperCase() || 'P';
+function getUserInitial(name: string | null | undefined): string {
+  return name?.trim().slice(0, 1).toUpperCase() || 'P';
+}
+
+function getAccountDisplayName(user: AuthUser | null): string {
+  const displayName = user?.displayName?.trim();
+  if (displayName) {
+    return displayName;
+  }
+
+  if (user?.authProvider === 'google') {
+    return 'Google 사용자';
+  }
+
+  if (user?.authProvider === 'facebook') {
+    return 'Facebook 사용자';
+  }
+
+  return user?.loginId?.trim() || 'Promptoon 사용자';
+}
+
+function getAuthProviderLabel(provider: AuthUser['authProvider'] | undefined): string {
+  if (provider === 'google') {
+    return 'Google 계정';
+  }
+
+  if (provider === 'facebook') {
+    return 'Facebook 계정';
+  }
+
+  return 'Promptoon 계정';
 }
 
 export function ConsumerMyPage() {
@@ -17,18 +49,70 @@ export function ConsumerMyPage() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const user = useAuthStore((state) => state.user);
   const studioRole = useAuthStore((state) => state.studioRole);
-  const initial = getUserInitial(user?.loginId);
+  const updateUser = useAuthStore((state) => state.updateUser);
+  const accountDisplayName = getAccountDisplayName(user);
+  const accountProviderLabel = getAuthProviderLabel(user?.authProvider);
+  const initial = getUserInitial(accountDisplayName);
   const snsProfileImageUrl = user?.snsProfileImageUrl?.trim() || null;
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [displayNameDraft, setDisplayNameDraft] = useState(accountDisplayName);
+  const [displayNameError, setDisplayNameError] = useState<string | null>(null);
   const experimentalAccessQuery = useQuery({
     enabled: isAuthenticated,
     queryKey: promptoonKeys.experimentalAccess(),
     queryFn: experimentalApi.getMyAccess
+  });
+  const updateProfileMutation = useMutation({
+    mutationFn: authService.updateProfile,
+    onSuccess: (response) => {
+      updateUser(response.user);
+      setIsEditingName(false);
+      setDisplayNameError(null);
+    }
   });
   const experimentalMenuStatus = !isAuthenticated
     ? '로그인 필요'
     : (experimentalAccessQuery.data?.grantCount ?? 0) > 0
       ? `${experimentalAccessQuery.data?.grantCount ?? 0}개 접근 가능`
       : '권한 필요';
+
+  useEffect(() => {
+    if (!isEditingName) {
+      setDisplayNameDraft(accountDisplayName);
+    }
+  }, [accountDisplayName, isEditingName]);
+
+  async function handleDisplayNameSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const nextDisplayName = displayNameDraft.trim().replace(/\s+/g, ' ');
+    if (!nextDisplayName) {
+      setDisplayNameError('이름을 입력해주세요.');
+      return;
+    }
+
+    if (nextDisplayName.length > 64) {
+      setDisplayNameError('이름은 64자 이하로 입력해주세요.');
+      return;
+    }
+
+    if (nextDisplayName === accountDisplayName) {
+      setIsEditingName(false);
+      setDisplayNameError(null);
+      return;
+    }
+
+    try {
+      await updateProfileMutation.mutateAsync({ displayName: nextDisplayName });
+    } catch {
+      setDisplayNameError('이름을 저장하지 못했습니다. 잠시 후 다시 시도해주세요.');
+    }
+  }
+
+  function handleDisplayNameCancel() {
+    setDisplayNameDraft(accountDisplayName);
+    setDisplayNameError(null);
+    setIsEditingName(false);
+  }
 
   function handleLogout() {
     clearAuthSession();
@@ -56,8 +140,57 @@ export function ConsumerMyPage() {
 
         {isAuthenticated ? (
           <div className="mt-6">
-            <p className="text-lg font-bold text-white">{user?.loginId}</p>
-            <p className="mt-1 text-sm text-white/52">Promptoon 계정으로 로그인 중입니다.</p>
+            {isEditingName ? (
+              <form className="space-y-2" onSubmit={handleDisplayNameSubmit}>
+                <div className="flex items-center gap-2">
+                  <input
+                    aria-label="이름"
+                    className="h-10 min-w-0 flex-1 rounded-md border border-white/14 bg-black/24 px-3 text-base font-bold text-white outline-none transition focus:border-white/42"
+                    maxLength={64}
+                    onChange={(event) => {
+                      setDisplayNameDraft(event.target.value);
+                      setDisplayNameError(null);
+                    }}
+                    value={displayNameDraft}
+                  />
+                  <button
+                    aria-label="이름 저장"
+                    className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-white text-zinc-950 transition disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={updateProfileMutation.isPending || !displayNameDraft.trim()}
+                    type="submit"
+                  >
+                    <Check aria-hidden className="h-5 w-5" />
+                  </button>
+                  <button
+                    aria-label="이름 편집 취소"
+                    className="grid h-10 w-10 shrink-0 place-items-center rounded-md border border-white/12 bg-white/[0.04] text-white transition disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={updateProfileMutation.isPending}
+                    onClick={handleDisplayNameCancel}
+                    type="button"
+                  >
+                    <X aria-hidden className="h-5 w-5" />
+                  </button>
+                </div>
+                {displayNameError ? <p className="text-xs font-semibold text-rose-200">{displayNameError}</p> : null}
+              </form>
+            ) : (
+              <div className="flex min-w-0 items-center gap-2">
+                <p className="min-w-0 truncate text-lg font-bold text-white">{accountDisplayName}</p>
+                <button
+                  aria-label="이름 편집"
+                  className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-white/12 bg-white/[0.04] text-white/72 transition hover:bg-white/10 hover:text-white"
+                  onClick={() => {
+                    setDisplayNameDraft(accountDisplayName);
+                    setDisplayNameError(null);
+                    setIsEditingName(true);
+                  }}
+                  type="button"
+                >
+                  <Pencil aria-hidden className="h-4 w-4" />
+                </button>
+              </div>
+            )}
+            <p className="mt-1 text-sm text-white/52">{accountProviderLabel}으로 로그인 중입니다.</p>
           </div>
         ) : (
           <div className="mt-6">

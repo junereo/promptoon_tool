@@ -25,9 +25,10 @@ pnpm install
 cp .env.example .env
 cp apps/api/.env.example apps/api/.env
 cp apps/web/.env.example apps/web/.env
+cp apps/admin/.env.example apps/admin/.env
 ```
 
-현재 저장소에는 `apps/admin/.env.example`이 없습니다. Admin 앱은 필요 시 `apps/admin/.env`에 `VITE_API_PROXY_TARGET=http://127.0.0.1:4000`처럼 Vite env를 둘 수 있고, 기본 proxy target은 코드에서 `http://127.0.0.1:4000`입니다.
+로컬 실행 기본값은 `.env`와 `.env.development`입니다. 운영 값은 `.env.production`에 분리하며 운영 origin은 `https://promptoon.ai`입니다. API/Recommendation 서버는 `NODE_ENV=production`일 때 `.env.production`을 읽고, Web/Admin은 Vite production build에서 앱별 `.env.production`을 읽습니다.
 
 중요 변수:
 
@@ -39,7 +40,8 @@ cp apps/web/.env.example apps/web/.env
 - `CLIENT_REDIRECT_URL`: Web OAuth/login redirect.
 - `ADMIN_CLIENT_REDIRECT_URL`: Admin OAuth redirect.
 - `PROMPTOON_PLATFORM_ADMIN_LOGIN_IDS`: admin bootstrap 대상 loginId 목록.
-- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`: Google OAuth. 로컬 redirect URI는 `http://localhost:4000/api/auth/google/callback`, 운영 redirect URI는 `https://api.promptoon.ai/api/auth/google/callback` 또는 `https://promptoon.ai/api/auth/google/callback`입니다.
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`: Google OAuth. 로컬 redirect URI는 Web dev proxy를 경유하는 `http://localhost:5174/api/auth/google/callback`, 운영 redirect URI는 `https://promptoon.ai/api/auth/google/callback`입니다.
+- API는 루트 `.env`, 루트 `.env.{development|production}`, `apps/api/.env`, `apps/api/.env.{development|production}` 순서로 읽고 뒤쪽 값이 앞쪽 값을 override합니다. `apps/api/.env*`에 Google OAuth 값을 비워 두면 루트 `.env*`의 실제 값도 덮어써져 `/api/auth/google/start`가 503을 반환합니다.
 - `DISCOURSE_BASE_URL`, `DISCOURSE_API_KEY`, `DISCOURSE_API_USER`, `DISCOURSE_CATEGORY_ID`, `DISCOURSE_ORIGIN`: Discourse bridge.
 - `PORT`: API 서버 포트, 기본 `4000`.
 - `RECOMMENDATION_API_URL`: Feed API가 호출하는 추천 API origin, 기본 `http://127.0.0.1:4100`.

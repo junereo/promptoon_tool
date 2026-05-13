@@ -340,6 +340,8 @@ export interface Publish {
 export interface AuthUser {
   id: string;
   loginId: string;
+  displayName?: string | null;
+  authProvider?: 'local' | 'google' | 'facebook';
   snsProfileImageUrl?: string | null;
 }
 

@@ -13,6 +13,7 @@ interface AuthState {
   hasHydrated: boolean;
   sessionStatus: SessionStatus;
   login: (payload: AuthResponse) => void;
+  updateUser: (user: AuthUser) => void;
   markSessionChecking: () => void;
   markSessionInvalid: () => void;
   confirmSession: (payload: { user: AuthUser; session: AuthSession; studioRole?: StudioRole | null }) => void;
@@ -43,6 +44,10 @@ export const useAuthStore = create<AuthState>()((set) => ({
       sessionStatus: 'idle'
     });
   },
+  updateUser: (user) => set({
+    user,
+    isAuthenticated: true
+  }),
   markSessionChecking: () => set({ sessionStatus: 'checking' }),
   markSessionInvalid: () => set({ sessionStatus: 'invalid' }),
   confirmSession: ({ user, session, studioRole }) => {

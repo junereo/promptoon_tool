@@ -504,7 +504,7 @@ export function FeedHomePage() {
 
   return (
     <main className="min-h-dvh bg-[#050506] text-white">
-      <div className={CONSUMER_FRAME_CLASS}>
+      <div className={`${CONSUMER_FRAME_CLASS} ${isCommentsPanelOpen && commentsPanelItem ? 'feed-comments-open' : ''}`}>
         <ConsumerDesktopLandingPanel />
         <section className={`${CONSUMER_RIGHT_FRAME_CLASS} feed-page relative overflow-hidden !bg-black shadow-[0_0_80px_rgba(0,0,0,0.42)]`}>
       <header className="pointer-events-none fixed inset-x-0 top-0 z-40 hidden h-14 items-center bg-black/92 px-4 text-white shadow-[0_1px_0_rgba(255,255,255,0.08)]">

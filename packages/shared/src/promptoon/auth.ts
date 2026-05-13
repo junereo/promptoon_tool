@@ -11,4 +11,12 @@ export interface AuthMeResponse {
   session: AuthSession;
 }
 
+export interface UpdateProfileRequest {
+  displayName: string;
+}
+
+export interface UpdateProfileResponse {
+  user: import('./legacy').AuthUser;
+}
+
 export type { AuthResponse, AuthUser, LoginRequest, RegisterRequest } from './legacy';

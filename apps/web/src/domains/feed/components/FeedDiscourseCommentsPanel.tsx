@@ -574,7 +574,7 @@ export function FeedDiscourseCommentsPanel({
 
   return (
     <>
-      <aside className="fixed bottom-0 right-0 top-14 z-50 hidden w-[28rem] flex-col border-l border-white/10 bg-zinc-950/96 text-white shadow-[-28px_0_80px_rgba(0,0,0,0.42)] backdrop-blur-xl xl:flex">
+      <aside className="feed-comments-desktop-panel fixed z-50 hidden w-[28rem] flex-col border border-white/10 bg-zinc-950/96 text-white shadow-[-28px_0_80px_rgba(0,0,0,0.42)] backdrop-blur-xl">
         <header className="shrink-0 border-b border-white/10 px-5 py-4">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
@@ -597,7 +597,7 @@ export function FeedDiscourseCommentsPanel({
         <div className="shrink-0 border-t border-white/10 px-5 py-4">{composer}</div>
       </aside>
 
-      <div className="fixed inset-0 z-50 xl:hidden">
+      <div className="feed-comments-mobile-panel fixed inset-0 z-50">
         <button aria-label="댓글 닫기" className="absolute inset-0 bg-black/45" onClick={onClose} type="button" />
         <section
           aria-labelledby="feed-comments-title"

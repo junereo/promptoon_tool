@@ -1,4 +1,13 @@
-import type { AuthMeResponse, AuthResponse, AuthSession, AuthUser, LoginRequest, RegisterRequest, StudioRole } from '@promptoon/shared';
+import type {
+  AuthMeResponse,
+  AuthResponse,
+  AuthSession,
+  AuthUser,
+  LoginRequest,
+  RegisterRequest,
+  StudioRole,
+  UpdateProfileRequest
+} from '@promptoon/shared';
 import bcrypt from 'bcryptjs';
 import jwt, { type SignOptions } from 'jsonwebtoken';
 import { createHash, randomUUID } from 'node:crypto';
@@ -11,6 +20,7 @@ import * as repository from './auth.repository';
 const PASSWORD_SALT_ROUNDS = 10;
 const REFRESH_TOKEN_COOKIE_NAME = 'pt_refresh_token';
 const ACCESS_TOKEN_COOKIE_NAME = 'pt_access_token';
+const SESSION_HINT_COOKIE_NAME = 'pt_auth_session';
 
 export interface AuthTokenPayload {
   sub: string;
@@ -28,7 +38,8 @@ export interface GoogleOAuthProfile {
 
 export const authCookieNames = {
   access: ACCESS_TOKEN_COOKIE_NAME,
-  refresh: REFRESH_TOKEN_COOKIE_NAME
+  refresh: REFRESH_TOKEN_COOKIE_NAME,
+  sessionHint: SESSION_HINT_COOKIE_NAME
 };
 
 export const authCookieOptions = {
@@ -41,6 +52,13 @@ export const authCookieOptions = {
   },
   refresh: {
     httpOnly: true,
+    secure: env.nodeEnv === 'production',
+    sameSite: env.nodeEnv === 'production' ? 'none' as const : 'lax' as const,
+    path: '/',
+    maxAge: env.refreshTokenTtlDays * 24 * 60 * 60 * 1000
+  },
+  sessionHint: {
+    httpOnly: false,
     secure: env.nodeEnv === 'production',
     sameSite: env.nodeEnv === 'production' ? 'none' as const : 'lax' as const,
     path: '/',
@@ -187,6 +205,8 @@ export async function login(request: LoginRequest): Promise<AuthResponse> {
   const authUser = {
     id: user.id,
     loginId: user.loginId,
+    displayName: user.displayName ?? null,
+    authProvider: user.authProvider ?? 'local',
     snsProfileImageUrl: user.snsProfileImageUrl ?? null
   };
 
@@ -211,6 +231,19 @@ export async function me(userId: string, sessionId: string): Promise<AuthMeRespo
     studioRole: (await repository.getStudioRole(db, userId)) as StudioRole | null,
     session
   };
+}
+
+export async function updateProfile(userId: string, request: UpdateProfileRequest): Promise<AuthUser> {
+  const displayName = request.displayName.trim().replace(/\s+/g, ' ');
+  const user = await repository.updateUserDisplayName(db, {
+    userId,
+    displayName
+  });
+  if (!user) {
+    throw new HttpError(404, 'User not found.');
+  }
+
+  return user;
 }
 
 export async function logout(userId: string, sessionId: string): Promise<void> {
@@ -368,7 +401,10 @@ export async function loginWithGoogleCode(code: string): Promise<AuthResponse> {
     });
     return {
       id: oauthUser.id,
-      loginId: oauthUser.loginId
+      loginId: oauthUser.loginId,
+      displayName: oauthUser.displayName ?? null,
+      authProvider: oauthUser.authProvider ?? 'google',
+      snsProfileImageUrl: oauthUser.snsProfileImageUrl ?? null
     };
   });
 

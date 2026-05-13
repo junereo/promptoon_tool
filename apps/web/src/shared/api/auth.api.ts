@@ -1,4 +1,11 @@
-import type { AuthMeResponse, AuthResponse, LoginRequest, RegisterRequest } from '@promptoon/shared';
+import type {
+  AuthMeResponse,
+  AuthResponse,
+  LoginRequest,
+  RegisterRequest,
+  UpdateProfileRequest,
+  UpdateProfileResponse
+} from '@promptoon/shared';
 
 import { publicRootApiClient, rootApiClient } from './client';
 
@@ -15,6 +22,11 @@ export const authApi = {
 
   async me(): Promise<AuthMeResponse> {
     const { data } = await rootApiClient.get('/auth/me');
+    return data;
+  },
+
+  async updateProfile(payload: UpdateProfileRequest): Promise<UpdateProfileResponse> {
+    const { data } = await rootApiClient.patch('/auth/me/profile', payload);
     return data;
   },
 

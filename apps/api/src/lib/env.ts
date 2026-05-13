@@ -1,8 +1,21 @@
 import dotenv from 'dotenv';
 import path from 'node:path';
 
-dotenv.config({ path: path.resolve(process.cwd(), '../../.env') });
-dotenv.config({ path: path.resolve(process.cwd(), '.env'), override: true });
+const envMode =
+  process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'development' || !process.env.NODE_ENV
+    ? process.env.NODE_ENV ?? 'development'
+    : null;
+const rootEnvDir = path.resolve(process.cwd(), '../..');
+const appEnvDir = process.cwd();
+
+dotenv.config({ path: path.resolve(rootEnvDir, '.env') });
+if (envMode) {
+  dotenv.config({ path: path.resolve(rootEnvDir, `.env.${envMode}`), override: true });
+}
+dotenv.config({ path: path.resolve(appEnvDir, '.env'), override: true });
+if (envMode) {
+  dotenv.config({ path: path.resolve(appEnvDir, `.env.${envMode}`), override: true });
+}
 
 function getRequiredEnv(name: string, fallback?: string): string {
   const value = process.env[name] ?? fallback;

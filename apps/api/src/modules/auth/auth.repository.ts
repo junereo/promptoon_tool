@@ -10,6 +10,8 @@ interface UserRow {
   email: string | null;
   display_name: string | null;
   profile_image_url: string | null;
+  auth_provider?: string | null;
+  oauth_display_name?: string | null;
   sns_profile_image_url?: string | null;
   discourse_username: string | null;
 }
@@ -48,17 +50,39 @@ export interface AuthUserRecord extends AuthUser {
 }
 
 export interface OAuthProfileInput {
-  provider: 'google';
+  provider: 'google' | 'facebook';
   providerAccountId: string;
   email?: string | null;
   displayName?: string | null;
   profileImageUrl?: string | null;
 }
 
+type AuthProvider = NonNullable<AuthUser['authProvider']>;
+
+function getAuthProvider(row: UserRow): AuthProvider {
+  if (row.auth_provider === 'google' || row.auth_provider === 'facebook') {
+    return row.auth_provider;
+  }
+
+  if (row.login_id.startsWith('google:')) {
+    return 'google';
+  }
+
+  if (row.login_id.startsWith('facebook:')) {
+    return 'facebook';
+  }
+
+  return 'local';
+}
+
 function mapAuthUser(row: UserRow): AuthUser {
+  const displayName = row.display_name?.trim() || row.oauth_display_name?.trim() || null;
+
   return {
     id: row.id,
     loginId: row.login_id,
+    displayName,
+    authProvider: getAuthProvider(row),
     snsProfileImageUrl: row.sns_profile_image_url ?? null
   };
 }
@@ -73,11 +97,13 @@ function mapAuthSession(row: SessionRow): AuthSession {
 }
 
 function mapAuthUserRecord(row: UserRow): AuthUserRecord {
+  const authUser = mapAuthUser(row);
+
   return {
-    ...mapAuthUser(row),
+    ...authUser,
     passwordHash: row.password_hash,
     email: row.email,
-    displayName: row.display_name,
+    displayName: authUser.displayName,
     profileImageUrl: row.profile_image_url,
     discourseUsername: row.discourse_username
   };
@@ -88,18 +114,44 @@ export async function getUserByLoginId(
   loginId: string
 ): Promise<AuthUserRecord | null> {
   const result = await db.query<UserRow>(
-    `SELECT users.*, oauth.profile_image_url AS sns_profile_image_url
+    `SELECT users.*, oauth.provider AS auth_provider, oauth.display_name AS oauth_display_name, oauth.profile_image_url AS sns_profile_image_url
      FROM users
      LEFT JOIN LATERAL (
-       SELECT profile_image_url
+       SELECT provider, display_name, profile_image_url
        FROM promptoon_oauth_account
        WHERE user_id = users.id
-         AND provider = 'google'
-       ORDER BY updated_at DESC
+       ORDER BY CASE provider WHEN 'google' THEN 0 WHEN 'facebook' THEN 1 ELSE 2 END, updated_at DESC
        LIMIT 1
      ) AS oauth ON TRUE
      WHERE users.login_id = $1`,
     [loginId]
+  );
+  const row = result.rows[0];
+
+  if (!row) {
+    return null;
+  }
+
+  return mapAuthUserRecord(row);
+}
+
+export async function getUserByEmail(
+  db: DbExecutor,
+  email: string
+): Promise<AuthUserRecord | null> {
+  const result = await db.query<UserRow>(
+    `SELECT users.*, oauth.provider AS auth_provider, oauth.display_name AS oauth_display_name, oauth.profile_image_url AS sns_profile_image_url
+     FROM users
+     LEFT JOIN LATERAL (
+       SELECT provider, display_name, profile_image_url
+       FROM promptoon_oauth_account
+       WHERE user_id = users.id
+       ORDER BY CASE provider WHEN 'google' THEN 0 WHEN 'facebook' THEN 1 ELSE 2 END, updated_at DESC
+       LIMIT 1
+     ) AS oauth ON TRUE
+     WHERE LOWER(users.email) = LOWER($1)
+     LIMIT 1`,
+    [email]
   );
   const row = result.rows[0];
 
@@ -160,14 +212,13 @@ export async function createUser(
 
 export async function getUserById(db: DbExecutor, userId: string): Promise<AuthUser | null> {
   const result = await db.query<UserRow>(
-    `SELECT users.*, oauth.profile_image_url AS sns_profile_image_url
+    `SELECT users.*, oauth.provider AS auth_provider, oauth.display_name AS oauth_display_name, oauth.profile_image_url AS sns_profile_image_url
      FROM users
      LEFT JOIN LATERAL (
-       SELECT profile_image_url
+       SELECT provider, display_name, profile_image_url
        FROM promptoon_oauth_account
        WHERE user_id = users.id
-         AND provider = 'google'
-       ORDER BY updated_at DESC
+       ORDER BY CASE provider WHEN 'google' THEN 0 WHEN 'facebook' THEN 1 ELSE 2 END, updated_at DESC
        LIMIT 1
      ) AS oauth ON TRUE
      WHERE users.id = $1`,
@@ -178,14 +229,13 @@ export async function getUserById(db: DbExecutor, userId: string): Promise<AuthU
 
 export async function getUserRecordById(db: DbExecutor, userId: string): Promise<AuthUserRecord | null> {
   const result = await db.query<UserRow>(
-    `SELECT users.*, oauth.profile_image_url AS sns_profile_image_url
+    `SELECT users.*, oauth.provider AS auth_provider, oauth.display_name AS oauth_display_name, oauth.profile_image_url AS sns_profile_image_url
      FROM users
      LEFT JOIN LATERAL (
-       SELECT profile_image_url
+       SELECT provider, display_name, profile_image_url
        FROM promptoon_oauth_account
        WHERE user_id = users.id
-         AND provider = 'google'
-       ORDER BY updated_at DESC
+       ORDER BY CASE provider WHEN 'google' THEN 0 WHEN 'facebook' THEN 1 ELSE 2 END, updated_at DESC
        LIMIT 1
      ) AS oauth ON TRUE
      WHERE users.id = $1`,
@@ -295,7 +345,7 @@ export async function getUserByOAuthAccount(
   input: { provider: string; providerAccountId: string }
 ): Promise<AuthUserRecord | null> {
   const result = await db.query<UserRow>(
-    `SELECT users.*, account.profile_image_url AS sns_profile_image_url
+    `SELECT users.*, account.provider AS auth_provider, account.display_name AS oauth_display_name, account.profile_image_url AS sns_profile_image_url
      FROM promptoon_oauth_account AS account
      INNER JOIN users ON users.id = account.user_id
      WHERE account.provider = $1
@@ -307,11 +357,13 @@ export async function getUserByOAuthAccount(
 }
 
 export async function upsertOAuthUser(db: DbExecutor, input: OAuthProfileInput): Promise<AuthUserRecord> {
+  const verifiedEmail = input.email?.trim() || null;
   const existing = await getUserByOAuthAccount(db, {
     provider: input.provider,
     providerAccountId: input.providerAccountId
   });
   if (existing) {
+    const oauthDisplayName = input.displayName?.trim() || null;
     await db.query(
       `UPDATE promptoon_oauth_account
        SET email = $3,
@@ -320,12 +372,53 @@ export async function upsertOAuthUser(db: DbExecutor, input: OAuthProfileInput):
            updated_at = NOW()
        WHERE provider = $1
          AND provider_account_id = $2`,
-      [input.provider, input.providerAccountId, input.email ?? null, input.displayName ?? null, input.profileImageUrl ?? null]
+      [input.provider, input.providerAccountId, verifiedEmail, input.displayName ?? null, input.profileImageUrl ?? null]
     );
+    if (oauthDisplayName) {
+      await db.query(
+        `UPDATE users
+         SET display_name = $2,
+             updated_at = NOW()
+         WHERE id = $1
+           AND NULLIF(BTRIM(display_name), '') IS NULL`,
+        [existing.id, oauthDisplayName]
+      );
+    }
     return await getUserByOAuthAccount(db, {
       provider: input.provider,
       providerAccountId: input.providerAccountId
     }) ?? existing;
+  }
+
+  const matchedUser = verifiedEmail ? await getUserByEmail(db, verifiedEmail) : null;
+  if (matchedUser) {
+    const oauthDisplayName = input.displayName?.trim() || null;
+    if (oauthDisplayName) {
+      await db.query(
+        `UPDATE users
+         SET display_name = $2,
+             updated_at = NOW()
+         WHERE id = $1
+           AND NULLIF(BTRIM(display_name), '') IS NULL`,
+        [matchedUser.id, oauthDisplayName]
+      );
+    }
+
+    await db.query<OAuthAccountRow>(
+      `INSERT INTO promptoon_oauth_account (user_id, provider, provider_account_id, email, display_name, profile_image_url)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (provider, provider_account_id) DO UPDATE
+         SET email = EXCLUDED.email,
+             display_name = EXCLUDED.display_name,
+             profile_image_url = EXCLUDED.profile_image_url,
+             updated_at = NOW()`,
+      [matchedUser.id, input.provider, input.providerAccountId, verifiedEmail, input.displayName ?? null, input.profileImageUrl ?? null]
+    );
+
+    return await getUserByOAuthAccount(db, {
+      provider: input.provider,
+      providerAccountId: input.providerAccountId
+    }) ?? matchedUser;
   }
 
   const loginId = `${input.provider}:${input.providerAccountId}`;
@@ -338,7 +431,7 @@ export async function upsertOAuthUser(db: DbExecutor, input: OAuthProfileInput):
            display_name = COALESCE(EXCLUDED.display_name, users.display_name),
            updated_at = NOW()
      RETURNING *`,
-    [loginId, passwordHash, input.email ?? null, input.displayName ?? null]
+    [loginId, passwordHash, verifiedEmail, input.displayName ?? null]
   );
   const user = userResult.rows[0];
 
@@ -350,11 +443,26 @@ export async function upsertOAuthUser(db: DbExecutor, input: OAuthProfileInput):
            display_name = EXCLUDED.display_name,
            profile_image_url = EXCLUDED.profile_image_url,
            updated_at = NOW()`,
-    [user.id, input.provider, input.providerAccountId, input.email ?? null, input.displayName ?? null, input.profileImageUrl ?? null]
+    [user.id, input.provider, input.providerAccountId, verifiedEmail, input.displayName ?? null, input.profileImageUrl ?? null]
   );
 
   return await getUserByOAuthAccount(db, {
     provider: input.provider,
     providerAccountId: input.providerAccountId
   }) ?? mapAuthUserRecord(user);
+}
+
+export async function updateUserDisplayName(
+  db: DbExecutor,
+  input: { userId: string; displayName: string }
+): Promise<AuthUser | null> {
+  await db.query(
+    `UPDATE users
+     SET display_name = $2,
+         updated_at = NOW()
+     WHERE id = $1`,
+    [input.userId, input.displayName]
+  );
+
+  return getUserById(db, input.userId);
 }

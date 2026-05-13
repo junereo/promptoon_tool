@@ -485,6 +485,71 @@ maybeDescribe('promptoon api integration', () => {
     expect(unverifiedUser.rows[0].email).toBeNull();
   });
 
+  it('links Google OAuth login to an existing user with a verified matching email', async () => {
+    env.google.clientId = 'google-client-id';
+    env.google.clientSecret = 'google-client-secret';
+    env.google.redirectUri = 'http://localhost:5174/api/auth/google/callback';
+
+    const loginId = `existing-google-${randomUUID()}`;
+    const existingUser = await query<{ id: string }>(
+      `INSERT INTO users (login_id, password_hash, email, display_name)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id`,
+      [loginId, 'LOCAL_PASSWORD_HASH', 'existing-google@example.com', 'Existing User']
+    );
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ access_token: 'google-access-token-existing' }), {
+            headers: { 'Content-Type': 'application/json' },
+            status: 200
+          })
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              sub: 'google-sub-existing-user',
+              email: 'Existing-Google@Example.com',
+              email_verified: true,
+              name: 'Existing Google User',
+              picture: 'https://cdn.example.com/existing-google-user.png'
+            }),
+            {
+              headers: { 'Content-Type': 'application/json' },
+              status: 200
+            }
+          )
+        )
+    );
+
+    const callback = await request(app).post('/api/auth/google/callback').send({ code: 'existing-user-code' });
+    expect(callback.status).toBe(200);
+    expect(callback.body.user.id).toBe(existingUser.rows[0].id);
+    expect(callback.body.user.loginId).toBe(loginId);
+    expect(callback.body.user.snsProfileImageUrl).toBe('https://cdn.example.com/existing-google-user.png');
+
+    const oauthAccount = await query<{ user_id: string; provider: string; provider_account_id: string; email: string | null }>(
+      `SELECT user_id, provider, provider_account_id, email
+       FROM promptoon_oauth_account
+       WHERE provider = $1
+         AND provider_account_id = $2`,
+      ['google', 'google-sub-existing-user']
+    );
+    expect(oauthAccount.rows[0]).toEqual({
+      user_id: existingUser.rows[0].id,
+      provider: 'google',
+      provider_account_id: 'google-sub-existing-user',
+      email: 'Existing-Google@Example.com'
+    });
+
+    const googleOnlyUser = await query<{ count: string }>('SELECT COUNT(*)::text AS count FROM users WHERE login_id = $1', [
+      'google:google-sub-existing-user'
+    ]);
+    expect(googleOnlyUser.rows[0].count).toBe('0');
+  });
+
   it('rejects failed Google OAuth token and profile responses', async () => {
     env.google.clientId = 'google-client-id';
     env.google.clientSecret = 'google-client-secret';
