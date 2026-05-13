@@ -1,0 +1,101 @@
+export type FeedItemType = 'short_drama' | 'promptoon' | 'webtoon_episode' | 'channel_recommendation';
+
+export type FeedCollectionKey = 'hero' | 'trending' | 'new' | 'recommended' | 'shorts';
+
+export interface FeedItemMetrics {
+  views: number;
+  likes: number;
+  comments: number;
+  shares: number;
+}
+
+export interface ContentInteractionState {
+  publishId: string;
+  contentType?: Exclude<FeedItemType, 'channel_recommendation'>;
+  liked: boolean;
+  bookmarked: boolean;
+  metrics: FeedItemMetrics;
+}
+
+export interface ContentInteractionStateListResponse {
+  items: ContentInteractionState[];
+}
+
+export interface FeedItemEntry {
+  kind: 'viewer' | 'channel' | 'external';
+  href: string;
+}
+
+export interface FeedRecommendationMeta {
+  requestId: string;
+  policyId: string;
+  modelVersion: string;
+  experimentId: string;
+  trackingToken: string;
+  rank: number;
+  score: number;
+  source: string;
+  reason: string;
+  surface?: 'home_feed' | 'discovery_feed';
+}
+
+export interface FeedItem {
+  id?: string;
+  type?: FeedItemType;
+  isExperimental?: boolean;
+  publishId: string;
+  episodeId: string;
+  channelId?: string | null;
+  channelSlug?: string | null;
+  channelName?: string | null;
+  channelAvatarUrl?: string | null;
+  episodeTitle: string;
+  projectTitle: string;
+  coverImageUrl: string | null;
+  videoUrl?: string | null;
+  durationSec?: number | null;
+  publishedAt: string;
+  metrics?: FeedItemMetrics;
+  entry?: FeedItemEntry;
+  recommendation?: FeedRecommendationMeta;
+  startCut: Pick<
+    import('./core').ProductPublishedCut,
+    | 'id'
+    | 'title'
+    | 'body'
+    | 'contentBlocks'
+    | 'contentViewMode'
+    | 'assetUrl'
+    | 'dialogAnchorX'
+    | 'dialogAnchorY'
+    | 'dialogOffsetX'
+    | 'dialogOffsetY'
+    | 'dialogTextAlign'
+    | 'startEffect'
+    | 'endEffect'
+    | 'startEffectDurationMs'
+    | 'endEffectDurationMs'
+    | 'edgeFade'
+    | 'edgeFadeIntensity'
+    | 'edgeFadeColor'
+    | 'marginBottomToken'
+  >;
+  startChoices: import('./core').ProductPublishedCut['choices'];
+}
+
+export interface FeedResponse {
+  items: FeedItem[];
+  nextCursor: string | null;
+}
+
+export interface FeedHomeSection {
+  key: Exclude<FeedCollectionKey, 'hero'>;
+  title: string;
+  subtitle?: string;
+  items: FeedItem[];
+}
+
+export interface FeedHomeResponse {
+  hero: FeedItem | null;
+  sections: FeedHomeSection[];
+}

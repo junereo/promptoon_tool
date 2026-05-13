@@ -4,11 +4,20 @@
   "packageManager": "pnpm@10.4.1",
   "scripts": {
     "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
+    "test:api": "pnpm --filter @promptoon/api test",
+    "test:api:integration:setup": "node scripts/setup-api-integration-db.mjs",
+    "test:api:integration": "pnpm --filter @promptoon/api test",
+    "test:admin": "pnpm --filter @promptoon/admin test",
+    "test:web": "pnpm --filter @promptoon/web test",
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down",
     "db:logs": "docker compose logs -f postgres",
     "dev:api": "pnpm --filter @promptoon/api dev",
+    "dev:recommendation": "pnpm --filter @promptoon/recommendation-api dev",
+    "dev:admin": "pnpm --filter @promptoon/admin dev",
+    "build:admin": "pnpm --filter @promptoon/admin build",
     "migrate:api": "pnpm --filter @promptoon/api migrate"
   },
   "devDependencies": {

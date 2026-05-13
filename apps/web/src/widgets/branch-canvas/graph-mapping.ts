@@ -1,10 +1,14 @@
 import type { Choice, Cut, EditorSelection } from '@promptoon/shared';
 import type { Connection, Edge, Node } from '@xyflow/react';
 
+import { getCutGroupFrameNodeId, getCutGroupFrames } from './graph-groups';
+import type { GraphLayoutMode } from './graph-layout';
+
 export interface CutNodeData {
   [key: string]: unknown;
   cut: Cut;
   choicesForCut: Choice[];
+  multiSelected: boolean;
   selected: boolean;
   selectedChoiceId: string | null;
 }
@@ -16,9 +20,21 @@ export interface AddCutPlaceholderNodeData {
   onCreate: (sourceCutId: string, position: { x: number; y: number }) => void;
 }
 
+export interface CutGroupNodeData {
+  [key: string]: unknown;
+  groupId: string;
+  label: string;
+  cutIds: string[];
+  width: number;
+  height: number;
+  layoutMode: GraphLayoutMode;
+  onApplyLocalLayout: (groupId: string, mode: GraphLayoutMode) => void;
+}
+
 export type CutFlowNode = Node<CutNodeData, 'cutNode'>;
 export type AddCutPlaceholderFlowNode = Node<AddCutPlaceholderNodeData, 'addCutPlaceholderNode'>;
-export type BranchFlowNode = CutFlowNode | AddCutPlaceholderFlowNode;
+export type CutGroupFlowNode = Node<CutGroupNodeData, 'cutGroupNode'>;
+export type BranchFlowNode = CutFlowNode | AddCutPlaceholderFlowNode | CutGroupFlowNode;
 
 const DEFAULT_EDGE_STROKE = '#555';
 const SELECTED_EDGE_STROKE = '#7A3040';
@@ -126,7 +142,12 @@ export function getSelectedCutId(cuts: Cut[], choices: Choice[], selection: Edit
   return cuts.find((cut) => cut.isStart)?.id ?? cuts[0]?.id ?? null;
 }
 
-export function mapCutsToFlowNodes(cuts: Cut[], choices: Choice[], selection: EditorSelection): CutFlowNode[] {
+export function mapCutsToFlowNodes(
+  cuts: Cut[],
+  choices: Choice[],
+  selection: EditorSelection,
+  multiSelectedCutIds: Set<string> = new Set()
+): CutFlowNode[] {
   const choicesByCutId = getChoicesByCutId(choices);
   const selectedCutId = getSelectedCutId(cuts, choices, selection);
   const selectedChoiceId = getSelectedChoiceId(selection);
@@ -144,12 +165,42 @@ export function mapCutsToFlowNodes(cuts: Cut[], choices: Choice[], selection: Ed
       data: {
         cut,
         choicesForCut: choicesByCutId.get(cut.id) ?? [],
+        multiSelected: multiSelectedCutIds.has(cut.id),
         selected,
         selectedChoiceId
       },
-      zIndex: selected ? 1000 : 0
+      draggable: cut.kind !== 'loopVariant' && cut.kind !== 'loopSpacer' && !multiSelectedCutIds.has(cut.id),
+      zIndex: selected || multiSelectedCutIds.has(cut.id) ? 1000 : 0
     };
   });
+}
+
+export function mapCutGroupsToFlowNodes(
+  cuts: Cut[],
+  localLayoutModes: Record<string, GraphLayoutMode>,
+  onApplyLocalLayout: (groupId: string, mode: GraphLayoutMode) => void
+): CutGroupFlowNode[] {
+  return getCutGroupFrames(cuts).map((frame) => ({
+    id: getCutGroupFrameNodeId(frame.groupId),
+    type: 'cutGroupNode',
+    position: frame.position,
+    data: {
+      groupId: frame.groupId,
+      label: frame.label,
+      cutIds: frame.cutIds,
+      width: frame.width,
+      height: frame.height,
+      layoutMode: localLayoutModes[frame.groupId] ?? 'custom',
+      onApplyLocalLayout
+    },
+    draggable: true,
+    selectable: false,
+    zIndex: -100,
+    style: {
+      width: frame.width,
+      height: frame.height
+    }
+  }));
 }
 
 function getIncomingEdgeCounts(choices: Choice[], cuts: Cut[]): Map<string, number> {
@@ -162,6 +213,16 @@ function getIncomingEdgeCounts(choices: Choice[], cuts: Cut[]): Map<string, numb
   }
 
   for (const cut of cuts) {
+    const selectedVariantCutIds =
+      cut.loopMetadata?.role === 'stageBase'
+        ? [cut.loopMetadata.selectedVariantCutId ?? null, ...(cut.loopMetadata.variantCutIds ?? [])]
+        : [];
+    for (const selectedVariantCutId of selectedVariantCutIds) {
+      if (selectedVariantCutId) {
+        counts.set(selectedVariantCutId, (counts.get(selectedVariantCutId) ?? 0) + 1);
+      }
+    }
+
     if (cut.kind !== 'stateRouter') {
       continue;
     }
@@ -173,6 +234,7 @@ function getIncomingEdgeCounts(choices: Choice[], cuts: Cut[]): Map<string, numb
     if (cut.stateFallbackCutId) {
       counts.set(cut.stateFallbackCutId, (counts.get(cut.stateFallbackCutId) ?? 0) + 1);
     }
+
   }
 
   return counts;
@@ -275,5 +337,43 @@ export function mapChoicesToFlowEdges(choices: Choice[], selection: EditorSelect
     ];
   });
 
-  return [...choiceEdges, ...stateRouteEdges];
+  const loopVariantEdges = cuts.flatMap((cut) => {
+    const targetCutIds =
+      cut.loopMetadata?.role === 'stageBase'
+        ? [
+            ...new Set(
+              [cut.loopMetadata.selectedVariantCutId ?? null, ...(cut.loopMetadata.variantCutIds ?? [])].filter(
+                (targetCutId): targetCutId is string => Boolean(targetCutId)
+              )
+            )
+          ]
+        : [];
+    if (targetCutIds.length === 0) {
+      return [];
+    }
+
+    return targetCutIds.map((targetCutId) => {
+      const incomingEdgeCount = incomingEdgeCountByTargetCutId.get(targetCutId) ?? 1;
+      const isMultiInputEdge = incomingEdgeCount >= 2;
+      const multiInputStroke = getMultiInputStroke(targetCutId, incomingEdgeIndexByTargetCutId);
+
+      return {
+        id: `loop-variant-${cut.id}-${targetCutId}`,
+        source: cut.id,
+        target: targetCutId,
+        targetHandle: getCutTargetHandleId(targetCutId),
+        animated: false,
+        interactionWidth: isMultiInputEdge ? 24 : 18,
+        zIndex: isMultiInputEdge ? 10 : 0,
+        style: {
+          stroke: isMultiInputEdge ? multiInputStroke : '#22c55e',
+          strokeDasharray: '8 5',
+          strokeOpacity: 0.82,
+          strokeWidth: isMultiInputEdge ? 2.4 : 2
+        }
+      };
+    });
+  });
+
+  return [...choiceEdges, ...stateRouteEdges, ...loopVariantEdges];
 }

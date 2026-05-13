@@ -157,7 +157,9 @@ export function PreviewPlayer({
   const resultCardBlock = cut ? getResultCardBlock(cut) : null;
   const isResultCardPreview = cut?.kind === 'resultCard' && resultCardBlock;
   const showChoices =
-    cut !== null && !isPromptoonEndingCut(cut) && (cut.kind === 'scene' ? choices.length > 1 : choices.length > 0);
+    cut !== null &&
+    !isPromptoonEndingCut(cut) &&
+    (cut.kind === 'scene' || cut.kind === 'loopSpacer' ? choices.length > 1 : choices.length > 0);
   const showEndingButton = Boolean(cut && isPromptoonEndingCut(cut) && cut.kind !== 'resultCard');
   const hasPreviewFooterContent = showChoices || Boolean(reactionText) || showEndingButton;
   const activeSelectedChoiceId = pendingChoiceId ?? selectedChoiceId;

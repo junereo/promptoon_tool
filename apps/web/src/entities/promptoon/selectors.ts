@@ -56,6 +56,18 @@ function getConnectedStateRouterTargetIds(cut: Cut): string[] {
   ].filter((cutId, index, cutIds) => cutId !== cut.id && cutIds.indexOf(cutId) === index);
 }
 
+function getConnectedLoopTargetIds(cut: Cut): string[] {
+  const selectedVariantCutIds =
+    cut.loopMetadata?.role === 'stageBase'
+      ? [cut.loopMetadata.selectedVariantCutId ?? null, ...(cut.loopMetadata.variantCutIds ?? [])]
+      : [];
+
+  return selectedVariantCutIds.filter(
+    (selectedVariantCutId, index, cutIds): selectedVariantCutId is string =>
+      Boolean(selectedVariantCutId) && selectedVariantCutId !== cut.id && cutIds.indexOf(selectedVariantCutId) === index
+  );
+}
+
 function getIncomingCutIds(cuts: Cut[], choices: Choice[]): Set<string> {
   const incomingCutIds = new Set<string>();
 
@@ -67,6 +79,10 @@ function getIncomingCutIds(cuts: Cut[], choices: Choice[]): Set<string> {
 
   for (const cut of cuts) {
     for (const targetCutId of getConnectedStateRouterTargetIds(cut)) {
+      incomingCutIds.add(targetCutId);
+    }
+
+    for (const targetCutId of getConnectedLoopTargetIds(cut)) {
       incomingCutIds.add(targetCutId);
     }
   }
@@ -129,6 +145,19 @@ export function buildCutHierarchy(cuts: Cut[], choices: Choice[]): CutHierarchy 
     nextAncestorCutIds.add(cut.id);
 
     let childRank = 1;
+    for (const targetCutId of getConnectedLoopTargetIds(cut)) {
+      const childCut = cutById.get(targetCutId);
+      if (!childCut) {
+        continue;
+      }
+
+      const childNode = visitCut(childCut, [...path, childRank], cut.id, null, nextAncestorCutIds);
+      if (childNode) {
+        node.childNodes.push(childNode);
+        childRank += 1;
+      }
+    }
+
     for (const choice of connectedChoicesByCutId.get(cut.id) ?? []) {
       const childCut = choice.nextCutId ? cutById.get(choice.nextCutId) : undefined;
       if (!childCut) {

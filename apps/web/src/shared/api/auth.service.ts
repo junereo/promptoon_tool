@@ -1,15 +1,25 @@
-import type { AuthResponse, LoginRequest, RegisterRequest } from '@promptoon/shared';
+import type { AuthResponse, LoginRequest, RegisterRequest, UpdateProfileRequest, UpdateProfileResponse } from '@promptoon/shared';
 
-import { publicApiClient } from './client';
+import { authApi } from './auth.api';
 
 export const authService = {
   async login(payload: LoginRequest): Promise<AuthResponse> {
-    const { data } = await publicApiClient.post('/auth/login', payload);
-    return data;
+    return authApi.login(payload);
   },
 
   async register(payload: RegisterRequest): Promise<AuthResponse> {
-    const { data } = await publicApiClient.post('/auth/register', payload);
-    return data;
+    return authApi.register(payload);
+  },
+
+  async updateProfile(payload: UpdateProfileRequest): Promise<UpdateProfileResponse> {
+    return authApi.updateProfile(payload);
+  },
+
+  async refresh(): Promise<AuthResponse> {
+    return authApi.refresh();
+  },
+
+  async getGoogleAuthorizationUrl(): Promise<string> {
+    return authApi.getGoogleAuthorizationUrl();
   }
 };

@@ -9,7 +9,7 @@ import type {
   PromptoonFontToken,
   PromptoonHeadingContentBlock,
   PromptoonNarrationContentBlock,
-  PublishManifest,
+  ProductPublishedCut,
   PromptoonQuoteContentBlock,
   PromptoonEmphasisContentBlock,
   PromptoonResultCardContentBlock
@@ -27,7 +27,7 @@ export interface ViewerBindings {
 
 type ContentRenderableCut =
   | Pick<Cut, 'id' | 'body'> & { contentBlocks?: CutContentBlock[] | null }
-  | Pick<PublishManifest['cuts'][number], 'id' | 'body'> & { contentBlocks?: CutContentBlock[] | null };
+  | Pick<ProductPublishedCut, 'id' | 'body'> & { contentBlocks?: CutContentBlock[] | null };
 
 export const CONTENT_FONT_OPTIONS: Array<{ label: string; value: PromptoonFontToken }> = [
   { label: '고딕', value: 'sans-kr' },

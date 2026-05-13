@@ -8,31 +8,27 @@ import type {
   PromptoonBackupExport
 } from '@promptoon/shared';
 
-import { apiClient } from './client';
+import { studioApi } from './studio.api';
 
+/** @deprecated Use studioApi for project and episode management. */
 export const projectService = {
   async getProjects(): Promise<ProjectWithEpisodes[]> {
-    const { data } = await apiClient.get('/projects');
-    return data;
+    return studioApi.getProjects();
   },
 
   async exportBackup(): Promise<PromptoonBackupExport> {
-    const { data } = await apiClient.get('/backup/export');
-    return data;
+    return studioApi.exportBackup();
   },
 
   async createProject(payload: CreateProjectRequest): Promise<Project> {
-    const { data } = await apiClient.post('/projects', payload);
-    return data;
+    return studioApi.createProject(payload);
   },
 
   async createEpisode(projectId: string, payload: CreateEpisodeRequest): Promise<Episode> {
-    const { data } = await apiClient.post(`/projects/${projectId}/episodes`, payload);
-    return data;
+    return studioApi.createEpisode(projectId, payload);
   },
 
   async patchEpisode(episodeId: string, payload: PatchEpisodeRequest): Promise<Episode> {
-    const { data } = await apiClient.patch(`/episodes/${episodeId}`, payload);
-    return data;
+    return studioApi.patchEpisode(episodeId, payload);
   }
 };

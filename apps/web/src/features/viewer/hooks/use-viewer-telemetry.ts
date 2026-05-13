@@ -1,10 +1,10 @@
-import type { PublishManifest, TelemetryEventRequest } from '@promptoon/shared';
+import type { ProductPublishManifest, TelemetryEventRequest } from '@promptoon/shared';
 import { useEffect, useRef } from 'react';
 
 import { isPromptoonEndingCut } from '../../../shared/lib/promptoon-ending';
 import { createPromptoonSessionId, getPromptoonAnonymousId, sendPromptoonTelemetryEvent } from '../../../shared/lib/promptoon-telemetry';
 
-type ViewerCut = PublishManifest['cuts'][number];
+type ViewerCut = ProductPublishManifest['cuts'][number];
 type ViewerChoice = ViewerCut['choices'][number];
 
 function sendTelemetryEvent(payload: TelemetryEventRequest) {
@@ -26,7 +26,7 @@ export function useViewerTelemetry({
   const viewedCutIdsRef = useRef<Set<string>>(new Set());
 
   function sendSessionTelemetryEvent(payload: Omit<TelemetryEventRequest, 'anonymousId' | 'publishId' | 'sessionId'>) {
-    if (!anonymousIdRef.current || !sessionIdRef.current) {
+    if (!publishId || !anonymousIdRef.current || !sessionIdRef.current) {
       return;
     }
 
@@ -103,7 +103,12 @@ export function useViewerTelemetry({
         });
       }
 
-      if (cut.kind !== 'scene' && cut.choices.length > 0 && !choiceShownAtByCutIdRef.current.has(cut.id)) {
+      if (
+        cut.kind !== 'scene' &&
+        cut.kind !== 'loopSpacer' &&
+        cut.choices.length > 0 &&
+        !choiceShownAtByCutIdRef.current.has(cut.id)
+      ) {
         choiceShownAtByCutIdRef.current.set(cut.id, now);
       }
     }

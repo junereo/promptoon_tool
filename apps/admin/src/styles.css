@@ -1,0 +1,40 @@
+@import 'tailwindcss';
+
+@source '../index.html';
+@source './**/*.{ts,tsx}';
+
+@theme {
+  --color-admin-bg: #f6f9ff;
+  --color-admin-panel: #ffffff;
+  --color-admin-ink: #101828;
+  --color-admin-muted: #667085;
+  --color-admin-border: #d7e3f5;
+  --color-admin-blue: #1d5cff;
+  --color-admin-purple: #8b5cf6;
+  --shadow-admin-card: 0 18px 60px rgb(29 92 255 / 0.12);
+  --font-admin: 'Inter', 'Segoe UI', sans-serif;
+}
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgb(56 189 248 / 0.16), transparent 30%),
+    linear-gradient(180deg, #f9fbff 0%, #eef5ff 100%);
+  color: #101828;
+  font-family: var(--font-admin);
+}
+
+#root {
+  min-height: 100vh;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}

@@ -1,122 +1,254 @@
-# 유지보수 및 운영 가이드 (Maintenance)
+# 유지보수 및 운영 가이드
 
-이 문서는 Promptoon Authoring MVP 프로젝트의 로컬 개발 환경 셋팅, 스크립트 실행 방법 및 트러블슈팅에 대해 안내합니다.
+이 문서는 Promptoon workspace의 로컬 개발, DB 마이그레이션, 테스트, 운영성 작업을 정리합니다.
 
-## 1. 사전 요구 사항 (Prerequisites)
+## 1. 사전 요구 사항
 
-- Node.js 20+ 이상 버전 권장.
-- `pnpm` (버전 10.x 대 권장, 저장소는 `10.4.1` 기준으로 세팅됨).
-- [Docker](https://www.docker.com/) & Docker Compose (로컬 PostgreSQL 실행용).
+- Node.js 20+
+- `pnpm` 10.x (`packageManager`는 `pnpm@10.4.1`)
+- Docker와 Docker Compose
+- PostgreSQL client는 필수는 아니지만 DB 확인/운영에는 유용합니다.
 
 ## 2. 초기 셋팅
 
 ### 2.1. 패키지 설치
 
-루트 디렉토리에서 아래 명령어를 실행하여 모노레포 전체 워크스페이스 의존성을 설치합니다.
-
 ```bash
 pnpm install
 ```
 
-### 2.2. 환경 변수 설정 (.env)
+### 2.2. 환경 변수
 
-레포지토리에 존재하는 `.env.example` 템플릿 파일들을 복사하여 실제 `.env` 파일들을 각각 생성해 줍니다.
+기본 템플릿:
 
 ```bash
 cp .env.example .env
 cp apps/api/.env.example apps/api/.env
 cp apps/web/.env.example apps/web/.env
+cp apps/admin/.env.example apps/admin/.env
 ```
 
-**주의**: `.env` 내부의 `DATABASE_URL` (로컬 개발용)과 `TEST_DATABASE_URL` (API 통합 테스트용)은 절대로 동일한 데이터베이스 스키마를 바라보지 않도록 분리해야 합니다 (테스트가 이전 데이터를 삭제할 수 있습니다).
+로컬 실행 기본값은 `.env`와 `.env.development`입니다. 운영 값은 `.env.production`에 분리하며 운영 origin은 `https://promptoon.ai`입니다. API/Recommendation 서버는 `NODE_ENV=production`일 때 `.env.production`을 읽고, Web/Admin은 Vite production build에서 앱별 `.env.production`을 읽습니다.
 
-## 3. 실행 방법
+중요 변수:
 
-### 3.1. 베이스 인프라 (DB) 실행
+- `DATABASE_URL`: 개발 DB.
+- `TEST_DATABASE_URL`: API 테스트 DB. 개발 DB와 절대 같게 두지 않습니다.
+- `JWT_SECRET`, `JWT_REFRESH_SECRET`: access/refresh token 서명.
+- `JWT_ISSUER`, `JWT_AUDIENCE`: JWT 검증 옵션.
+- `JWT_ACCESS_TOKEN_EXPIRES_IN`, `JWT_REFRESH_TOKEN_EXPIRES_IN`, `JWT_REFRESH_TOKEN_TTL_DAYS`: token/session 만료 정책.
+- `CLIENT_REDIRECT_URL`: Web OAuth/login redirect.
+- `ADMIN_CLIENT_REDIRECT_URL`: Admin OAuth redirect.
+- `PROMPTOON_PLATFORM_ADMIN_LOGIN_IDS`: admin bootstrap 대상 loginId 목록.
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`: Google OAuth. 로컬 redirect URI는 Web dev proxy를 경유하는 `http://localhost:5174/api/auth/google/callback`, 운영 redirect URI는 `https://promptoon.ai/api/auth/google/callback`입니다.
+- API는 루트 `.env`, 루트 `.env.{development|production}`, `apps/api/.env`, `apps/api/.env.{development|production}` 순서로 읽고 뒤쪽 값이 앞쪽 값을 override합니다. `apps/api/.env*`에 Google OAuth 값을 비워 두면 루트 `.env*`의 실제 값도 덮어써져 `/api/auth/google/start`가 503을 반환합니다.
+- `DISCOURSE_BASE_URL`, `DISCOURSE_API_KEY`, `DISCOURSE_API_USER`, `DISCOURSE_CATEGORY_ID`, `DISCOURSE_ORIGIN`: Discourse bridge.
+- `PORT`: API 서버 포트, 기본 `4000`.
+- `RECOMMENDATION_API_URL`: Feed API가 호출하는 추천 API origin, 기본 `http://127.0.0.1:4100`.
+- `RECOMMENDATION_PORT`: Recommendation API 서버 포트, 기본 `4100`.
+- `RECOMMENDATION_TIMEOUT_MS`: Feed API의 추천 API 호출 timeout, 기본 `800`.
+- `RECOMMENDATION_TOKEN_SECRET`: 추천 tracking token 서명 secret. 없으면 개발 fallback을 사용하지만 운영에서는 별도 값을 둡니다.
+- `VITE_API_PROXY_TARGET`: Web/Admin dev proxy target.
+
+## 3. 로컬 DB
+
+PostgreSQL은 `docker-compose.yml`의 `postgres:15-alpine` 컨테이너를 사용합니다.
 
 ```bash
-# Docker DB 실행 (백그라운드 포트 5432)
 pnpm run db:up
-
-# 로그 확인
 pnpm run db:logs
-
-# DB 종료
 pnpm run db:down
 ```
 
-포트 충돌(`5432` 포트 이미 사용중) 발생 시:
+기본 포트는 `5432`입니다. 충돌하면 포트를 바꿔 실행합니다.
+
 ```bash
 POSTGRES_PORT=5435 docker compose up -d postgres
 ```
-이후 `.env` 파일들의 포트 설정을 `5435` 등으로 변경해주어야 합니다.
 
-### 3.2. 데이터베이스 마이그레이션
+포트를 바꾼 경우 `.env`, `apps/api/.env`, 테스트 실행 시 `DATABASE_URL`/`TEST_DATABASE_URL`도 같은 포트로 맞춥니다.
 
-DB 컨테이너가 뜬 상태에서, 애플리케이션에 필요한 테이블들을 생성합니다.
+## 4. 마이그레이션
 
 ```bash
-# 기본 마이그레이션 실행
 pnpm run migrate:api
+```
 
-# 커스텀 포트/환경 사용 시
+커스텀 DB URL:
+
+```bash
 DATABASE_URL='postgresql://promptoon_user:promptoon_password@localhost:5435/promptoon_db' pnpm --filter @promptoon/api migrate
 ```
 
-### 3.3. 서버 리스닝 (개발 모드)
+마이그레이션 파일은 `apps/api/src/db/migrations`에 있으며 현재 `001_init_promptoon.sql`부터 `030_promptoon_recommendation_system.sql`까지 번호순으로 적용됩니다. 추천 request/result log와 viewer event attribution 컬럼도 이 마이그레이션 흐름에서 관리합니다.
 
-터미널 세션을 2개 띄워서 프론트엔드와 백엔드를 각각 실행하는 것을 권장합니다 (`pnpm --parallel` 활용도 가능).
+## 5. 개발 서버
 
-**API 서버**:
+API:
+
 ```bash
 pnpm run dev:api
 ```
-- API는 `http://127.0.0.1:4000` 에서 실행.
-- 상태 확인(Health Check): `http://127.0.0.1:4000/health`
 
-**프론트엔드 (Web)**:
+- 기본 주소: `http://127.0.0.1:4000`
+- Health check: `http://127.0.0.1:4000/api/health`
+
+Recommendation API:
+
+```bash
+pnpm run dev:recommendation
+```
+
+- 기본 주소: `http://127.0.0.1:4100`
+- Health check: `http://127.0.0.1:4100/health`
+- Feed API는 `RECOMMENDATION_API_URL`로 이 서버를 호출합니다.
+- Recommendation API가 꺼져 있거나 timeout/빈 결과를 반환하면 Feed API는 최신순 projection으로 fallback합니다.
+
+Web:
+
 ```bash
 pnpm --filter @promptoon/web dev
 ```
-- 웹 에디터는 `http://127.0.0.1:5173` 기반으로 구동됨.
 
-## 4. 빌드 및 테스트
+- 기본 주소: `pnpm --filter @promptoon/web dev` 기준 `http://127.0.0.1:5174`
+- raw Vite config 기본값은 `5173`입니다.
+- consumer home: `/`
+- discovery feed: `/discovery`
+- Studio: `/studio/projects` 또는 `/promptoon/projects`
 
-**전체 워크스페이스 빌드**:
+Admin:
+
+```bash
+pnpm run dev:admin
+```
+
+- 기본 주소: `http://127.0.0.1:5174`
+- login: `/login`
+
+Web/Admin Vite dev server는 `/api`와 `/uploads`를 API 서버로 proxy합니다. Web과 Admin을 동시에 실행할 때 둘 다 `5174`를 사용하면 충돌하므로 한쪽은 Vite `--port`나 env/CLI 옵션으로 다른 포트를 사용합니다.
+
+## 6. 빌드와 테스트
+
+전체:
+
 ```bash
 pnpm build
-```
-
-**테스트**:
-```bash
-# 전체 테스트 실행
 pnpm test
-
-# API만 실행
-pnpm --filter @promptoon/api test
-
-# Web만 실행
-pnpm --filter @promptoon/web test
+pnpm run typecheck
 ```
-*API 통합 테스트는 `TEST_DATABASE_URL`이 명시적으로 설정되어 있어야만 동작합니다.*
 
-## 5. 트러블슈팅
+앱별:
 
-1. **프론트 API 요청이 실패할 경우 (CORS / 404 등)**:
-    - Vite 구동 포트(`5173`)와 별개로, Vite 프록시 설정이 `http://127.0.0.1:4000` 을 향하고 있는지 확인하세요(`vite.config.ts`).
-    - API 서버(`apps/api`)가 정상적으로 4000 포트에서 실행 중인지 체크하세요.
+```bash
+pnpm run test:api
+pnpm run test:web
+pnpm run test:admin
+pnpm run build:admin
+pnpm --filter @promptoon/recommendation-api test
+pnpm --filter @promptoon/recommendation-rankers test
+pnpm --filter @promptoon/recommendation-api build
+```
 
-2. **`pnpm test` 중 데이터 삭제 오류**:
-    - `API`의 `TEST_DATABASE_URL` 환경변수가 `DATABASE_URL`과 같은 주소로 물려있어 개발 데이터를 지운 것은 아닌지 확인하세요.
+API 통합 테스트용 DB 준비:
 
-3. **마이그레이션 에러**:
-    - DB 컨테이너가 정상 구동 중인지 `docker ps`로 확인하세요.
-    - DB 계정 (`promptoon_user`, `promptoon_password`) 등 `.env`의 접속 정보가 `docker-compose.yml` 환경과 일치하는지 점검하세요.
+```bash
+pnpm run test:api:integration:setup
+TEST_DATABASE_URL='postgresql://promptoon_test_user:promptoon_test_password@localhost:5436/promptoon_test' pnpm run test:api:integration
+```
 
-4. **이미지 업로드 시 `EACCES` 권한 오류**:
-    - 루트 `.data` 디렉터리가 `root` 소유일 경우 새 업로드 디렉터리를 만들지 못할 수 있습니다.
-    - 현재 API는 우선 루트 `.data/uploads`를 사용하고, 권한이 없으면 자동으로 `apps/api/.data/uploads`로 폴백합니다.
-    - 루트 경로를 계속 쓰고 싶다면 소유권을 현재 사용자로 변경하세요.
+`test:api:integration:setup`은 `TEST_DATABASE_URL`의 database를 drop/create합니다. 개발 DB와 같은 URL을 사용하지 않습니다.
+
+## 7. 프론트엔드 아이콘
+
+Web/Admin의 UI 아이콘은 [coolicons](https://github.com/krystonschwarze/coolicons)를 기준으로 사용합니다.
+
+- React 컴포넌트는 `react-coolicons`에서 import합니다.
+- 새 아이콘을 추가할 때는 `lucide-react`나 직접 작성한 인라인 SVG 대신 coolicons 이름을 먼저 찾습니다.
+- coolicons에 같은 이름이 없으면 의미가 가장 가까운 아이콘을 alias로 import합니다.
+
+## 8. 운영성 작업
+
+### 8.1. Projection repair
+
+기존 publish 데이터가 public feed/channel/viewer surface에 보이지 않으면 Studio 인증 token으로 projection repair를 실행합니다.
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer <token>" \
+  http://127.0.0.1:4000/api/studio/projections/rebuild
+```
+
+이 작업은 기존 `promptoon_publish.id`와 manifest를 유지하고, default channel/series, feed item, channel home projection, episode discussion projection만 idempotent하게 보강합니다.
+
+### 8.2. Recommendation 점검
+
+- Recommendation API health: `http://127.0.0.1:4100/health`
+- 추천 endpoint: `POST http://127.0.0.1:4100/recommendations/v1/feed`
+- 추천 엔진은 `promptoon_feed_item` projection만 읽고 Studio draft는 읽지 않습니다.
+- Feed API가 추천 API 호출에 실패하면 `/api/feed/mixed`, `/api/feed/episodes`, `/api/feed/shorts`는 최신순 projection으로 fallback합니다.
+- 추천 결과와 cursor cache는 `promptoon_recommendation_request`, `promptoon_recommendation_result`에 저장됩니다.
+- tracking token, recommendation request id, policy/model/experiment id는 viewer event와 telemetry payload에 optional로 저장됩니다.
+
+### 8.3. Auth/session 점검
+
+- JWT만으로는 인증되지 않습니다. JWT의 `sid`가 가리키는 `promptoon_session` row가 활성 상태여야 합니다.
+- `POST /api/auth/logout`은 현재 session만 삭제합니다.
+- refresh token은 `/api/auth/refresh`에서 body, `x-refresh-token`, cookie 순서로 읽습니다.
+- admin 접근은 active session과 `platform_admin` 권한이 모두 필요합니다.
+- `PROMPTOON_PLATFORM_ADMIN_LOGIN_IDS`를 사용하면 특정 loginId를 admin 접근 시 bootstrap할 수 있습니다.
+- Public feed read route는 optional auth를 사용합니다. 유효하지 않은 auth cookie가 있어도 비로그인 요청으로 계속 처리됩니다.
+
+### 8.4. Upload 경로
+
+API는 업로드를 우선 workspace `.data/uploads`에 쓰고, 권한 문제가 있으면 `apps/api/.data/uploads`로 폴백합니다. 정적 serve는 두 경로를 모두 `/uploads`에 mount합니다.
+
+루트 `.data` 권한 문제를 해결하려면:
+
 ```bash
 sudo chown -R "$USER:$USER" .data
 ```
+
+### 8.5. Discourse 연동
+
+Discourse bridge를 사용하려면 아래 값이 필요합니다.
+
+- `DISCOURSE_BASE_URL`
+- `DISCOURSE_API_KEY`
+- `DISCOURSE_API_USER`
+- `DISCOURSE_CATEGORY_ID`
+
+DB-backed comment/comment-meta endpoint는 Discourse 설정 없이 사용할 수 있습니다. 외부 Discourse topic/post API는 설정이 없으면 정상 호출할 수 없습니다.
+Discourse API key는 API 서버 환경 변수로만 설정합니다. 로컬에서는 `apps/api/.env`에 두고 API 서버를 재시작합니다. `apps/web/.env` 또는 `VITE_DISCOURSE_API_KEY`처럼 웹 번들에 포함되는 값으로 설정하지 않습니다.
+개발 모드에서 `DISCOURSE_API_KEY`만 있고 `DISCOURSE_BASE_URL`이 비어 있으면 API 서버는 로컬 Discourse 기본 주소 `http://127.0.0.1:3000`을 사용합니다.
+
+## 9. 트러블슈팅
+
+1. API health check가 실패할 때
+   - `pnpm run dev:api`가 실행 중인지 확인합니다.
+   - 경로는 `/health`가 아니라 `/api/health`입니다.
+   - `PORT`를 바꿨다면 Vite `VITE_API_PROXY_TARGET`도 함께 변경합니다.
+
+2. Web/Admin에서 API 요청이 404 또는 CORS처럼 보일 때
+   - `apps/web/vite.config.ts`, `apps/admin/vite.config.ts`의 proxy target을 확인합니다.
+   - API 서버가 `http://127.0.0.1:4000` 또는 설정한 target에서 떠 있는지 확인합니다.
+
+3. 테스트 중 개발 데이터가 삭제됐을 때
+   - `TEST_DATABASE_URL`이 `DATABASE_URL`과 같은 database를 가리키지 않는지 확인합니다.
+   - 통합 테스트 setup은 테스트 DB를 drop/create합니다.
+
+4. Studio 접근이 막힐 때
+   - `/api/auth/me` 응답의 session과 `studioRole`을 확인합니다.
+   - 프로젝트 편집은 project membership role도 필요합니다.
+
+5. Admin 접근이 막힐 때
+   - `/api/admin/me`를 호출해 platform admin 권한을 확인합니다.
+   - bootstrap loginId는 `PROMPTOON_PLATFORM_ADMIN_LOGIN_IDS`에 설정합니다.
+
+6. Public feed/channel에 publish가 안 보일 때
+   - publish가 존재하는지 확인한 뒤 projection repair를 실행합니다.
+   - like metrics/channel home projection은 interaction write 후 갱신됩니다.
+
+7. `/discovery`가 최신순으로만 보일 때
+   - Recommendation API가 `http://127.0.0.1:4100`에서 떠 있는지 확인합니다.
+   - `RECOMMENDATION_API_URL`과 `RECOMMENDATION_TIMEOUT_MS`를 확인합니다.
+   - 추천 API가 실패하면 Feed API가 의도적으로 최신순 fallback을 반환합니다.

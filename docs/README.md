@@ -1,16 +1,40 @@
-# Promptoon 기술 문서 (Technical Documentation)
+# Promptoon 기술 문서
 
-이 디렉토리는 `Promptoon Authoring MVP`의 코드베이스 파악 및 유지보수, 운영 목적의 기술 문서를 다룹니다.
+이 디렉터리는 Promptoon workspace의 현재 코드 구조, API, 기능, 운영 절차를 빠르게 파악하기 위한 기술 문서입니다. 현재 저장소에는 `apps/docs` 경로가 없으며, 문서의 기준 경로는 최상위 `docs/`입니다.
 
 ## 문서 목록
 
-1. [아키텍처 스펙 (Architecture)](./architecture.md)
-   - 모노레포 구조, 프론트엔드/백엔드의 서버 프레임워크 설계 패턴(FSD, Module Base) 설명.
-2. [API 명세 톺아보기 (API)](./api.md)
-   - RESTful API 통신 규격 (`Project`, `Episode`, `Cut`, `Choice` 도메인) 및 엔드포인트 가이드.
-3. [제품 기능 (Features)](./features.md)
-   - 주요 프로덕트 기능 단위 (Editor, Viewer, Analytics) 소개 및 프론트/백엔드 비즈니스 로직.
-4. [운영 및 셋팅 (Maintenance)](./maintenance.md)
-   - 인프라 환경 셋팅(Docker DB), 초기 스크립트 실행, 로컬 테스트 및 트러블슈팅 매뉴얼.
+1. [Architecture](./architecture.md)
+   - `apps/web`, `apps/admin`, `apps/api`, `apps/recommendation-api`, `packages/*`의 역할과 모노레포 구조
+   - consumer public surface, Studio, Admin, legacy authoring API, Recommendation API의 경계
+   - 인증/session, project role, platform admin 권한 모델
 
-> 프로젝트 최상위의 [README.md](../README.md) 원본 문서도 함께 참고하여 전반적인 셋업 명령어 스니펫을 점검할 수 있습니다.
+2. [API](./api.md)
+   - `/api/auth`, `/api/admin`, `/api/feed`, `/api/channels`, `/api/viewer`, `/api/studio`, `/api/community`, `/api/telemetry`
+   - 독립 `POST /recommendations/v1/feed` Recommendation API
+   - 호환용 `/api/promptoon` endpoint
+   - 인증 필요 여부와 주요 request/response 타입 위치
+
+3. [Features](./features.md)
+   - consumer home/discovery/library/my, recommendation feed, channel/viewer/community
+   - Studio 프로젝트, 에피소드 에디터, publish, analytics, asset/member 관리
+   - Admin 콘솔과 Discourse 연동 흐름
+
+4. [Maintenance](./maintenance.md)
+   - 로컬 DB, 환경 변수, 마이그레이션, API/Recommendation API/Web/Admin 개발 서버 실행
+   - 테스트/빌드 명령
+   - projection repair, recommendation fallback, auth/session, upload, Discourse 관련 운영 메모
+
+## 소스 기준
+
+- 앱 workspace: `pnpm-workspace.yaml`
+- 실행 스크립트: `package.json`, `apps/*/package.json`
+- API mount: `apps/api/src/app/createApp.ts`
+- Recommendation API app: `apps/recommendation-api/src/app/createApp.ts`
+- API schema: `apps/api/src/modules/promptoon-authoring/promptoon.schemas.ts`
+- 공유 타입: `packages/shared/src/promptoon/*`
+- 추천 계약/랭커: `packages/recommendation-contract`, `packages/recommendation-rankers`
+- Web 라우터: `apps/web/src/app/router.tsx`
+- Admin 라우터: `apps/admin/src/app/router.tsx`
+
+문서를 수정할 때는 위 파일을 먼저 확인하고, 구현과 문서가 충돌하면 구현을 기준으로 갱신합니다.

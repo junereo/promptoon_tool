@@ -56,6 +56,14 @@ export function DeleteCutConfirmModal({
           </p>
         </div>
 
+        {cut.loopMetadata?.kind === 'exitLoop' ? (
+          <div className="mt-4 rounded-2xl border border-amber-400/25 bg-amber-400/10 px-4 py-3">
+            <p className="text-sm leading-6 text-amber-100">
+              이 컷은 Exit Loop 그룹에 속합니다. 삭제하면 publish validation에서 루프 구조가 실패할 수 있습니다.
+            </p>
+          </div>
+        ) : null}
+
         {incomingChoiceCount > 0 ? (
           <div className="mt-4 rounded-2xl border border-editor-border bg-black/15 px-4 py-3">
             <label className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500" htmlFor="delete-cut-reconnect">

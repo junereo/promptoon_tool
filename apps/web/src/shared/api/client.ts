@@ -1,9 +1,12 @@
 import axios, { AxiosHeaders } from 'axios';
 
+import { clearCookieSessionHint, hasCookieSessionHint } from '../../features/auth/lib/auth-storage';
 import { handleUnauthorizedResponse } from '../../features/auth/lib/auth-session';
 import { useAuthStore } from '../../features/auth/store/use-auth-store';
+import type { AuthResponse } from '@promptoon/shared';
 
-export const API_BASE_URL = import.meta.env.VITE_PROMPTOON_API_BASE_URL || '/api/promptoon';
+export const API_ROOT_URL = import.meta.env.VITE_PROMPTOON_API_ROOT_URL || '/api';
+export const API_BASE_URL = import.meta.env.VITE_PROMPTOON_API_BASE_URL || `${API_ROOT_URL}/promptoon`;
 
 export class ApiError extends Error {
   public readonly status: number;
@@ -17,24 +20,47 @@ export class ApiError extends Error {
   }
 }
 
-function createApiClient(options: { attachAuthToken: boolean; redirectOnUnauthorized: boolean }) {
+let refreshSessionPromise: Promise<AuthResponse> | null = null;
+
+function refreshCookieSession(): Promise<AuthResponse> {
+  if (!refreshSessionPromise) {
+    refreshSessionPromise = axios
+      .post<AuthResponse>(
+        `${API_ROOT_URL}/auth/refresh`,
+        {},
+        {
+          withCredentials: true,
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      )
+      .then((response) => {
+        useAuthStore.getState().login(response.data);
+        return response.data;
+      })
+      .catch((error) => {
+        clearCookieSessionHint();
+        throw error;
+      })
+      .finally(() => {
+        refreshSessionPromise = null;
+      });
+  }
+
+  return refreshSessionPromise;
+}
+
+function createApiClient(options: { redirectOnUnauthorized: boolean }) {
   const client = axios.create({
     baseURL: API_BASE_URL,
+    withCredentials: true,
     headers: {
       'Content-Type': 'application/json'
     }
   });
 
   client.interceptors.request.use((config) => {
-    if (options.attachAuthToken) {
-      const token = useAuthStore.getState().token;
-      if (token) {
-        const headers = AxiosHeaders.from(config.headers ?? {});
-        headers.set('Authorization', `Bearer ${token}`);
-        config.headers = headers;
-      }
-    }
-
     if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
       if (config.headers instanceof AxiosHeaders) {
         config.headers.delete('Content-Type');
@@ -48,12 +74,26 @@ function createApiClient(options: { attachAuthToken: boolean; redirectOnUnauthor
 
   client.interceptors.response.use(
     (response) => response,
-    (error) => {
+    async (error) => {
       const status = error.response?.status ?? 500;
       const message = error.response?.data?.error ?? error.message ?? 'Request failed.';
       const details = error.response?.data?.details;
+      const originalRequest = error.config;
 
-      if (options.redirectOnUnauthorized && status === 401) {
+      if (options.redirectOnUnauthorized && status === 401 && originalRequest && !originalRequest.__promptoonRetry) {
+        originalRequest.__promptoonRetry = true;
+        if (!useAuthStore.getState().isAuthenticated && !hasCookieSessionHint()) {
+          handleUnauthorizedResponse();
+          return Promise.reject(new ApiError(message, status, details));
+        }
+
+        try {
+          await refreshCookieSession();
+          return client.request(originalRequest);
+        } catch {
+          handleUnauthorizedResponse();
+        }
+      } else if (options.redirectOnUnauthorized && status === 401) {
         handleUnauthorizedResponse();
       }
 
@@ -65,11 +105,23 @@ function createApiClient(options: { attachAuthToken: boolean; redirectOnUnauthor
 }
 
 export const apiClient = createApiClient({
-  attachAuthToken: true,
   redirectOnUnauthorized: true
 });
 
 export const publicApiClient = createApiClient({
-  attachAuthToken: false,
+  redirectOnUnauthorized: false
+});
+
+function createRootApiClient(options: { redirectOnUnauthorized: boolean }) {
+  const client = createApiClient(options);
+  client.defaults.baseURL = API_ROOT_URL;
+  return client;
+}
+
+export const rootApiClient = createRootApiClient({
+  redirectOnUnauthorized: true
+});
+
+export const publicRootApiClient = createRootApiClient({
   redirectOnUnauthorized: false
 });

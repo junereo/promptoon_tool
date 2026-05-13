@@ -39,6 +39,7 @@ function normalizeStateWrites(stateWrites: ChoiceStateWrite[]): ChoiceStateWrite
   return stateWrites
     .map((stateWrite) => ({
       key: stateWrite.key.trim(),
+      operation: stateWrite.operation,
       value: stateWrite.value.trim()
     }))
     .filter((stateWrite) => stateWrite.key.length > 0 && stateWrite.value.length > 0);
@@ -281,6 +282,12 @@ export function ChoiceEditorSection({
           + 선택지
         </button>
       </div>
+
+      {cut.loopMetadata?.kind === 'exitLoop' ? (
+        <p className="mt-2 rounded-xl border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-xs leading-5 text-amber-100/90">
+          루프 선택지의 상태 저장을 바꾸면 최종 성공/실패 판정이 달라질 수 있습니다.
+        </p>
+      ) : null}
 
       <div className="mt-2 min-w-0 space-y-2">
         {choices.length === 0 ? (

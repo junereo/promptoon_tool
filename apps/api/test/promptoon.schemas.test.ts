@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createChoiceSchema,
   createCutSchema,
+  createLoopStateSettingSchema,
   patchCutSchema,
   patchEpisodeCutLayoutSchema,
   patchEpisodeSchema,
@@ -16,6 +17,61 @@ describe('promptoon cut schemas', () => {
     });
 
     expect(result.success).toBe(true);
+  });
+
+  it('keeps legacy exit loop episode metadata parseable', () => {
+    const result = patchEpisodeSchema.safeParse({
+      mode: 'exit_loop',
+      exitLoopMetadata: {
+        enabled: true,
+        updatedAt: '2026-04-30T00:00:00.000Z'
+      }
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts LoopStateSetting requests', () => {
+    const result = createLoopStateSettingSchema.safeParse({
+      groupName: 'Station Exit',
+      exitLevelRequired: 5,
+      attachAfterCutId: '00000000-0000-4000-8000-000000000001',
+      continuationCutId: '00000000-0000-4000-8000-000000000002',
+      retryCutId: '00000000-0000-4000-8000-000000000003',
+      stages: [
+        {
+          title: 'Entrance',
+          baseAssetUrl: '/uploads/exit-loop/base-01.webp',
+          spacerAssetUrl: '/uploads/exit-loop/spacer-01.webp',
+          variants: [
+            {
+              title: 'Entrance Variant',
+              assetUrl: '/uploads/exit-loop/variant-01.webp',
+              truth: 'real_anomaly'
+            }
+          ]
+        },
+        {
+          title: 'Near Exit',
+          variants: [
+            {
+              truth: 'fake_suspicion'
+            }
+          ]
+        }
+      ]
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects LoopStateSetting requests without stages', () => {
+    const result = createLoopStateSettingSchema.safeParse({
+      groupName: 'Station Exit',
+      stages: []
+    });
+
+    expect(result.success).toBe(false);
   });
 
   it('accepts known cut effect values', () => {

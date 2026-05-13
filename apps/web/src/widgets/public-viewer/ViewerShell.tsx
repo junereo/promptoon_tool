@@ -1,14 +1,15 @@
-import type { PublishManifest } from '@promptoon/shared';
+import type { ProductPublishManifest, ViewerInteractionStateResponse } from '@promptoon/shared';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { TouchEvent, WheelEvent } from 'react';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { buildCutEffectMotionCustom, cutEffectVariants } from '../../shared/lib/cut-effects';
+import { preloadImageAsset } from '../../shared/lib/image-preload';
 import { isPromptoonEndingCut } from '../../shared/lib/promptoon-ending';
 import { ViewerContent } from './ViewerContent';
 import { ViewerControls } from './ViewerControls';
 
-type ViewerCut = PublishManifest['cuts'][number];
+type ViewerCut = ProductPublishManifest['cuts'][number];
 type ViewerChoice = ViewerCut['choices'][number];
 
 interface ViewerPathStep {
@@ -31,12 +32,33 @@ interface ViewerShellProps {
   onReset: () => void;
   onUserNameChange: (value: string) => void;
   onShare?: () => void | Promise<void>;
+  onBookmark?: () => void;
+  onComment?: () => void;
+  onLike?: () => void;
   pathSteps: ViewerPathStep[];
   pendingChoice: { cutId: string; choiceId: string; reactionText: string | null } | null;
+  interactionState?: ViewerInteractionStateResponse | null;
+  isInteractionPending?: boolean;
   shareBanner: string | null;
   shareNotice: string | null;
   terminalCut: ViewerCut;
   userName: string;
+}
+
+function getPathStepAssetUrls(pathSteps: ViewerPathStep[]): string[] {
+  const assetUrls = new Set<string>();
+
+  for (const step of pathSteps) {
+    if (step.renderCut.assetUrl) {
+      assetUrls.add(step.renderCut.assetUrl);
+    }
+  }
+
+  return Array.from(assetUrls);
+}
+
+function getPrimaryAssetUrl(pathStartStep: ViewerPathStep | null): string | null {
+  return pathStartStep?.renderCut.assetUrl ?? null;
 }
 
 export function ViewerShell({
@@ -53,8 +75,13 @@ export function ViewerShell({
   onReset,
   onUserNameChange,
   onShare,
+  onBookmark,
+  onComment,
+  onLike,
   pathSteps,
   pendingChoice,
+  interactionState,
+  isInteractionPending,
   shareBanner,
   shareNotice,
   terminalCut,
@@ -65,9 +92,50 @@ export function ViewerShell({
   const [isScrollBoundary, setIsScrollBoundary] = useState(true);
   const terminalStep = pathSteps[pathSteps.length - 1] ?? null;
   const pathStartStep = pathSteps[0] ?? null;
-  const areControlsVisible = isChromeVisible && isScrollBoundary;
   const pathStepKey = pathSteps.map((step) => `${step.cut.id}:${step.renderCut.id}`).join('|');
   const pathStartKey = pathStartStep ? `${pathStartStep.cut.id}:${pathStartStep.renderCut.id}` : 'empty-path';
+  const pathAssetUrls = useMemo(() => getPathStepAssetUrls(pathSteps), [pathSteps]);
+  const primaryAssetUrl = getPrimaryAssetUrl(pathStartStep);
+  const mediaReadyKey = `${pathStepKey}:${primaryAssetUrl ?? ''}`;
+  const requiredAssetUrls = useMemo(() => (primaryAssetUrl ? [primaryAssetUrl] : []), [primaryAssetUrl]);
+  const deferredAssetUrls = useMemo(
+    () => pathAssetUrls.filter((assetUrl) => assetUrl !== primaryAssetUrl),
+    [pathAssetUrls, primaryAssetUrl]
+  );
+  const [readyMediaKey, setReadyMediaKey] = useState<string | null>(requiredAssetUrls.length === 0 ? mediaReadyKey : null);
+  const isMediaReady = requiredAssetUrls.length === 0 || readyMediaKey === mediaReadyKey;
+  const areControlsVisible = isChromeVisible && isScrollBoundary && isMediaReady;
+  const readyClassName = isMediaReady ? 'opacity-100' : 'pointer-events-none opacity-0';
+
+  useEffect(() => {
+    if (requiredAssetUrls.length === 0) {
+      setReadyMediaKey(mediaReadyKey);
+      return;
+    }
+
+    let isCancelled = false;
+    setReadyMediaKey((currentMediaKey) => (currentMediaKey === mediaReadyKey ? currentMediaKey : null));
+
+    void Promise.all(requiredAssetUrls.map((assetUrl) => preloadImageAsset(assetUrl))).then(() => {
+      if (!isCancelled) {
+        setReadyMediaKey(mediaReadyKey);
+      }
+    });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [mediaReadyKey, requiredAssetUrls]);
+
+  useEffect(() => {
+    if (!isMediaReady || deferredAssetUrls.length === 0) {
+      return;
+    }
+
+    for (const assetUrl of deferredAssetUrls) {
+      void preloadImageAsset(assetUrl);
+    }
+  }, [deferredAssetUrls, isMediaReady]);
 
   const updateScrollBoundary = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;
@@ -156,22 +224,67 @@ export function ViewerShell({
 
   return (
     <section
+      aria-busy={!isMediaReady}
       className="relative min-h-dvh overflow-hidden bg-black text-white"
+      data-media-ready={isMediaReady ? 'true' : 'false'}
       onClick={onInteraction}
     >
       <div className="absolute inset-0 bg-gradient-to-br from-[#18181d] via-[#111115] to-black" />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(122,48,64,0.18),transparent_42%)]" />
 
-      <ViewerControls
-        canGoBack={canGoBack}
-        isVisible={areControlsVisible}
-        onBack={onBack}
-        onClose={onClose}
-        onReset={onReset}
-      />
+      {isMediaReady ? (
+        <ViewerControls
+          canGoBack={canGoBack}
+          isVisible={areControlsVisible}
+          onBack={onBack}
+          onClose={onClose}
+          onReset={onReset}
+        />
+      ) : null}
 
-      {shareBanner ? (
-        <div className="pointer-events-none absolute inset-x-0 top-20 z-20 flex justify-center px-4 sm:top-24">
+      {areControlsVisible ? (
+        <div className="absolute right-4 top-24 z-20 flex flex-col items-center gap-2 sm:right-6 sm:top-28">
+          <button
+            aria-label={interactionState?.liked ? '좋아요 취소' : '좋아요'}
+            aria-pressed={interactionState?.liked ? 'true' : 'false'}
+            className={[
+              'h-11 w-11 rounded-full border text-xs font-semibold shadow-lg backdrop-blur transition disabled:opacity-60',
+              interactionState?.liked ? 'border-editor-accentSoft bg-editor-accent text-white' : 'border-white/15 bg-black/45 text-white/90 hover:bg-black/60'
+            ].join(' ')}
+            disabled={isInteractionPending}
+            onClick={onLike}
+            type="button"
+          >
+            Like
+          </button>
+          <span className="text-[11px] text-white/70">{(interactionState?.metrics.likes ?? 0).toLocaleString('ko-KR')}</span>
+          <button
+            aria-label={interactionState?.bookmarked ? '저장 취소' : '저장'}
+            aria-pressed={interactionState?.bookmarked ? 'true' : 'false'}
+            className={[
+              'h-11 w-11 rounded-full border text-xs font-semibold shadow-lg backdrop-blur transition disabled:opacity-60',
+              interactionState?.bookmarked ? 'border-editor-accentSoft bg-white text-black' : 'border-white/15 bg-black/45 text-white/90 hover:bg-black/60'
+            ].join(' ')}
+            disabled={isInteractionPending}
+            onClick={onBookmark}
+            type="button"
+          >
+            Save
+          </button>
+          <button
+            aria-label="댓글"
+            className="h-11 w-11 rounded-full border border-white/15 bg-black/45 text-xs font-semibold text-white/90 shadow-lg backdrop-blur transition hover:bg-black/60 disabled:opacity-60"
+            disabled={isInteractionPending}
+            onClick={onComment}
+            type="button"
+          >
+            Reply
+          </button>
+        </div>
+      ) : null}
+
+      {isMediaReady && shareBanner ? (
+        <div className={`pointer-events-none absolute inset-x-0 top-20 z-20 flex justify-center px-4 transition-opacity duration-150 sm:top-24 ${readyClassName}`}>
           <div className="pointer-events-auto flex w-full max-w-2xl items-start justify-between gap-4 rounded-2xl border border-amber-300/20 bg-black/55 px-4 py-3 text-sm text-amber-50/90 backdrop-blur">
             <div>
               <p className="text-[11px] uppercase tracking-[0.24em] text-amber-200/70">Shared Ending</p>
@@ -204,14 +317,21 @@ export function ViewerShell({
             data-testid="viewer-frame"
           >
             <div className="relative h-full w-full bg-[#101015]">
+              {!isMediaReady ? (
+                <div
+                  aria-hidden
+                  className="absolute inset-0 z-20 bg-black"
+                  data-testid="viewer-media-loading"
+                />
+              ) : null}
               <div
-                className="scrollbar-hidden relative z-10 h-full overflow-x-hidden overflow-y-auto"
+                className={`scrollbar-hidden relative z-10 h-full overflow-x-hidden overflow-y-auto transition-opacity duration-150 ${readyClassName}`}
                 data-testid="viewer-scroll-container"
                 onScroll={handleViewerScroll}
                 ref={scrollContainerRef}
               >
                 <AnimatePresence mode="wait">
-                  {pathStartStep && terminalStep ? (
+                  {isMediaReady && pathStartStep && terminalStep ? (
                     <motion.div
                       animate="animate"
                       className="w-full overflow-hidden will-change-transform"
@@ -249,6 +369,7 @@ export function ViewerShell({
                             canGoBack={canGoBack}
                             compact={isPathCompact}
                             cut={step.renderCut}
+                            deferContentUntilImageReady
                             isTerminal={isTerminalStep}
                             key={`${step.cut.id}:${step.renderCut.id}`}
                             onChoiceClick={(choice) => onChoiceClick(choice, step.cut.id)}

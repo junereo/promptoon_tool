@@ -17,7 +17,10 @@ const KIND_BADGE_STYLES: Record<Cut['kind'], string> = {
   ending: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200',
   transition: 'border-sky-500/40 bg-sky-500/10 text-sky-200',
   stateRouter: 'border-violet-500/40 bg-violet-500/10 text-violet-200',
-  resultCard: 'border-rose-500/40 bg-rose-500/10 text-rose-200'
+  resultCard: 'border-rose-500/40 bg-rose-500/10 text-rose-200',
+  loopStage: 'border-lime-500/40 bg-lime-500/10 text-lime-200',
+  loopVariant: 'border-teal-500/40 bg-teal-500/10 text-teal-200',
+  loopSpacer: 'border-cyan-500/40 bg-cyan-500/10 text-cyan-200'
 };
 
 function ChoiceHandle({
@@ -87,9 +90,10 @@ function StateRouteHandle({
 }
 
 export function CutNode({ data }: NodeProps<CutFlowNode>) {
-  const { cut, choicesForCut, selected, selectedChoiceId } = data;
+  const { cut, choicesForCut, multiSelected, selected, selectedChoiceId } = data;
   const isStateRouter = cut.kind === 'stateRouter';
-  const canCreateOutput = !isPromptoonEndingCut(cut) && !isStateRouter;
+  const canShowChoiceOutputs = !isPromptoonEndingCut(cut) && !isStateRouter && cut.kind !== 'loopVariant';
+  const canCreateOutput = canShowChoiceOutputs && cut.kind !== 'loopSpacer';
   const stateRoutes = cut.stateRoutes ?? [];
   const hasStateRouterOutputs = stateRoutes.length > 0 || Boolean(cut.stateFallbackCutId);
 
@@ -97,8 +101,10 @@ export function CutNode({ data }: NodeProps<CutFlowNode>) {
     <div
       className={[
         'relative min-w-[200px] max-w-[240px] rounded-[22px] border px-3 pt-4 shadow-xl shadow-black/30 transition',
-        canCreateOutput || isStateRouter ? 'pb-14' : 'pb-5',
-        selected
+        canShowChoiceOutputs || isStateRouter ? 'pb-14' : 'pb-5',
+        multiSelected
+          ? 'border-red-300 bg-red-500/10 ring-2 ring-red-400/45'
+          : selected
           ? 'border-editor-accent bg-[#232329] ring-1 ring-editor-accent/30'
           : 'border-editor-border bg-editor-panel/95'
       ].join(' ')}
@@ -108,7 +114,11 @@ export function CutNode({ data }: NodeProps<CutFlowNode>) {
         <Handle
           className={[
             '!h-3.5 !w-3.5 !border-2',
-            selected ? '!border-editor-accent !bg-editor-accent' : '!border-sky-400/70 !bg-sky-500'
+            multiSelected
+              ? '!border-red-200 !bg-red-500'
+              : selected
+                ? '!border-editor-accent !bg-editor-accent'
+                : '!border-sky-400/70 !bg-sky-500'
           ].join(' ')}
           data-testid={`target-handle-${cut.id}`}
           id={getCutTargetHandleId(cut.id)}
@@ -124,7 +134,11 @@ export function CutNode({ data }: NodeProps<CutFlowNode>) {
         <div className="min-w-0">
           <p className="truncate font-display text-base font-semibold text-zinc-50">{cut.title}</p>
           <p className="mt-1.5 line-clamp-2 whitespace-pre-wrap text-xs leading-5 text-zinc-400">
-            {isStateRouter ? '저장된 상태값에 따라 다음 컷으로 이동합니다.' : cut.body || 'No dialogue yet.'}
+            {cut.loopMetadata?.role === 'stageVariant'
+              ? '루프 스테이지에서 참조하는 파생 컷입니다.'
+              : isStateRouter
+                ? '저장된 상태값에 따라 다음 컷으로 이동합니다.'
+                : cut.body || 'No dialogue yet.'}
           </p>
         </div>
         <span
@@ -140,6 +154,12 @@ export function CutNode({ data }: NodeProps<CutFlowNode>) {
       <div className="mt-3 flex items-center gap-1.5 text-[11px] uppercase tracking-[0.18em] text-zinc-500">
         {cut.isStart ? <span className="rounded-full border border-editor-accent/30 px-2 py-0.5 text-editor-accentSoft">Start</span> : null}
         {isPromptoonEndingCut(cut) ? <span className="rounded-full border border-emerald-500/25 px-2 py-0.5 text-emerald-200">End</span> : null}
+        {cut.loopMetadata?.kind === 'exitLoop' ? (
+          <span className="rounded-full border border-lime-500/25 px-2 py-0.5 text-lime-200">
+            {cut.loopMetadata.groupLabel ?? cut.loopMetadata.groupId}
+          </span>
+        ) : null}
+        {multiSelected ? <span className="rounded-full border border-red-300/35 px-2 py-0.5 text-red-100">Delete</span> : null}
         <span className="rounded-full border border-editor-border px-2 py-0.5">#{cut.orderIndex + 1}</span>
       </div>
 
@@ -164,28 +184,30 @@ export function CutNode({ data }: NodeProps<CutFlowNode>) {
             </span>
           ) : null}
         </div>
-      ) : canCreateOutput ? (
+      ) : canShowChoiceOutputs ? (
         <div className="absolute bottom-3 left-3 right-3 flex flex-col items-center gap-2">
           <div className="flex w-full justify-evenly gap-2">
-            <div className="relative flex flex-col items-center gap-1">
-              <span className="max-w-[72px] truncate text-[10px] text-editor-accentSoft">New</span>
-              <Handle
-                className={selected ? '!h-3.5 !w-3.5 !border-editor-accent !bg-editor-accent/80' : '!h-3 !w-3 !border-editor-accent/70 !bg-editor-accent/50'}
-                data-testid={`source-handle-new-${cut.id}`}
-                id={getCreateSourceHandleId(cut.id)}
-                position={Position.Bottom}
-                style={{
-                  position: 'relative',
-                  left: 'auto',
-                  right: 'auto',
-                  top: 'auto',
-                  bottom: 'auto',
-                  transform: 'none'
-                }}
-                type="source"
-              />
-              <span className="text-[9px] uppercase tracking-[0.2em] text-zinc-500">(out)</span>
-            </div>
+            {canCreateOutput ? (
+              <div className="relative flex flex-col items-center gap-1">
+                <span className="max-w-[72px] truncate text-[10px] text-editor-accentSoft">New</span>
+                <Handle
+                  className={selected ? '!h-3.5 !w-3.5 !border-editor-accent !bg-editor-accent/80' : '!h-3 !w-3 !border-editor-accent/70 !bg-editor-accent/50'}
+                  data-testid={`source-handle-new-${cut.id}`}
+                  id={getCreateSourceHandleId(cut.id)}
+                  position={Position.Bottom}
+                  style={{
+                    position: 'relative',
+                    left: 'auto',
+                    right: 'auto',
+                    top: 'auto',
+                    bottom: 'auto',
+                    transform: 'none'
+                  }}
+                  type="source"
+                />
+                <span className="text-[9px] uppercase tracking-[0.2em] text-zinc-500">(out)</span>
+              </div>
+            ) : null}
             {choicesForCut.map((choice: Choice) => (
               <ChoiceHandle key={choice.id} choice={choice} selected={selectedChoiceId === choice.id} />
             ))}

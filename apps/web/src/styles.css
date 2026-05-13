@@ -1,9 +1,37 @@
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;700&family=Noto+Serif+KR:wght@400;600;700&family=Playfair+Display:wght@500;700&family=Space+Grotesk:wght@500;700&display=swap');
 @import '@xyflow/react/dist/style.css';
+@import 'tailwindcss';
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@source '../index.html';
+@source './**/*.{ts,tsx}';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-editor-bg: #0f0f11;
+  --color-editor-panel: #17171b;
+  --color-editor-panelAlt: #1e1e24;
+  --color-editor-panel-alt: #1e1e24;
+  --color-editor-border: #30303a;
+  --color-editor-accent: #7a3040;
+  --color-editor-accentSoft: #a84b63;
+  --color-editor-accent-soft: #a84b63;
+
+  --color-pt-blue: #1d5cff;
+  --color-pt-blue-dark: #0f3fd8;
+  --color-pt-purple: #8b5cf6;
+  --color-pt-cyan: #38bdf8;
+  --color-pt-ink: #101828;
+  --color-pt-muted: #667085;
+  --color-pt-bg: #f7faff;
+
+  --shadow-phone: 0 20px 50px rgba(0, 0, 0, 0.45);
+  --shadow-pt-card: 0 24px 80px rgb(29 92 255 / 0.14);
+  --shadow-pt-phone: 0 30px 80px rgb(15 23 42 / 0.25);
+
+  --font-display: 'Space Grotesk', 'Segoe UI', sans-serif;
+  --font-body: 'IBM Plex Sans', 'Segoe UI', sans-serif;
+}
 
 :root {
   color-scheme: dark;
@@ -32,6 +60,22 @@ input,
 textarea,
 select {
   font: inherit;
+}
+
+.studio-primary-button {
+  @apply inline-flex h-10 items-center justify-center gap-2 rounded-md bg-editor-accent px-4 text-sm font-semibold text-white transition hover:bg-editor-accentSoft disabled:cursor-not-allowed disabled:opacity-60;
+}
+
+.studio-secondary-button {
+  @apply inline-flex h-10 items-center justify-center gap-2 rounded-md border border-editor-border bg-black/20 px-4 text-sm font-medium text-zinc-100 transition hover:border-zinc-500 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-60;
+}
+
+.studio-ghost-button {
+  @apply inline-flex h-10 items-center justify-center gap-2 rounded-md px-3 text-sm font-medium text-zinc-300 transition hover:bg-white/5 hover:text-white disabled:cursor-not-allowed disabled:opacity-60;
+}
+
+.studio-input {
+  @apply w-full rounded-md border border-editor-border bg-black/25 px-3 py-2.5 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-editor-accentSoft;
 }
 
 select {
@@ -217,15 +261,89 @@ select option:disabled {
   }
 }
 
-.feed-viewport-frame {
-  height: 100%;
-  width: 100%;
+.feed-page {
+  --feed-header-height: calc(max(env(safe-area-inset-top), 1rem) + 2.5rem);
+  --feed-bottom-nav-height: calc(max(env(safe-area-inset-bottom), 0.5rem) + 3.75rem);
+  --feed-shell-width: min(100vw, 480px);
+  --feed-available-height: calc(100dvh - var(--feed-header-height) - var(--feed-bottom-nav-height));
+  --feed-frame-height: min(var(--feed-available-height), calc(var(--feed-shell-width) * 16 / 9));
+  --feed-frame-width: calc(var(--feed-frame-height) * 9 / 16);
 }
 
-@media (hover: hover) and (pointer: fine) and (min-width: 640px) {
+@media (min-width: 1280px) {
+  .feed-page {
+    --feed-header-height: 3.5rem;
+  }
+}
+
+.feed-snap-scroller {
+  height: var(--feed-available-height, 100dvh);
+  margin-top: var(--feed-header-height, 0px);
+}
+
+.feed-snap-slide {
+  height: var(--feed-available-height, 100dvh);
+}
+
+.feed-viewport-frame {
+  aspect-ratio: 9 / 16;
+  height: var(--feed-frame-height, calc(100vw * 16 / 9));
+  max-width: 100%;
+  width: var(--feed-frame-width, 100vw);
+}
+
+@media (min-width: 1280px) {
   .feed-viewport-frame {
-    aspect-ratio: 9 / 16;
-    height: min(100dvh, calc(100vw * 16 / 9));
-    width: min(100vw, calc(100dvh * 9 / 16));
+    height: var(--feed-frame-height, 100dvh);
+    width: var(--feed-frame-width, min(100vw, 480px));
+  }
+}
+
+.feed-desktop-side-panel {
+  height: var(--feed-frame-height, min(100dvh, calc(100vw * 16 / 9)));
+}
+
+.feed-desktop-info-panel {
+  right: calc(50% + (var(--feed-frame-width, min(100vw, calc(100dvh * 9 / 16))) / 2) + 24px);
+}
+
+.feed-desktop-action-panel {
+  left: calc(50% + (var(--feed-frame-width, min(100vw, calc(100dvh * 9 / 16))) / 2) + 4px);
+}
+
+.feed-comments-open {
+  --feed-comments-panel-width: 28rem;
+  --feed-consumer-frame-left: calc(50vw - 480px);
+}
+
+.feed-comments-desktop-panel {
+  bottom: 20px;
+  left: calc(
+    var(--feed-consumer-frame-left, calc(50vw - 480px)) +
+    720px +
+    (var(--feed-frame-width, min(480px, calc(100dvh * 9 / 16))) / 2) +
+    20px
+  );
+  top: var(--feed-header-height, 3.5rem);
+}
+
+@media (min-width: 1500px) {
+  .feed-comments-open {
+    --feed-consumer-frame-left: min(
+      calc(50vw - 480px),
+      calc(100vw - 960px - var(--feed-comments-panel-width) - 40px)
+    );
+    --tw-translate-x: 0px !important;
+    left: var(--feed-consumer-frame-left) !important;
+    translate: none !important;
+    transform: none !important;
+  }
+
+  .feed-comments-desktop-panel {
+    display: flex;
+  }
+
+  .feed-comments-mobile-panel {
+    display: none;
   }
 }

@@ -9,6 +9,8 @@ interface ViewerControlsProps {
 }
 
 export function ViewerControls({ canGoBack, isVisible, onBack, onClose, onReset }: ViewerControlsProps) {
+  const controlsPointerClassName = isVisible ? 'pointer-events-auto' : 'pointer-events-none';
+
   return (
     <div
       className={[
@@ -17,7 +19,7 @@ export function ViewerControls({ canGoBack, isVisible, onBack, onClose, onReset 
       ].join(' ')}
       data-testid="viewer-controls"
     >
-      <div className="pointer-events-auto flex items-center gap-2">
+      <div className={`${controlsPointerClassName} flex items-center gap-2`}>
         <button
           className="rounded-full border border-white/15 bg-black/40 px-4 py-2 text-sm text-white/90 backdrop-blur transition hover:bg-black/55 disabled:cursor-not-allowed disabled:opacity-40"
           disabled={!canGoBack}
@@ -36,7 +38,7 @@ export function ViewerControls({ canGoBack, isVisible, onBack, onClose, onReset 
       </div>
 
       <button
-        className="pointer-events-auto rounded-full border border-white/15 bg-black/40 px-4 py-2 text-sm text-white/90 backdrop-blur transition hover:bg-black/55"
+        className={`${controlsPointerClassName} rounded-full border border-white/15 bg-black/40 px-4 py-2 text-sm text-white/90 backdrop-blur transition hover:bg-black/55`}
         onClick={onClose}
         type="button"
       >

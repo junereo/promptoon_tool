@@ -3,12 +3,13 @@ import { Router } from 'express';
 import multer from 'multer';
 
 import { asyncHandler } from '../../lib/async-handler';
-import { getRequiredAuthUser, requireAuth } from '../../lib/auth';
+import { getOptionalAuthUser, getRequiredAuthUser, optionalAuth, requireAuth } from '../../lib/auth';
 import { HttpError } from '../../lib/http-error';
 import {
   analyticsQuerySchema,
   createChoiceSchema,
   createCutSchema,
+  createLoopStateSettingSchema,
   deleteCutSchema,
   createEpisodeSchema,
   createProjectSchema,
@@ -66,13 +67,15 @@ export function createPromptoonRouter(): Router {
     response.status(202).json({ accepted: true });
   }));
 
-  router.get('/episodes/feed', asyncHandler(async (request, response) => {
+  router.get('/episodes/feed', optionalAuth, asyncHandler(async (request, response) => {
     const query = feedQuerySchema.parse(request.query);
-    response.json(await service.getEpisodeFeed(query));
+    const user = getOptionalAuthUser(request);
+    response.json(await service.getEpisodeFeed({ ...query, userId: user?.sub }));
   }));
 
-  router.get('/episodes/published/:publishId', asyncHandler(async (request, response) => {
-    response.json(await service.getPublishedEpisode(getParam(request.params.publishId, 'publishId')));
+  router.get('/episodes/published/:publishId', optionalAuth, asyncHandler(async (request, response) => {
+    const user = getOptionalAuthUser(request);
+    response.json(await service.getPublishedEpisode(getParam(request.params.publishId, 'publishId'), user?.sub));
   }));
 
   router.get('/share/:publishId', asyncHandler(async (request, response) => {
@@ -160,6 +163,23 @@ export function createPromptoonRouter(): Router {
     );
   }));
 
+  protectedRouter.post('/episodes/:episodeId/loop-state-setting', asyncHandler(async (request, response) => {
+    const body = createLoopStateSettingSchema.parse(request.body);
+    response.status(201).json(
+      await service.createLoopStateSetting(getParam(request.params.episodeId, 'episodeId'), body, getRequiredAuthUser(request).sub)
+    );
+  }));
+
+  protectedRouter.delete('/episodes/:episodeId/loop-state-setting/:groupId', asyncHandler(async (request, response) => {
+    response.json(
+      await service.deleteLoopStateSetting(
+        getParam(request.params.episodeId, 'episodeId'),
+        getParam(request.params.groupId, 'groupId'),
+        getRequiredAuthUser(request).sub
+      )
+    );
+  }));
+
   protectedRouter.patch('/episodes/:episodeId/cuts/reorder', asyncHandler(async (request, response) => {
     const body = reorderEpisodeCutsSchema.parse(request.body);
     response.json(
@@ -230,3 +250,5 @@ export function createPromptoonRouter(): Router {
 
   return router;
 }
+
+export const createLegacyPromptoonRouter = createPromptoonRouter;

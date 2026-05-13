@@ -5,11 +5,17 @@ import type {
   AnalyticsViewRange,
   AnalyticsViewGranularity,
   AnalyticsViewPoint,
+  ChannelSubscriptionStateResponse,
+  ChannelHome,
+  CommentsMetaResponse,
   Choice,
   ChoiceStateWrite,
+  ContentInteractionStateListResponse,
   CutContentBlock,
   CreateChoiceRequest,
   CreateCutRequest,
+  CreateLoopStateSettingRequest,
+  CreateLoopStateSettingResponse,
   CutStateVariant,
   CutStateRoute,
   DeleteCutRequest,
@@ -26,16 +32,24 @@ import type {
   PatchChoiceRequest,
   PatchCutRequest,
   Project,
+  ProjectMemberListResponse,
+  ProjectRole,
   ProjectWithEpisodes,
+  PatchProjectMemberRequest,
   PromptoonBackupExport,
   Publish,
   PublishManifest,
   PublishRequest,
+  RebuildPublicProjectionsResponse,
+  RelatedShort,
   ReorderEpisodeCutsRequest,
   ReorderEpisodeCutsResponse,
   ResetEpisodeAnalyticsRequest,
+  TelemetryEventPayload,
   TelemetryEventRequest,
-  ValidateEpisodeResponse
+  UpsertProjectMemberRequest,
+  ValidateEpisodeResponse,
+  ViewerInteractionStateResponse
 } from '@promptoon/shared';
 import {
   createHash,
@@ -53,15 +67,20 @@ import {
   getCutStateRouteConditions,
   getNormalizedCutContentBlocks
 } from '@promptoon/shared';
-import { readFile } from 'node:fs/promises';
-import { mkdir, writeFile } from 'node:fs/promises';
+import {
+  mkdir,
+  readFile,
+  writeFile
+} from 'node:fs/promises';
 import path from 'node:path';
 import type { PoolClient } from 'pg';
 import sharp from 'sharp';
 
-import { db, withTransaction } from '../../db';
+import { db, withTransaction, type DbExecutor } from '../../db';
 import { HttpError } from '../../lib/http-error';
 import { resolveFromApiRoot, resolveFromWorkspaceRoot } from '../../lib/workspace-paths';
+import * as experimentalService from '../experimental/experimental.service';
+import * as coreProjectionService from '../promptoon-core/projection.service';
 import * as repository from './promptoon.repository';
 import { validateEpisodeGraph } from './promptoon.validators';
 
@@ -73,6 +92,15 @@ function assertExists<T>(value: T | null, message: string): T {
   return value;
 }
 
+function assertPublicPublish(value: Publish | null, message: string): Publish {
+  const publish = assertExists(value, message);
+  if (publish.status !== 'published') {
+    throw new HttpError(404, message);
+  }
+
+  return publish;
+}
+
 interface SharePageMeta {
   title: string;
   description: string;
@@ -81,10 +109,30 @@ interface SharePageMeta {
   shareUrl: string;
 }
 
+interface SharePageOptions {
+  sharePath?: string;
+}
+
 interface FeedCursorPayload {
   createdAt: string;
   publishId: string;
 }
+
+interface ProjectionChannelInput {
+  id: string;
+  slug: string;
+  display_name: string;
+  avatar_url: string | null;
+}
+
+interface ProjectionSeriesInput {
+  id: string;
+}
+
+const PROJECT_READ_ROLES: ProjectRole[] = ['owner', 'producer', 'writer', 'viewer'];
+const PROJECT_WRITE_ROLES: ProjectRole[] = ['owner', 'producer', 'writer'];
+const PROJECT_PUBLISH_ROLES: ProjectRole[] = ['owner', 'producer'];
+const PROJECT_OWNER_ROLES: ProjectRole[] = ['owner'];
 
 function normalizeCutEffectDurationMs(value: number | undefined): number {
   return value ?? DEFAULT_CUT_EFFECT_DURATION_MS;
@@ -120,6 +168,7 @@ function normalizeManifest(manifest: PublishManifest): PublishManifest {
         stateVariants: cut.stateVariants ?? [],
         stateRoutes: cut.stateRoutes ?? [],
         stateFallbackCutId: cut.stateFallbackCutId ?? null,
+        loopMetadata: cut.loopMetadata ?? null,
         startEffect: cut.startEffect ?? 'none',
         endEffect: cut.endEffect ?? 'none',
         startEffectDurationMs: normalizeCutEffectDurationMs(cut.startEffectDurationMs),
@@ -158,37 +207,89 @@ async function ensureEpisodeBelongsToProject(projectId: string, episodeId: strin
   return episode;
 }
 
-async function ensureProjectOwnedByUser(projectId: string, userId: string): Promise<void> {
+async function ensureProjectRole(projectId: string, userId: string, allowedRoles: ProjectRole[]): Promise<ProjectRole> {
   const ownerId = await repository.getProjectOwnerId(db, projectId);
   if (!ownerId) {
     throw new HttpError(404, 'Project not found.');
   }
 
-  if (ownerId !== userId) {
+  let role = await repository.getProjectMemberRole(db, {
+    projectId,
+    userId
+  });
+
+  if (!role && ownerId === userId) {
+    role = 'owner';
+    await repository.upsertProjectMember(db, {
+      projectId,
+      userId,
+      role
+    });
+  }
+
+  if (!role || !allowedRoles.includes(role)) {
     throw new HttpError(403, 'You do not have access to this project.');
+  }
+
+  return role;
+}
+
+async function ensureProjectOwnedByUser(projectId: string, userId: string): Promise<void> {
+  await ensureProjectRole(projectId, userId, PROJECT_OWNER_ROLES);
+}
+
+async function ensureProjectReadableByUser(projectId: string, userId: string): Promise<void> {
+  await ensureProjectRole(projectId, userId, PROJECT_READ_ROLES);
+}
+
+async function ensureProjectWritableByUser(projectId: string, userId: string): Promise<void> {
+  await ensureProjectRole(projectId, userId, PROJECT_WRITE_ROLES);
+}
+
+async function ensureProjectPublishableByUser(projectId: string, userId: string): Promise<void> {
+  await ensureProjectRole(projectId, userId, PROJECT_PUBLISH_ROLES);
+}
+
+async function ensureStudioAdmin(userId: string): Promise<void> {
+  const role = await repository.getStudioMemberRole(db, userId);
+  if (role !== 'studio_admin') {
+    throw new HttpError(403, 'Studio admin role is required.');
   }
 }
 
-async function ensureEpisodeOwnedByUser(episodeId: string, userId: string): Promise<void> {
-  const ownerId = await repository.getEpisodeOwnerId(db, episodeId);
-  if (!ownerId) {
+async function ensureEpisodeProjectRole(episodeId: string, userId: string, allowedRoles: ProjectRole[]): Promise<void> {
+  const projectId = await repository.getEpisodeProjectId(db, episodeId);
+  if (!projectId) {
     throw new HttpError(404, 'Episode not found.');
   }
 
-  if (ownerId !== userId) {
-    throw new HttpError(403, 'You do not have access to this episode.');
-  }
+  await ensureProjectRole(projectId, userId, allowedRoles);
 }
 
-async function ensureCutOwnedByUser(cutId: string, userId: string): Promise<void> {
-  const ownerId = await repository.getCutOwnerId(db, cutId);
-  if (!ownerId) {
+async function ensureCutProjectRole(cutId: string, userId: string, allowedRoles: ProjectRole[]): Promise<void> {
+  const projectId = await repository.getCutProjectId(db, cutId);
+  if (!projectId) {
     throw new HttpError(404, 'Cut not found.');
   }
 
-  if (ownerId !== userId) {
-    throw new HttpError(403, 'You do not have access to this cut.');
+  await ensureProjectRole(projectId, userId, allowedRoles);
+}
+
+async function ensureChoiceProjectRole(choiceId: string, userId: string, allowedRoles: ProjectRole[]): Promise<void> {
+  const projectId = await repository.getChoiceProjectId(db, choiceId);
+  if (!projectId) {
+    throw new HttpError(404, 'Choice not found.');
   }
+
+  await ensureProjectRole(projectId, userId, allowedRoles);
+}
+
+async function ensureEpisodeOwnedByUser(episodeId: string, userId: string): Promise<void> {
+  await ensureEpisodeProjectRole(episodeId, userId, PROJECT_WRITE_ROLES);
+}
+
+async function ensureCutOwnedByUser(cutId: string, userId: string): Promise<void> {
+  await ensureCutProjectRole(cutId, userId, PROJECT_WRITE_ROLES);
 }
 
 function getBackupTotals(projects: PromptoonBackupExport['projects']): PromptoonBackupExport['totals'] {
@@ -218,14 +319,7 @@ function getBackupTotals(projects: PromptoonBackupExport['projects']): Promptoon
 }
 
 async function ensureChoiceOwnedByUser(choiceId: string, userId: string): Promise<void> {
-  const ownerId = await repository.getChoiceOwnerId(db, choiceId);
-  if (!ownerId) {
-    throw new HttpError(404, 'Choice not found.');
-  }
-
-  if (ownerId !== userId) {
-    throw new HttpError(403, 'You do not have access to this choice.');
-  }
+  await ensureChoiceProjectRole(choiceId, userId, PROJECT_WRITE_ROLES);
 }
 
 function normalizeChoiceStateWrites(stateWrites: ChoiceStateWrite[] | undefined): ChoiceStateWrite[] | undefined {
@@ -235,7 +329,8 @@ function normalizeChoiceStateWrites(stateWrites: ChoiceStateWrite[] | undefined)
 
   return stateWrites.map((stateWrite) => ({
     key: stateWrite.key.trim(),
-    value: stateWrite.value.trim()
+    value: stateWrite.value.trim(),
+    operation: stateWrite.operation ?? 'set'
   }));
 }
 
@@ -271,6 +366,61 @@ function normalizeCutStateRoutes(stateRoutes: CutStateRoute[] | undefined): CutS
       label: stateRoute.label?.trim() || undefined
     };
   });
+}
+
+function normalizeCutLoopMetadata(loopMetadata: Cut['loopMetadata'] | undefined): Cut['loopMetadata'] | undefined {
+  if (loopMetadata === undefined) {
+    return undefined;
+  }
+
+  if (!loopMetadata) {
+    return null;
+  }
+
+  return {
+    kind: 'exitLoop',
+    groupId: loopMetadata.groupId.trim(),
+    groupLabel: loopMetadata.groupLabel?.trim() || undefined,
+    role: loopMetadata.role,
+    stageIndex: loopMetadata.stageIndex,
+    stageCount: loopMetadata.stageCount,
+    truth: loopMetadata.truth,
+    expectedChoice: loopMetadata.expectedChoice,
+    baseCutId: loopMetadata.baseCutId ?? null,
+    selectedVariantCutId: loopMetadata.selectedVariantCutId ?? null,
+    variantCutIds: loopMetadata.variantCutIds?.filter((cutId, index, cutIds) => cutIds.indexOf(cutId) === index),
+    exitLevelRequired: loopMetadata.exitLevelRequired,
+    resetStateOnEnter: loopMetadata.resetStateOnEnter,
+    resetStateKeyPrefix: loopMetadata.resetStateKeyPrefix?.trim() || undefined
+  };
+}
+
+function assertLoopCutKindMatchesMetadata(kind: Cut['kind'], loopMetadata: Cut['loopMetadata'] | null | undefined): void {
+  const expectedRoleByKind: Partial<Record<Cut['kind'], NonNullable<Cut['loopMetadata']>['role']>> = {
+    loopStage: 'stageBase',
+    loopVariant: 'stageVariant',
+    loopSpacer: 'spacer',
+    stateRouter: 'resultRouter'
+  };
+  const expectedRole = expectedRoleByKind[kind];
+
+  if (kind === 'loopStage' || kind === 'loopVariant' || kind === 'loopSpacer') {
+    if (!loopMetadata || loopMetadata.kind !== 'exitLoop') {
+      throw new HttpError(400, 'Loop cut kinds must be created through LoopStateSetting.');
+    }
+  }
+
+  if (!loopMetadata) {
+    return;
+  }
+
+  if (loopMetadata.kind !== 'exitLoop') {
+    throw new HttpError(400, 'Invalid loop metadata.');
+  }
+
+  if (!expectedRole || loopMetadata.role !== expectedRole) {
+    throw new HttpError(400, 'Loop metadata role does not match the cut kind.');
+  }
 }
 
 async function ensureStateVariantTargetsInEpisode(input: {
@@ -324,6 +474,38 @@ async function ensureStateRouterTargetsInEpisode(input: {
   }
 }
 
+async function ensureLoopMetadataTargetsInEpisode(input: {
+  episodeId: string;
+  sourceCutId?: string;
+  loopMetadata?: Cut['loopMetadata'] | null;
+}): Promise<void> {
+  if (!input.loopMetadata) {
+    return;
+  }
+
+  const targetIds = [
+    input.loopMetadata.baseCutId ?? null,
+    input.loopMetadata.selectedVariantCutId ?? null,
+    ...(input.loopMetadata.variantCutIds ?? [])
+  ].filter((targetId): targetId is string => Boolean(targetId));
+  if (targetIds.length === 0) {
+    return;
+  }
+
+  const draft = assertExists(await repository.getEpisodeDraft(db, input.episodeId), 'Episode not found.');
+  const cutIds = new Set(draft.cuts.map((cut) => cut.id));
+
+  for (const targetId of targetIds) {
+    if (targetId === input.sourceCutId) {
+      throw new HttpError(400, 'Loop metadata target cannot be the source cut.');
+    }
+
+    if (!cutIds.has(targetId)) {
+      throw new HttpError(400, 'Loop metadata target must reference a cut in the same episode.');
+    }
+  }
+}
+
 function buildManifest(draft: EpisodeDraftResponse, project: Project): PublishManifest {
   const choicesByCutId = new Map<string, Choice[]>();
   for (const choice of draft.choices) {
@@ -346,7 +528,9 @@ function buildManifest(draft: EpisodeDraftResponse, project: Project): PublishMa
       episodeNo: draft.episode.episodeNo,
       coverImageUrl: draft.episode.coverImageUrl,
       status: draft.episode.status,
-      startCutId: draft.episode.startCutId
+      startCutId: draft.episode.startCutId,
+      mode: draft.episode.mode,
+      exitLoopMetadata: draft.episode.exitLoopMetadata
     },
     cuts: draft.cuts.map((cut) => ({
       contentBlocks: getNormalizedCutContentBlocks(cut),
@@ -377,6 +561,7 @@ function buildManifest(draft: EpisodeDraftResponse, project: Project): PublishMa
       stateVariants: cut.stateVariants ?? [],
       stateRoutes: cut.stateRoutes ?? [],
       stateFallbackCutId: cut.stateFallbackCutId ?? null,
+      loopMetadata: cut.loopMetadata ?? null,
       choices: (choicesByCutId.get(cut.id) ?? []).map((choice) => ({
         id: choice.id,
         label: choice.label,
@@ -577,7 +762,12 @@ function getShareImageUrl(publish: Publish, endingCutId: string | undefined, bas
   );
 }
 
-function buildSharePageMeta(publish: Publish, endingCutId: string | undefined, baseOrigin: string): SharePageMeta {
+function buildSharePageMeta(
+  publish: Publish,
+  endingCutId: string | undefined,
+  baseOrigin: string,
+  options: SharePageOptions = {}
+): SharePageMeta {
   const manifest = publish.manifest;
   const validEndingCut =
     endingCutId
@@ -585,7 +775,9 @@ function buildSharePageMeta(publish: Publish, endingCutId: string | undefined, b
       : null;
   const querySuffix = validEndingCut ? `?e=${encodeURIComponent(validEndingCut.id)}` : '';
   const redirectUrl = `${trimTrailingSlash(baseOrigin)}/v/${publish.id}${querySuffix}`;
-  const shareUrl = `${trimTrailingSlash(baseOrigin)}/api/promptoon/share/${publish.id}${querySuffix}`;
+  const sharePath = options.sharePath ?? `/api/promptoon/share/${publish.id}`;
+  const normalizedSharePath = sharePath.startsWith('/') ? sharePath : `/${sharePath}`;
+  const shareUrl = `${trimTrailingSlash(baseOrigin)}${normalizedSharePath}${querySuffix}`;
   const title = validEndingCut
     ? `${manifest.episode.title} - 나는 "${validEndingCut.title}" 엔딩을 봤어!`
     : `${manifest.episode.title} - 인터랙티브 웹툰`;
@@ -818,8 +1010,17 @@ function isRealFeedChoice(choice: PublishManifest['cuts'][number]['choices'][num
 
 function getFeedStartCut(manifest: PublishManifest): PublishManifest['cuts'][number] | null {
   const sortedCuts = manifest.cuts.slice().sort((left, right) => left.orderIndex - right.orderIndex);
+  const configuredStartCut = manifest.episode.startCutId
+    ? sortedCuts.find((cut) => cut.id === manifest.episode.startCutId)
+    : null;
 
-  return sortedCuts.find((cut) => cut.choices.filter(isRealFeedChoice).length >= 2) ?? null;
+  return (
+    sortedCuts.find((cut) => cut.choices.filter(isRealFeedChoice).length >= 2) ??
+    configuredStartCut ??
+    sortedCuts.find((cut) => cut.isStart) ??
+    sortedCuts[0] ??
+    null
+  );
 }
 
 function buildFeedItem(publish: Publish): FeedItem | null {
@@ -835,7 +1036,7 @@ function buildFeedItem(publish: Publish): FeedItem | null {
     episodeId: publish.episodeId,
     episodeTitle: publish.manifest.episode.title,
     projectTitle: publish.manifest.project.title,
-    coverImageUrl: publish.manifest.episode.coverImageUrl ?? null,
+    coverImageUrl: publish.manifest.project.thumbnailUrl ?? publish.manifest.episode.coverImageUrl ?? null,
     publishedAt: publish.createdAt,
     startCut: {
       id: startCut.id,
@@ -872,6 +1073,33 @@ function buildFeedItem(publish: Publish): FeedItem | null {
   };
 }
 
+function buildProjectedFeedItem(input: {
+  feedItem: FeedItem;
+  publish: Publish;
+  channel: ProjectionChannelInput;
+  series: ProjectionSeriesInput;
+}): FeedItem {
+  return {
+    ...input.feedItem,
+    id: input.publish.id,
+    type: 'promptoon',
+    channelId: input.channel.id,
+    channelSlug: input.channel.slug,
+    channelName: input.channel.display_name,
+    channelAvatarUrl: input.channel.avatar_url,
+    metrics: {
+      views: 0,
+      likes: 0,
+      comments: 0,
+      shares: 0
+    },
+    entry: {
+      kind: 'viewer',
+      href: `/v/${input.publish.id}`
+    }
+  };
+}
+
 function buildChoiceStats(
   draft: EpisodeDraftResponse,
   clickedStats: Map<string, AnalyticsChoiceStat[]>
@@ -890,12 +1118,17 @@ function buildChoiceStats(
     const merged = choices
       .slice()
       .sort((left, right) => left.orderIndex - right.orderIndex)
-      .map((choice) => ({
-        choiceId: choice.id,
-        label: choice.label,
-        count: clickedByChoiceId.get(choice.id)?.count ?? 0,
-        percentage: 0
-      }));
+      .map((choice) => {
+        const clickedStat = clickedByChoiceId.get(choice.id);
+
+        return {
+          choiceId: choice.id,
+          label: choice.label,
+          count: clickedStat?.count ?? 0,
+          percentage: 0,
+          ...(clickedStat?.avgHesitationMs === undefined ? {} : { avgHesitationMs: clickedStat.avgHesitationMs })
+        };
+      });
     const total = merged.reduce((sum, stat) => sum + stat.count, 0);
 
     result[cutId] = merged.map((stat) => ({
@@ -913,7 +1146,10 @@ async function getValidatedDraft(episodeId: string, dbClient?: PoolClient): Prom
 }> {
   const executor = dbClient ?? db;
   const draft = assertExists(await repository.getEpisodeDraft(executor, episodeId), 'Episode not found.');
-  const validation = validateEpisodeGraph(draft);
+  const project = assertExists(await repository.getProjectById(executor, draft.episode.projectId), 'Project not found.');
+  const validation = validateEpisodeGraph(draft, {
+    projectThumbnailUrl: project.thumbnailUrl
+  });
   return { draft, validation };
 }
 
@@ -934,22 +1170,108 @@ export async function exportUserBackup(userId: string): Promise<PromptoonBackupE
 }
 
 export async function createProject(request: CreateProjectRequest, userId: string): Promise<Project> {
-  return repository.createProject(db, {
-    title: request.title,
-    description: request.description,
-    createdBy: userId
+  return withTransaction(async (client) => {
+    const project = await repository.createProject(client, {
+      title: request.title,
+      description: request.description,
+      createdBy: userId
+    });
+    await repository.upsertProjectMember(client, {
+      projectId: project.id,
+      userId,
+      role: 'owner'
+    });
+    await repository.ensureDefaultChannelForProject(client, project, userId);
+    return project;
   });
 }
 
-export async function createEpisode(projectId: string, request: CreateEpisodeRequest, userId: string): Promise<Episode> {
+export async function listProjectMembers(projectId: string, userId: string): Promise<ProjectMemberListResponse> {
   await ensureProjectOwnedByUser(projectId, userId);
+
+  return {
+    members: await repository.listProjectMembers(db, projectId)
+  };
+}
+
+export async function addProjectMember(
+  projectId: string,
+  request: UpsertProjectMemberRequest,
+  userId: string
+): Promise<ProjectMemberListResponse> {
+  await ensureProjectOwnedByUser(projectId, userId);
+  const targetUserId = assertExists(await repository.getUserIdByLoginId(db, request.loginId), 'User not found.');
+
+  await repository.upsertProjectMember(db, {
+    projectId,
+    userId: targetUserId,
+    role: request.role
+  });
+
+  return listProjectMembers(projectId, userId);
+}
+
+export async function updateProjectMember(
+  projectId: string,
+  targetUserId: string,
+  request: PatchProjectMemberRequest,
+  userId: string
+): Promise<ProjectMemberListResponse> {
+  await ensureProjectOwnedByUser(projectId, userId);
+  const currentRole = await repository.getProjectMemberRole(db, {
+    projectId,
+    userId: targetUserId
+  });
+  if (!currentRole) {
+    throw new HttpError(404, 'Project member not found.');
+  }
+
+  if (currentRole === 'owner') {
+    throw new HttpError(400, 'Owner transfer is not supported.');
+  }
+
+  await repository.upsertProjectMember(db, {
+    projectId,
+    userId: targetUserId,
+    role: request.role
+  });
+
+  return listProjectMembers(projectId, userId);
+}
+
+export async function deleteProjectMember(projectId: string, targetUserId: string, userId: string): Promise<ProjectMemberListResponse> {
+  await ensureProjectOwnedByUser(projectId, userId);
+  const currentRole = await repository.getProjectMemberRole(db, {
+    projectId,
+    userId: targetUserId
+  });
+  if (!currentRole) {
+    throw new HttpError(404, 'Project member not found.');
+  }
+
+  if (currentRole === 'owner') {
+    throw new HttpError(400, 'Owner removal is not supported.');
+  }
+
+  await repository.deleteProjectMember(db, {
+    projectId,
+    userId: targetUserId
+  });
+
+  return listProjectMembers(projectId, userId);
+}
+
+export async function createEpisode(projectId: string, request: CreateEpisodeRequest, userId: string): Promise<Episode> {
+  await ensureProjectWritableByUser(projectId, userId);
 
   try {
     return await repository.createEpisode(db, {
       projectId,
       title: request.title,
       episodeNo: request.episodeNo,
-      coverImageUrl: request.coverImageUrl
+      coverImageUrl: request.coverImageUrl,
+      mode: request.mode,
+      exitLoopMetadata: request.exitLoopMetadata
     });
   } catch (error) {
     throw mapDatabaseError(error);
@@ -971,10 +1293,388 @@ export async function getEpisodeDraft(episodeId: string, userId: string): Promis
   return assertExists(await repository.getEpisodeDraft(db, episodeId), 'Episode not found.');
 }
 
+function sanitizeLoopGroupId(groupName: string): string {
+  const normalized = groupName
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 36);
+  const base = normalized || 'exit-loop';
+  const suffix = randomUUID().replaceAll('-', '').slice(0, 8);
+
+  return `${base}-${suffix}`;
+}
+
+function getLoopExpectedChoice(truth: CreateLoopStateSettingRequest['stages'][number]['truth']): 'forward' | 'back' {
+  return truth === 'real_anomaly' ? 'back' : 'forward';
+}
+
+function getLoopStatePrefix(groupId: string): string {
+  return `exitLoop.${groupId}.`;
+}
+
+function getLoopRouteStateKey(groupId: string): string {
+  return `${getLoopStatePrefix(groupId)}route`;
+}
+
+function getLoopDecisionStateKey(groupId: string): string {
+  return `${getLoopStatePrefix(groupId)}decision`;
+}
+
+function getLoopDecisionStateWrites(groupId: string, choiceId: 'forward' | 'back'): ChoiceStateWrite[] {
+  return [
+    {
+      key: getLoopDecisionStateKey(groupId),
+      operation: 'exitLoopDecision',
+      value: choiceId
+    }
+  ];
+}
+
+function getLoopStageTitle(groupName: string, stageIndex: number, title: string | undefined): string {
+  return title?.trim() || `${groupName} Stage ${String(stageIndex).padStart(2, '0')}`;
+}
+
+function getLoopVariantTitle(groupName: string, stageIndex: number, title: string | undefined): string {
+  return title?.trim() || `${groupName} Stage ${String(stageIndex).padStart(2, '0')} Variant`;
+}
+
+function getLoopSpacerTitle(groupName: string, stageIndex: number, title: string | undefined): string {
+  return title?.trim() || `${groupName} Spacer ${String(stageIndex).padStart(2, '0')}`;
+}
+
+function getLoopDecisionTitle(groupName: string): string {
+  return `${groupName} Decision`;
+}
+
+async function ensureOptionalLoopStateTargetInEpisode(input: {
+  cutId: string | null | undefined;
+  cutIds: Set<string>;
+  label: string;
+}): Promise<void> {
+  if (!input.cutId) {
+    return;
+  }
+
+  if (!input.cutIds.has(input.cutId)) {
+    throw new HttpError(400, `${input.label} must reference a cut in the same episode.`);
+  }
+}
+
+export async function createLoopStateSetting(
+  episodeId: string,
+  request: CreateLoopStateSettingRequest,
+  userId: string
+): Promise<CreateLoopStateSettingResponse> {
+  await ensureEpisodeOwnedByUser(episodeId, userId);
+  const draft = assertExists(await repository.getEpisodeDraft(db, episodeId), 'Episode not found.');
+  const cutIds = new Set(draft.cuts.map((cut) => cut.id));
+  const continuationCutId = request.continuationCutId ?? request.successCutId ?? null;
+  const retryCutId = request.retryCutId ?? request.failureCutId ?? null;
+
+  await ensureOptionalLoopStateTargetInEpisode({
+    cutId: request.attachAfterCutId,
+    cutIds,
+    label: 'Attach cut'
+  });
+  await ensureOptionalLoopStateTargetInEpisode({
+    cutId: continuationCutId,
+    cutIds,
+    label: 'Continuation cut'
+  });
+  await ensureOptionalLoopStateTargetInEpisode({
+    cutId: retryCutId,
+    cutIds,
+    label: 'Retry cut'
+  });
+
+  const groupName = request.groupName.trim();
+  const groupId = sanitizeLoopGroupId(groupName);
+  const statePrefix = getLoopStatePrefix(groupId);
+  const stageCount = request.stages.length;
+  const exitLevelRequired = request.exitLevelRequired ?? 5;
+  const startOrderIndex = draft.cuts.length;
+  let loopStateSettingResponse: CreateLoopStateSettingResponse | null = null;
+
+  await withTransaction(async (client) => {
+    const stageCuts: Cut[] = [];
+    const spacerCuts: Cut[] = [];
+
+    for (const [stageOffset, stage] of request.stages.entries()) {
+      const stageIndex = stageOffset + 1;
+      const stageOrderIndex = startOrderIndex + stageOffset * 24;
+      const stageLoopMetadata: NonNullable<Cut['loopMetadata']> = {
+        kind: 'exitLoop',
+        groupId,
+        groupLabel: groupName,
+        role: 'stageBase',
+        stageIndex,
+        stageCount,
+        selectedVariantCutId: null,
+        variantCutIds: [],
+        exitLevelRequired,
+        resetStateOnEnter: false,
+        resetStateKeyPrefix: stageIndex === 1 ? statePrefix : undefined
+      };
+      const stageCut = await repository.createCut(client, {
+        episodeId,
+        kind: 'loopStage',
+        title: getLoopStageTitle(groupName, stageIndex, stage.title),
+        body: '',
+        assetUrl: stage.baseAssetUrl ?? null,
+        loopMetadata: stageLoopMetadata,
+        orderIndex: stageOrderIndex,
+        positionX: stageOffset * 260,
+        positionY: 220
+      });
+      const variantInputs =
+        stage.variants && stage.variants.length > 0
+          ? stage.variants
+          : stage.truth
+            ? [
+                {
+                  assetUrl: stage.variantAssetUrl ?? stage.baseAssetUrl ?? null,
+                  title: stage.variantTitle,
+                  truth: stage.truth
+                }
+              ]
+            : [];
+      const variantCutIds: string[] = [];
+
+      for (const [variantOffset, variantInput] of variantInputs.entries()) {
+        const truth = variantInput.truth;
+        const expectedChoice = getLoopExpectedChoice(truth);
+        const variantCut = await repository.createCut(client, {
+          episodeId,
+          kind: 'loopVariant',
+          title: getLoopVariantTitle(groupName, stageIndex, variantInput.title),
+          body: '',
+          assetUrl: variantInput.assetUrl ?? stage.baseAssetUrl ?? null,
+          loopMetadata: {
+            kind: 'exitLoop',
+            groupId,
+            groupLabel: groupName,
+            role: 'stageVariant',
+            stageIndex,
+            stageCount,
+            truth,
+            expectedChoice,
+            baseCutId: stageCut.id,
+            exitLevelRequired
+          },
+          orderIndex: stageOrderIndex + 1 + variantOffset,
+          positionX: stageOffset * 260,
+          positionY: 430 + variantOffset * 92
+        });
+        variantCutIds.push(variantCut.id);
+      }
+
+      const updatedStageCut = assertExists(
+        await repository.updateCut(client, stageCut.id, {
+          loopMetadata: {
+            ...stageLoopMetadata,
+            selectedVariantCutId: null,
+            variantCutIds
+          }
+        }),
+        'Loop stage cut not found.'
+      );
+      stageCuts.push(updatedStageCut);
+
+      if (stageIndex < stageCount) {
+        spacerCuts.push(
+          await repository.createCut(client, {
+            episodeId,
+            kind: 'loopSpacer',
+            title: getLoopSpacerTitle(groupName, stageIndex, stage.spacerTitle),
+            body: '',
+            assetUrl: stage.spacerAssetUrl ?? null,
+            loopMetadata: {
+              kind: 'exitLoop',
+              groupId,
+              groupLabel: groupName,
+              role: 'spacer',
+              stageIndex,
+              stageCount
+            },
+            orderIndex: stageOrderIndex + 20,
+            positionX: stageOffset * 260 + 130,
+            positionY: 220
+          })
+        );
+      }
+    }
+
+    const firstStageCut = stageCuts[0];
+    if (!firstStageCut) {
+      throw new HttpError(400, 'LoopStateSetting requires at least one stage.');
+    }
+
+    const retryCut = retryCutId
+      ? assertExists(await repository.getCutById(client, retryCutId), 'Retry cut not found.')
+      : firstStageCut;
+    const continuationCut = continuationCutId
+      ? assertExists(await repository.getCutById(client, continuationCutId), 'Continuation cut not found.')
+      : await repository.createCut(client, {
+          episodeId,
+          kind: 'scene',
+          title: `${groupName} Next`,
+          body: '루프 바깥으로 진행합니다.',
+          isEnding: false,
+          orderIndex: startOrderIndex + stageCount * 24 + 1,
+          positionX: stageCount * 260,
+          positionY: 430
+        });
+    const resultRouterCut = await repository.createCut(client, {
+      episodeId,
+      kind: 'stateRouter',
+      title: `${groupName} Result Router`,
+      body: '',
+      stateRoutes: [
+        {
+          id: 'loop-result-exit',
+          conditions: [
+            {
+              stateKey: getLoopRouteStateKey(groupId),
+              equals: 'exit'
+            }
+          ],
+          nextCutId: continuationCut.id,
+          label: 'Exit'
+        }
+      ],
+      stateFallbackCutId: retryCut.id,
+      loopMetadata: {
+        kind: 'exitLoop',
+        groupId,
+        groupLabel: groupName,
+        role: 'resultRouter',
+        stageCount,
+        exitLevelRequired
+      },
+      orderIndex: startOrderIndex + stageCount * 24,
+      positionX: stageCount * 260,
+      positionY: 220
+    });
+
+    for (const [stageOffset, stageCut] of stageCuts.entries()) {
+      const isLastStage = stageOffset === stageCuts.length - 1;
+      if (isLastStage) {
+        await repository.createChoice(client, {
+          cutId: stageCut.id,
+          label: '나아간다',
+          nextCutId: resultRouterCut.id,
+          orderIndex: 0,
+          stateWrites: getLoopDecisionStateWrites(groupId, 'forward')
+        });
+        await repository.createChoice(client, {
+          cutId: stageCut.id,
+          label: '돌아간다',
+          nextCutId: resultRouterCut.id,
+          orderIndex: 1,
+          stateWrites: getLoopDecisionStateWrites(groupId, 'back')
+        });
+      } else {
+        const nextCutId = spacerCuts[stageOffset]?.id ?? resultRouterCut.id;
+        await repository.createChoice(client, {
+          cutId: stageCut.id,
+          label: '계속',
+          nextCutId,
+          orderIndex: 0
+        });
+      }
+
+      const nextStageCut = stageCuts[stageOffset + 1] ?? null;
+      const spacerCut = spacerCuts[stageOffset] ?? null;
+      if (spacerCut && nextStageCut) {
+        await repository.createChoice(client, {
+          cutId: spacerCut.id,
+          label: '계속',
+          nextCutId: nextStageCut.id,
+          orderIndex: 0
+        });
+      }
+    }
+
+    if (request.attachAfterCutId) {
+      await repository.createChoice(client, {
+        cutId: request.attachAfterCutId,
+        label: groupName,
+        nextCutId: firstStageCut.id
+      });
+    }
+
+    const nextDraft = assertExists(await repository.getEpisodeDraft(client, episodeId), 'Episode not found.');
+    loopStateSettingResponse = {
+      ...nextDraft,
+      groupId,
+      firstStageCutId: firstStageCut.id,
+      resultRouterCutId: resultRouterCut.id,
+      continuationCutId: continuationCut.id,
+      retryCutId: retryCut.id,
+      successCutId: continuationCut.id,
+      failureCutId: retryCut.id
+    };
+  });
+
+  if (!loopStateSettingResponse) {
+    throw new HttpError(500, 'LoopStateSetting was not created.');
+  }
+
+  return loopStateSettingResponse;
+}
+
+export async function deleteLoopStateSetting(episodeId: string, groupId: string, userId: string): Promise<EpisodeDraftResponse> {
+  await ensureEpisodeOwnedByUser(episodeId, userId);
+  const normalizedGroupId = groupId.trim();
+  if (!normalizedGroupId) {
+    throw new HttpError(400, 'LoopStateSetting group id is required.');
+  }
+
+  const groupCuts = await repository.listLoopStateSettingCuts(db, episodeId, normalizedGroupId);
+  if (groupCuts.length === 0) {
+    throw new HttpError(404, 'LoopStateSetting not found.');
+  }
+
+  let nextDraft: EpisodeDraftResponse | null = null;
+  await withTransaction(async (client) => {
+    const groupCutIds = groupCuts.map((cut) => cut.id);
+    await repository.deleteChoicesTargetingCuts(client, {
+      episodeId,
+      cutIds: groupCutIds
+    });
+    await repository.removeStateVariantsTargetingCuts(client, {
+      episodeId,
+      cutIds: groupCutIds
+    });
+    await repository.removeStateRoutesTargetingCuts(client, {
+      episodeId,
+      cutIds: groupCutIds
+    });
+
+    const deletedCount = await repository.deleteLoopStateSettingCuts(client, episodeId, normalizedGroupId);
+    if (deletedCount === 0) {
+      throw new HttpError(404, 'LoopStateSetting not found.');
+    }
+
+    nextDraft = assertExists(await repository.getEpisodeDraft(client, episodeId), 'Episode not found.');
+  });
+
+  if (!nextDraft) {
+    throw new HttpError(500, 'LoopStateSetting was not deleted.');
+  }
+
+  return nextDraft;
+}
+
 export async function createCut(episodeId: string, request: CreateCutRequest, userId: string): Promise<Cut> {
   await ensureEpisodeOwnedByUser(episodeId, userId);
   const stateVariants = normalizeCutStateVariants(request.stateVariants);
   const stateRoutes = normalizeCutStateRoutes(request.stateRoutes);
+  const loopMetadata = normalizeCutLoopMetadata(request.loopMetadata);
+  assertLoopCutKindMatchesMetadata(request.kind, loopMetadata);
   await ensureStateVariantTargetsInEpisode({
     episodeId,
     stateVariants
@@ -984,13 +1684,18 @@ export async function createCut(episodeId: string, request: CreateCutRequest, us
     stateRoutes,
     stateFallbackCutId: request.stateFallbackCutId
   });
+  await ensureLoopMetadataTargetsInEpisode({
+    episodeId,
+    loopMetadata
+  });
 
   try {
     return await repository.createCut(db, {
       episodeId,
       ...request,
       stateVariants,
-      stateRoutes
+      stateRoutes,
+      loopMetadata
     });
   } catch (error) {
     throw mapDatabaseError(error);
@@ -1002,6 +1707,10 @@ export async function updateCut(cutId: string, request: PatchCutRequest, userId:
   const cut = assertExists(await repository.getCutById(db, cutId), 'Cut not found.');
   const stateVariants = normalizeCutStateVariants(request.stateVariants);
   const stateRoutes = normalizeCutStateRoutes(request.stateRoutes);
+  const loopMetadata = normalizeCutLoopMetadata(request.loopMetadata);
+  const nextKind = request.kind ?? cut.kind;
+  const nextLoopMetadata = loopMetadata === undefined ? cut.loopMetadata ?? null : loopMetadata;
+  assertLoopCutKindMatchesMetadata(nextKind, nextLoopMetadata);
   await ensureStateVariantTargetsInEpisode({
     episodeId: cut.episodeId,
     sourceCutId: cutId,
@@ -1013,9 +1722,19 @@ export async function updateCut(cutId: string, request: PatchCutRequest, userId:
     stateRoutes,
     stateFallbackCutId: request.stateFallbackCutId
   });
+  await ensureLoopMetadataTargetsInEpisode({
+    episodeId: cut.episodeId,
+    sourceCutId: cutId,
+    loopMetadata
+  });
 
   try {
-    return assertExists(await repository.updateCut(db, cutId, { ...request, stateVariants, stateRoutes }), 'Cut not found.');
+    const patch: PatchCutRequest = { ...request, stateVariants, stateRoutes };
+    if (loopMetadata !== undefined) {
+      patch.loopMetadata = loopMetadata;
+    }
+
+    return assertExists(await repository.updateCut(db, cutId, patch), 'Cut not found.');
   } catch (error) {
     throw mapDatabaseError(error);
   }
@@ -1167,74 +1886,252 @@ export async function validateEpisode(episodeId: string, userId: string): Promis
   return validation;
 }
 
-export async function getPublishedEpisode(publishId: string): Promise<Publish> {
-  return toPublicPublish(normalizePublish(assertExists(await repository.getPublishById(db, publishId), 'Published episode not found.')));
+export async function getPublishedEpisode(publishId: string, userId?: string): Promise<Publish> {
+  await experimentalService.assertPublishAccess(publishId, userId);
+  return toPublicPublish(normalizePublish(assertPublicPublish(await repository.getPublishById(db, publishId), 'Published episode not found.')));
 }
 
-export async function getEpisodeFeed(input: { cursor?: string; limit: number }): Promise<FeedResponse> {
-  let cursor = input.cursor ? decodeFeedCursor(input.cursor) : undefined;
-  let lastConsumedPublish: Publish | null = null;
-  let hasMorePublishes = false;
-  const items: FeedItem[] = [];
-  const batchSize = Math.max(input.limit * 2, 10);
-
-  while (items.length < input.limit) {
-    const publishes = await repository.listLatestPublishesForFeed(db, {
-      cursor,
-      limit: batchSize
-    });
-
-    if (publishes.length === 0) {
-      hasMorePublishes = false;
-      break;
-    }
-
-    hasMorePublishes = publishes.length === batchSize;
-
-    for (let index = 0; index < publishes.length; index += 1) {
-      const publish = publishes[index];
-      const normalizedPublish = normalizePublish(publish);
-      lastConsumedPublish = publish;
-      cursor = {
-        createdAt: publish.createdAt,
-        publishId: publish.id
-      };
-
-      const item = buildFeedItem(normalizedPublish);
-      if (item) {
-        items.push(item);
-      }
-
-      if (items.length >= input.limit) {
-        hasMorePublishes = index < publishes.length - 1 || publishes.length === batchSize;
-        break;
-      }
-    }
-
-    if (!hasMorePublishes || !cursor) {
-      break;
-    }
-  }
+export async function getEpisodeFeed(input: { cursor?: string; limit: number; userId?: string }): Promise<FeedResponse> {
+  const cursor = input.cursor ? decodeFeedCursor(input.cursor) : undefined;
+  const rows = await repository.listFeedItemProjections(db, {
+    cursor,
+    limit: input.limit + 1,
+    userId: input.userId
+  });
+  const pageRows = rows.slice(0, input.limit);
+  const lastRow = pageRows[pageRows.length - 1] ?? null;
 
   return {
-    items: items.slice(0, input.limit),
-    nextCursor: items.length >= input.limit && hasMorePublishes && lastConsumedPublish
+    items: pageRows.map((row) => row.item),
+    nextCursor: rows.length > input.limit && lastRow
       ? encodeFeedCursor({
-          createdAt: lastConsumedPublish.createdAt,
-          publishId: lastConsumedPublish.id
+          createdAt: lastRow.publishedAt,
+          publishId: lastRow.id
         })
       : null
   };
 }
 
-export async function getLatestPublishedEpisode(episodeId: string, userId: string): Promise<Publish | null> {
+export async function getChannelHome(channelSlug: string): Promise<ChannelHome> {
+  const channel = assertExists(await repository.getChannelBySlug(db, channelSlug), 'Channel not found.');
+  const projected = await repository.getChannelHomeProjection(db, channel.id);
+  if (projected) {
+    return projected;
+  }
+
+  const rebuilt = assertExists(await repository.buildChannelHomeFromPublicTables(db, channel.id), 'Channel not found.');
+  await repository.upsertChannelHomeProjection(db, channel.id, rebuilt);
+  return rebuilt;
+}
+
+export async function getRelatedShorts(publishId: string): Promise<RelatedShort[]> {
+  assertPublicPublish(await repository.getPublishById(db, publishId), 'Published episode not found.');
+  return repository.listRelatedShortsForPublish(db, publishId);
+}
+
+export async function getCommentsMeta(publishId: string): Promise<CommentsMetaResponse> {
+  assertExists(await repository.getPublishById(db, publishId), 'Published episode not found.');
+  const meta = await repository.getCommentsMetaByPublishId(db, publishId);
+
+  return {
+    publishId,
+    commentCount: meta?.comment_count ?? 0,
+    latestCommentAt: meta?.latest_comment_at ? meta.latest_comment_at.toISOString() : null,
+    discussionUrl: meta?.discussion_url ?? null
+  };
+}
+
+function normalizeInteractionPublishIds(publishIds: string[]): string[] {
+  return Array.from(new Set(publishIds.map((publishId) => publishId.trim()).filter(Boolean))).slice(0, 100);
+}
+
+async function rebuildChannelProjectionForChannel(executor: DbExecutor, channelId: string | null | undefined): Promise<void> {
+  if (!channelId) {
+    return;
+  }
+
+  const home = await repository.buildChannelHomeFromPublicTables(executor, channelId);
+  if (home) {
+    await repository.upsertChannelHomeProjection(executor, channelId, home);
+  }
+}
+
+export async function getContentInteractionStates(
+  publishIds: string[],
+  userId: string
+): Promise<ContentInteractionStateListResponse> {
+  const normalizedPublishIds = normalizeInteractionPublishIds(publishIds);
+
+  return {
+    items: await repository.listContentInteractionStates(db, {
+      publishIds: normalizedPublishIds,
+      userId
+    })
+  };
+}
+
+export async function getViewerInteractionState(publishId: string, userId: string): Promise<ViewerInteractionStateResponse> {
+  return assertExists(
+    await repository.getViewerInteractionState(db, {
+      publishId,
+      userId
+    }),
+    'Published episode not found.'
+  );
+}
+
+export async function getChannelSubscriptionState(
+  channelId: string,
+  userId: string
+): Promise<ChannelSubscriptionStateResponse> {
+  return assertExists(
+    await repository.getChannelSubscriptionState(db, {
+      channelId,
+      userId
+    }),
+    'Channel not found.'
+  );
+}
+
+export async function likePublish(publishId: string, userId: string): Promise<void> {
+  const context = assertExists(await repository.getPublishProjectionContext(db, publishId), 'Published episode not found.');
+
+  await withTransaction(async (client) => {
+    await repository.upsertUserLike(client, publishId, userId);
+    const refreshedContext = await repository.refreshFeedItemLikeMetrics(client, publishId);
+    await rebuildChannelProjectionForChannel(client, refreshedContext?.channel_id ?? context.channel_id);
+    await repository.insertTelemetryEvent(client, {
+      eventName: 'feed_like',
+      userId,
+      projectId: context.project_id,
+      channelId: context.channel_id ?? undefined,
+      seriesId: context.series_id ?? undefined,
+      episodeId: context.episode_id,
+      publishId,
+      feedItemId: context.feed_item_id ?? undefined,
+      payload: {
+        action: 'like'
+      }
+    });
+  });
+}
+
+export async function unlikePublish(publishId: string, userId: string): Promise<void> {
+  const context = assertExists(await repository.getPublishProjectionContext(db, publishId), 'Published episode not found.');
+
+  await withTransaction(async (client) => {
+    await repository.deleteUserLike(client, publishId, userId);
+    const refreshedContext = await repository.refreshFeedItemLikeMetrics(client, publishId);
+    await rebuildChannelProjectionForChannel(client, refreshedContext?.channel_id ?? context.channel_id);
+    await repository.insertTelemetryEvent(client, {
+      eventName: 'feed_like',
+      userId,
+      projectId: context.project_id,
+      channelId: context.channel_id ?? undefined,
+      seriesId: context.series_id ?? undefined,
+      episodeId: context.episode_id,
+      publishId,
+      feedItemId: context.feed_item_id ?? undefined,
+      payload: {
+        action: 'unlike'
+      }
+    });
+  });
+}
+
+export async function bookmarkPublish(publishId: string, userId: string): Promise<void> {
+  const context = assertExists(await repository.getPublishProjectionContext(db, publishId), 'Published episode not found.');
+
+  await withTransaction(async (client) => {
+    await repository.upsertUserBookmark(client, publishId, userId);
+    await repository.insertTelemetryEvent(client, {
+      eventName: 'feed_bookmark',
+      userId,
+      projectId: context.project_id,
+      channelId: context.channel_id ?? undefined,
+      seriesId: context.series_id ?? undefined,
+      episodeId: context.episode_id,
+      publishId,
+      feedItemId: context.feed_item_id ?? undefined,
+      payload: {
+        action: 'bookmark'
+      }
+    });
+  });
+}
+
+export async function unbookmarkPublish(publishId: string, userId: string): Promise<void> {
+  const context = assertExists(await repository.getPublishProjectionContext(db, publishId), 'Published episode not found.');
+
+  await withTransaction(async (client) => {
+    await repository.deleteUserBookmark(client, publishId, userId);
+    await repository.insertTelemetryEvent(client, {
+      eventName: 'feed_bookmark',
+      userId,
+      projectId: context.project_id,
+      channelId: context.channel_id ?? undefined,
+      seriesId: context.series_id ?? undefined,
+      episodeId: context.episode_id,
+      publishId,
+      feedItemId: context.feed_item_id ?? undefined,
+      payload: {
+        action: 'unbookmark'
+      }
+    });
+  });
+}
+
+export async function ensureDiscussionForEpisode(episodeId: string, userId: string): Promise<void> {
   await ensureEpisodeOwnedByUser(episodeId, userId);
+  await repository.ensureEpisodeDiscussion(db, { episodeId });
+}
+
+export async function subscribeToChannel(channelId: string, userId: string): Promise<void> {
+  assertExists(await repository.getChannelSubscriptionState(db, { channelId, userId }), 'Channel not found.');
+
+  await withTransaction(async (client) => {
+    await repository.upsertUserSubscription(client, channelId, userId);
+    await rebuildChannelProjectionForChannel(client, channelId);
+    await repository.insertTelemetryEvent(client, {
+      eventName: 'channel_subscribe',
+      userId,
+      channelId,
+      payload: {
+        action: 'subscribe'
+      }
+    });
+  });
+}
+
+export async function unsubscribeFromChannel(channelId: string, userId: string): Promise<void> {
+  assertExists(await repository.getChannelSubscriptionState(db, { channelId, userId }), 'Channel not found.');
+
+  await withTransaction(async (client) => {
+    await repository.deleteUserSubscription(client, channelId, userId);
+    await rebuildChannelProjectionForChannel(client, channelId);
+    await repository.insertTelemetryEvent(client, {
+      eventName: 'channel_subscribe',
+      userId,
+      channelId,
+      payload: {
+        action: 'unsubscribe'
+      }
+    });
+  });
+}
+
+export async function trackTelemetryEvent(payload: TelemetryEventPayload): Promise<void> {
+  await repository.insertTelemetryEvent(db, payload);
+}
+
+export async function getLatestPublishedEpisode(episodeId: string, userId: string): Promise<Publish | null> {
+  await ensureEpisodeProjectRole(episodeId, userId, PROJECT_READ_ROLES);
   const publish = await repository.getLatestPublishByEpisodeId(db, episodeId);
   return publish ? normalizePublish(publish) : null;
 }
 
 export async function uploadAsset(projectId: string, file: Express.Multer.File, userId: string): Promise<AssetUploadResponse> {
-  await ensureProjectOwnedByUser(projectId, userId);
+  await ensureProjectWritableByUser(projectId, userId);
 
   if (!file.mimetype.startsWith('image/')) {
     throw new HttpError(400, 'Only image uploads are supported.');
@@ -1267,17 +2164,18 @@ export async function uploadAsset(projectId: string, file: Express.Multer.File, 
 export async function renderSharePage(
   publishId: string,
   endingCutId: string | undefined,
-  baseOrigin: string
+  baseOrigin: string,
+  options: SharePageOptions = {}
 ): Promise<string> {
   const publish = await getPublishedEpisode(publishId);
   const template = await getBaseShareTemplate();
-  const meta = buildSharePageMeta(publish, endingCutId, baseOrigin);
+  const meta = buildSharePageMeta(publish, endingCutId, baseOrigin, options);
 
   return injectShareTemplate(template, meta);
 }
 
 export async function trackViewerEvent(request: TelemetryEventRequest): Promise<void> {
-  const publish = assertExists(await repository.getPublishById(db, request.publishId), 'Published episode not found.');
+  const publish = assertPublicPublish(await repository.getPublishById(db, request.publishId), 'Published episode not found.');
   const cutsById = new Map(publish.manifest.cuts.map((cut) => [cut.id, cut]));
   const targetCut = cutsById.get(request.cutId);
 
@@ -1305,7 +2203,34 @@ export async function trackViewerEvent(request: TelemetryEventRequest): Promise<
     eventType: request.eventType,
     cutId: request.cutId,
     choiceId: request.choiceId,
-    durationMs: request.durationMs
+    durationMs: request.durationMs,
+    surface: request.surface,
+    position: request.position,
+    trackingToken: request.trackingToken,
+    recommendationRequestId: request.recommendationRequestId,
+    policyId: request.policyId,
+    modelVersion: request.modelVersion,
+    experimentId: request.experimentId
+  });
+  await repository.insertTelemetryEvent(db, {
+    eventName: request.eventType,
+    anonymousId: request.anonymousId,
+    sessionId: request.sessionId,
+    projectId: publish.projectId,
+    episodeId: publish.episodeId,
+    publishId: publish.id,
+    payload: {
+      cutId: request.cutId,
+      choiceId: request.choiceId,
+      durationMs: request.durationMs,
+      surface: request.surface,
+      position: request.position,
+      trackingToken: request.trackingToken,
+      recommendationRequestId: request.recommendationRequestId,
+      policyId: request.policyId,
+      modelVersion: request.modelVersion,
+      experimentId: request.experimentId
+    }
   });
 }
 
@@ -1315,7 +2240,7 @@ export async function getEpisodeAnalytics(
   viewsGranularity: AnalyticsViewGranularity = 'daily',
   viewsRange?: AnalyticsViewRange
 ): Promise<AnalyticsEpisodeResponse> {
-  await ensureEpisodeOwnedByUser(episodeId, userId);
+  await ensureEpisodeProjectRole(episodeId, userId, PROJECT_READ_ROLES);
   const draft = assertExists(await repository.getEpisodeDraft(db, episodeId), 'Episode not found.');
   const startCutId = getStartCutId(draft);
   const viewWindow = getAnalyticsViewWindow(viewsGranularity, viewsRange);
@@ -1388,7 +2313,7 @@ export async function resetEpisodeAnalytics(
   userId: string,
   request: ResetEpisodeAnalyticsRequest
 ): Promise<void> {
-  await ensureEpisodeOwnedByUser(episodeId, userId);
+  await ensureEpisodeProjectRole(episodeId, userId, PROJECT_PUBLISH_ROLES);
   const draft = request.scope === 'views' ? assertExists(await repository.getEpisodeDraft(db, episodeId), 'Episode not found.') : null;
 
   await repository.deleteViewerEventsForAnalyticsScope(db, {
@@ -1433,13 +2358,18 @@ export async function reorderEpisodeCuts(
 }
 
 export async function publishProject(projectId: string, request: PublishRequest, userId: string): Promise<Publish> {
-  await ensureProjectOwnedByUser(projectId, userId);
+  await ensureProjectPublishableByUser(projectId, userId);
   await ensureEpisodeBelongsToProject(projectId, request.episodeId);
 
   return withTransaction(async (client) => {
     await repository.lockEpisodeForPublish(client, request.episodeId);
 
     const project = assertExists(await repository.getProjectById(client, projectId), 'Project not found.');
+    const channel = await repository.ensureDefaultChannelForProject(client, project, userId);
+    const series = await repository.ensureDefaultSeriesForProject(client, {
+      project,
+      channelId: channel.id
+    });
     const { draft, validation } = await getValidatedDraft(request.episodeId, client);
     if (!validation.isValid) {
       throw new HttpError(409, 'Episode validation failed.', validation);
@@ -1463,24 +2393,50 @@ export async function publishProject(projectId: string, request: PublishRequest,
       }
     );
 
-    return repository.createPublish(client, {
+    const publish = await repository.createPublish(client, {
       projectId,
       episodeId: request.episodeId,
+      channelId: channel.id,
+      seriesId: series.id,
       versionNo,
       manifest,
       createdBy: userId
     });
+    await coreProjectionService.upsertPublishPublicProjections(client, {
+      publish,
+      channel,
+      series
+    });
+    await repository.insertTelemetryEvent(client, {
+      eventName: 'studio_publish',
+      userId,
+      projectId,
+      channelId: channel.id,
+      seriesId: series.id,
+      episodeId: request.episodeId,
+      publishId: publish.id,
+      payload: {
+        versionNo
+      }
+    });
+
+    return publish;
   });
 }
 
 export async function updatePublishedProject(projectId: string, request: PublishRequest, userId: string): Promise<Publish> {
-  await ensureProjectOwnedByUser(projectId, userId);
+  await ensureProjectPublishableByUser(projectId, userId);
   await ensureEpisodeBelongsToProject(projectId, request.episodeId);
 
   return withTransaction(async (client) => {
     await repository.lockEpisodeForPublish(client, request.episodeId);
 
     const project = assertExists(await repository.getProjectById(client, projectId), 'Project not found.');
+    const channel = await repository.ensureDefaultChannelForProject(client, project, userId);
+    const series = await repository.ensureDefaultSeriesForProject(client, {
+      project,
+      channelId: channel.id
+    });
     const existingPublish = assertExists(
       await repository.getLatestPublishByEpisodeId(client, request.episodeId),
       'Published episode not found.'
@@ -1507,33 +2463,52 @@ export async function updatePublishedProject(projectId: string, request: Publish
       }
     );
 
-    return assertExists(
+    const publish = assertExists(
       await repository.updateLatestPublishForEpisode(client, {
         projectId,
         episodeId: existingPublish.episodeId,
+        channelId: channel.id,
+        seriesId: series.id,
         manifest,
         createdBy: userId
       }),
       'Published episode not found.'
     );
+    await coreProjectionService.upsertPublishPublicProjections(client, {
+      publish,
+      channel,
+      series
+    });
+
+    return publish;
   });
 }
 
 export async function unpublishProject(projectId: string, request: PublishRequest, userId: string): Promise<void> {
-  await ensureProjectOwnedByUser(projectId, userId);
+  await ensureProjectPublishableByUser(projectId, userId);
   await ensureEpisodeBelongsToProject(projectId, request.episodeId);
 
   await withTransaction(async (client) => {
     await repository.lockEpisodeForPublish(client, request.episodeId);
+    const project = assertExists(await repository.getProjectById(client, projectId), 'Project not found.');
+    const channel = await repository.ensureDefaultChannelForProject(client, project, userId);
 
-    await repository.deletePublishesForEpisode(client, projectId, request.episodeId);
+    await repository.markPublishesUnpublishedForEpisode(client, projectId, request.episodeId);
+    await repository.deleteFeedItemProjectionForEpisode(client, request.episodeId);
     await repository.markEpisodeDraft(client, request.episodeId);
 
     const hasPublishedEpisodes = await repository.projectHasPublishedEpisodes(client, projectId);
     if (!hasPublishedEpisodes) {
       await repository.markProjectDraft(client, projectId);
     }
+    await coreProjectionService.rebuildChannelProjectionForChannel(client, channel.id);
   });
+}
+
+export async function rebuildPublicProjections(userId: string): Promise<RebuildPublicProjectionsResponse> {
+  await ensureStudioAdmin(userId);
+
+  return withTransaction((client) => coreProjectionService.rebuildPublicProjections(client));
 }
 
 function mapDatabaseError(error: unknown): Error {

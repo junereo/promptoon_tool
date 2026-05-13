@@ -1,19 +1,34 @@
-import { Suspense, lazy, useState } from 'react';
-import { Link, Outlet, createBrowserRouter, useNavigate } from 'react-router-dom';
+import { Suspense, useState, type ReactNode } from 'react';
+import { Link, Navigate, Outlet, createBrowserRouter, useNavigate } from 'react-router-dom';
 
 import { ProtectedRoute } from '../features/auth/components/ProtectedRoute';
 import { clearAuthSession } from '../features/auth/lib/auth-session';
 import { useAuthStore } from '../features/auth/store/use-auth-store';
-import { preloadPromptoonViewerPage } from '../features/viewer/lib/preload-viewer';
-import { LoginPage } from '../pages/LoginPage';
-import { MainFeedPage } from '../pages/MainFeedPage';
-import { PromptoonEpisodeEditorPage } from '../pages/promptoon-episode-editor-page';
-import { PromptoonProjectListPage } from '../pages/promptoon-project-list-page';
-import { RegisterPage } from '../pages/RegisterPage';
-
-const PromptoonViewerPage = lazy(() =>
-  preloadPromptoonViewerPage().then((module) => ({ default: module.PromptoonViewerPage }))
-);
+import {
+  ChannelHomePage,
+  ChannelPage,
+  CommunityDiscussionPage,
+  ConsumerHomePage,
+  ConsumerExperimentalPage,
+  ConsumerLibraryPage,
+  ConsumerMyPage,
+  FeedHomePage,
+  LoginPage,
+  MovingtoonShortViewerPage,
+  PromptoonViewerPage,
+  RegisterPage,
+  StudioAnalyticsPage,
+  StudioAssetLibraryPage,
+  StudioCommunityModerationPage,
+  StudioEpisodeEditorPage,
+  StudioProjectDashboardPage,
+  StudioProjectDetailPage,
+  StudioProjectMembersPage,
+  StudioProjectSettingsPage,
+  StudioPublishHistoryPage,
+  StudioPublishPage,
+  StudioSeriesPage
+} from './lazy-routes';
 
 function AppShell() {
   const navigate = useNavigate();
@@ -74,7 +89,9 @@ function AppShell() {
         ) : null}
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <Outlet />
+        <Suspense fallback={<div className="min-h-dvh bg-[#050506]" />}>
+          <Outlet />
+        </Suspense>
       </div>
     </div>
   );
@@ -82,43 +99,229 @@ function AppShell() {
 
 type AppRouter = ReturnType<typeof createBrowserRouter>;
 
+function RouteLoadingScreen() {
+  return <div className="min-h-dvh bg-[#050506]" />;
+}
+
+function withRouteSuspense(element: ReactNode) {
+  return <Suspense fallback={<RouteLoadingScreen />}>{element}</Suspense>;
+}
+
 export const router: AppRouter = createBrowserRouter([
   {
     path: '/v/:publishId',
+    element: withRouteSuspense(<PromptoonViewerPage />)
+  },
+  {
+    path: '/v/:publishId/:episodeNo',
+    element: withRouteSuspense(<PromptoonViewerPage />)
+  },
+  {
+    path: '/promptoon/projects/:projectId/episodes/:episodeId/test-viewer',
     element: (
-      <Suspense fallback={<div className="min-h-dvh bg-black" />}>
-        <PromptoonViewerPage />
-      </Suspense>
+      <ProtectedRoute requireStudio>
+        {withRouteSuspense(<PromptoonViewerPage />)}
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: '/studio/projects/:projectId/episodes/:episodeId/test-viewer',
+    element: (
+      <ProtectedRoute requireStudio>
+        {withRouteSuspense(<PromptoonViewerPage />)}
+      </ProtectedRoute>
     )
   },
   {
     path: '/',
-    element: <MainFeedPage />
+    element: withRouteSuspense(<ConsumerHomePage />)
+  },
+  {
+    path: '/discovery',
+    element: withRouteSuspense(<FeedHomePage />)
+  },
+  {
+    path: '/experimental',
+    element: withRouteSuspense(<ConsumerExperimentalPage />)
+  },
+  {
+    path: '/library',
+    element: withRouteSuspense(<ConsumerLibraryPage />)
+  },
+  {
+    path: '/my',
+    element: withRouteSuspense(<ConsumerMyPage />)
+  },
+  {
+    path: '/feed',
+    element: <Navigate replace to="/discovery" />
+  },
+  {
+    path: '/shorts/:publishId',
+    element: withRouteSuspense(<MovingtoonShortViewerPage />)
+  },
+  {
+    path: '/channel/:channelId',
+    element: withRouteSuspense(<ChannelPage />)
+  },
+  {
+    path: '/overview',
+    element: <Navigate replace to="/discovery" />
+  },
+  {
+    path: '/c/:channelSlug',
+    element: withRouteSuspense(<ChannelHomePage />)
+  },
+  {
+    path: '/c/:channelSlug/series',
+    element: withRouteSuspense(<ChannelHomePage />)
+  },
+  {
+    path: '/c/:channelSlug/shorts',
+    element: withRouteSuspense(<ChannelHomePage />)
+  },
+  {
+    path: '/c/:channelSlug/promptoons',
+    element: withRouteSuspense(<ChannelHomePage />)
+  },
+  {
+    path: '/c/:channelSlug/community',
+    element: withRouteSuspense(<ChannelHomePage />)
   },
   {
     path: '/login',
-    element: <LoginPage />
+    element: withRouteSuspense(<LoginPage />)
   },
   {
     path: '/register',
-    element: <RegisterPage />
+    element: withRouteSuspense(<RegisterPage />)
+  },
+  {
+    path: '/community/publishes/:publishId',
+    element: withRouteSuspense(<CommunityDiscussionPage />)
   },
   {
     path: '/promptoon',
     element: (
-      <ProtectedRoute>
+      <ProtectedRoute requireStudio>
         <AppShell />
       </ProtectedRoute>
     ),
     children: [
       {
+        index: true,
+        element: <Navigate replace to="projects" />
+      },
+      {
+        path: 'community/publishes/:publishId',
+        element: <StudioCommunityModerationPage />
+      },
+      {
         path: 'projects',
-        element: <PromptoonProjectListPage />
+        element: <StudioProjectDashboardPage />
+      },
+      {
+        path: 'projects/:projectId',
+        element: <StudioProjectDetailPage />
+      },
+      {
+        path: 'projects/:projectId/series',
+        element: <StudioSeriesPage />
+      },
+      {
+        path: 'projects/:projectId/settings',
+        element: <StudioProjectSettingsPage />
+      },
+      {
+        path: 'projects/:projectId/assets',
+        element: <StudioAssetLibraryPage />
+      },
+      {
+        path: 'projects/:projectId/history',
+        element: <StudioPublishHistoryPage />
+      },
+      {
+        path: 'projects/:projectId/members',
+        element: <StudioProjectMembersPage />
+      },
+      {
+        path: 'projects/:projectId/publish',
+        element: <StudioPublishPage />
+      },
+      {
+        path: 'projects/:projectId/analytics',
+        element: <StudioAnalyticsPage />
       },
       {
         path: 'projects/:projectId/episodes/:episodeId',
-        element: <PromptoonEpisodeEditorPage />
+        element: <StudioEpisodeEditorPage />
       }
     ]
+  },
+  {
+    path: '/studio',
+    element: (
+      <ProtectedRoute requireStudio>
+        <AppShell />
+      </ProtectedRoute>
+    ),
+    children: [
+      {
+        index: true,
+        element: <Navigate replace to="projects" />
+      },
+      {
+        path: 'community/publishes/:publishId',
+        element: <StudioCommunityModerationPage />
+      },
+      {
+        path: 'projects',
+        element: <StudioProjectDashboardPage />
+      },
+      {
+        path: 'projects/:projectId',
+        element: <StudioProjectDetailPage />
+      },
+      {
+        path: 'projects/:projectId/series',
+        element: <StudioSeriesPage />
+      },
+      {
+        path: 'projects/:projectId/settings',
+        element: <StudioProjectSettingsPage />
+      },
+      {
+        path: 'projects/:projectId/assets',
+        element: <StudioAssetLibraryPage />
+      },
+      {
+        path: 'projects/:projectId/history',
+        element: <StudioPublishHistoryPage />
+      },
+      {
+        path: 'projects/:projectId/members',
+        element: <StudioProjectMembersPage />
+      },
+      {
+        path: 'projects/:projectId/publish',
+        element: <StudioPublishPage />
+      },
+      {
+        path: 'projects/:projectId/analytics',
+        element: <StudioAnalyticsPage />
+      },
+      {
+        path: 'projects/:projectId/episodes/:episodeId',
+        element: <StudioEpisodeEditorPage />
+      },
+      {
+        path: 'episodes/:episodeId/editor',
+        element: <StudioEpisodeEditorPage />
+      }
+    ]
+  },
+  {
+    path: '*',
+    element: <Navigate replace to="/" />
   }
 ]);

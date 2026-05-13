@@ -15,6 +15,7 @@ export function EditorToolbar({
   onToggleViewMode,
   onValidate,
   publishedViewerPath,
+  testViewerPath,
   toolbarNotice,
   viewMode
 }: {
@@ -34,6 +35,7 @@ export function EditorToolbar({
   onToggleViewMode: () => void;
   onValidate: () => void;
   publishedViewerPath: string | null;
+  testViewerPath?: string | null;
   toolbarNotice: string | null;
   viewMode: 'list' | 'graph';
 }) {
@@ -162,6 +164,16 @@ export function EditorToolbar({
           <span className="rounded-full border border-editor-border bg-black/10 px-3 py-1.5 text-sm text-zinc-300">
             Publish: {publishSummary}
           </span>
+          {testViewerPath ? (
+            <a
+              className="rounded-full border border-amber-300/30 bg-amber-400/10 px-3 py-1.5 text-sm font-medium text-amber-100 transition hover:border-amber-200/50 hover:bg-amber-400/15"
+              href={testViewerPath}
+              rel="noreferrer"
+              target="_blank"
+            >
+              Test Viewer
+            </a>
+          ) : null}
           {publishedViewerPath ? (
             <a
               className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1.5 text-sm font-medium text-emerald-100 transition hover:border-emerald-300/50 hover:bg-emerald-500/15"

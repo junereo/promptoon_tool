@@ -1,14 +1,14 @@
 import type {
   Cut,
   CutContentBlock,
+  ProductPublishedCut,
   PromptoonResultCardContentBlock,
-  PromptoonResultCardTheme,
-  PublishManifest
+  PromptoonResultCardTheme
 } from '@promptoon/shared';
 
 type ResultCardRenderableCut =
   | Pick<Cut, 'id' | 'kind' | 'title'> & { contentBlocks?: CutContentBlock[] | null }
-  | Pick<PublishManifest['cuts'][number], 'id' | 'kind' | 'title'> & { contentBlocks?: CutContentBlock[] | null };
+  | Pick<ProductPublishedCut, 'id' | 'kind' | 'title'> & { contentBlocks?: CutContentBlock[] | null };
 
 interface ResultCardPreset {
   theme: PromptoonResultCardTheme;

@@ -1,4 +1,4 @@
-import type { Cut, PromptoonContentPlacement, PromptoonContentTextAlign, PublishManifest } from '@promptoon/shared';
+import type { Cut, ProductPublishedCut, PromptoonContentPlacement, PromptoonContentTextAlign } from '@promptoon/shared';
 import type { CSSProperties, ReactNode } from 'react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
@@ -15,7 +15,7 @@ import {
 
 type RenderableCut =
   | Pick<Cut, 'id' | 'body' | 'contentBlocks' | 'contentViewMode'>
-  | Pick<PublishManifest['cuts'][number], 'id' | 'body' | 'contentBlocks' | 'contentViewMode'>;
+  | Pick<ProductPublishedCut, 'id' | 'body' | 'contentBlocks' | 'contentViewMode'>;
 
 interface CutContentBlocksViewProps {
   bindings: ViewerBindings;

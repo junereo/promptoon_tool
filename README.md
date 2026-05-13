@@ -97,6 +97,10 @@ pnpm run dev:api
 pnpm --filter @promptoon/web dev
 ```
 
+```bash
+pnpm --filter @promptoon/recommendation-api dev
+```
+
 기본 주소:
 
 - `http://127.0.0.1:5173`
@@ -136,26 +140,45 @@ pnpm test
 API 테스트만:
 
 ```bash
-pnpm --filter @promptoon/api test
+pnpm run test:api
 ```
 
 API 통합 테스트는 `TEST_DATABASE_URL`이 설정된 경우에만 실행됩니다.
 
+로컬 Docker Postgres 테스트 DB를 준비한 뒤 실행합니다.
+
+```bash
+pnpm run test:api:integration:setup
+TEST_DATABASE_URL='postgresql://promptoon_test_user:promptoon_test_password@localhost:5436/promptoon_test' pnpm run test:api:integration
+```
+
 Web 테스트만:
 
 ```bash
-pnpm --filter @promptoon/web test
+pnpm run test:web
 ```
 
 ## API 개요
 
-Base path:
+Legacy base path:
 
 ```text
 /api/promptoon
 ```
 
-주요 엔드포인트:
+Product domain base paths:
+
+```text
+/api/auth
+/api/feed
+/api/channels
+/api/viewer
+/api/studio
+/api/community
+/api/telemetry
+```
+
+Legacy 주요 엔드포인트:
 
 - `GET /projects`
 - `POST /projects`
@@ -171,7 +194,34 @@ Base path:
 - `POST /episodes/:episodeId/validate`
 - `POST /projects/:projectId/publish`
 
-MVP 동안 `x-user-id` 헤더를 사용합니다. 웹 앱은 개발용 UUID를 기본 헤더로 자동 설정합니다.
+Studio projection repair:
+
+- `POST /api/studio/projections/rebuild`
+- 인증 필요
+- 기존 `promptoon_publish.id`와 manifest를 유지하면서 default channel/series를 보강하고 `promptoon_feed_item`, `promptoon_channel_home_projection`, `promptoon_episode_discussion`을 idempotent upsert로 재생성합니다.
+- 이미 발행된 에피소드를 다시 publish하지 않고 public Feed/Channel/Viewer 흐름에 노출해야 할 때 사용합니다.
+
+Public interactions:
+
+- `GET /api/feed/state?publishIds=...`
+- `POST|DELETE /api/feed/publishes/:publishId/like`
+- `POST|DELETE /api/feed/publishes/:publishId/bookmark`
+- `GET /api/channels/:channelId/subscription`
+- `POST|DELETE /api/channels/:channelId/subscribe`
+- `GET /api/viewer/publishes/:publishId/state`
+- 공개 Feed/Channel/Viewer 읽기는 인증 없이 유지하고, like/bookmark/subscribe 상태 변경은 active session이 필요합니다.
+- like/unlike는 `promptoon_feed_item.metrics_json.likes`와 channel home `likeCount` projection을 갱신합니다.
+
+Auth / role:
+
+- 인증은 JWT Bearer 토큰을 사용하며 JWT의 session id가 `promptoon_session`에 살아 있어야 합니다.
+- `POST /api/auth/logout`은 현재 session만 만료합니다.
+- Studio project 접근은 `promptoon_project_member` role 기반입니다.
+- `GET /api/studio/projects/:projectId/members`
+- `POST /api/studio/projects/:projectId/members`
+- `PATCH /api/studio/projects/:projectId/members/:userId`
+- `DELETE /api/studio/projects/:projectId/members/:userId`
+- Google OAuth는 `/api/auth/google/start`, `/api/auth/google/callback`에서 처리합니다.
 
 ## 검증된 상태
 

@@ -5,24 +5,39 @@ import type {
   AnalyticsResetScope,
   AnalyticsViewGranularity,
   AnalyticsViewPoint,
+  ChannelHome,
+  ChannelProfile,
+  ChannelSubscriptionStateResponse,
   Choice,
   ChoiceStateWrite,
+  ContentInteractionState,
   Cut,
   CutContentBlock,
   CutStateRoute,
   CutStateVariant,
   Episode,
   EpisodeDraftResponse,
+  ExitLoopEpisodeMetadata,
+  FeedItemMetrics,
+  PromptoonEpisodeMode,
+  ProjectAssetListResponse,
+  ProjectAssetSummary,
+  ProjectPublishHistoryItem,
+  ProjectPublishHistoryResponse,
   Project,
   ProjectWithEpisodes,
   Publish,
   PublishManifest,
   PatchEpisodeCutLayoutRequest,
+  ProjectMemberSummary,
+  ProjectRole,
   PromptoonBackupChoice,
   PromptoonBackupProject,
   PromptoonBackupViewerEvent,
   ReorderEpisodeCutsRequest,
-  TelemetryEventType
+  TelemetryEventPayload,
+  TelemetryEventType,
+  ViewerInteractionStateResponse
 } from '@promptoon/shared';
 import {
   DEFAULT_CONTENT_SPACING,
@@ -34,6 +49,7 @@ import {
 import { randomUUID } from 'node:crypto';
 
 import type { DbExecutor } from '../../db';
+import { buildFeedItemAccessPredicate, buildFeedItemExperimentalPredicate } from '../experimental/experimental.repository';
 
 interface ProjectRow {
   id: string;
@@ -50,6 +66,16 @@ interface ProjectWithEpisodesRow extends ProjectRow {
   episodes: Episode[];
 }
 
+interface ProjectAssetRow {
+  asset_url: string;
+  source: ProjectAssetSummary['source'];
+  episode_id: string | null;
+  episode_title: string | null;
+  cut_id: string | null;
+  cut_title: string | null;
+  updated_at: Date;
+}
+
 interface EpisodeRow {
   id: string;
   project_id: string;
@@ -57,6 +83,8 @@ interface EpisodeRow {
   episode_no: number;
   cover_image_url: string | null;
   start_cut_id: string | null;
+  mode: PromptoonEpisodeMode;
+  exit_loop_metadata: ExitLoopEpisodeMetadata | null;
   status: 'draft' | 'published';
   created_at: Date;
   updated_at: Date;
@@ -73,6 +101,7 @@ interface CutRow {
   state_variants: CutStateVariant[] | null;
   state_routes: CutStateRoute[] | null;
   state_fallback_cut_id: string | null;
+  loop_metadata: Cut['loopMetadata'] | null;
   dialog_anchor_x: Cut['dialogAnchorX'];
   dialog_anchor_y: Cut['dialogAnchorY'];
   dialog_offset_x: number;
@@ -114,10 +143,22 @@ interface PublishRow {
   project_id: string;
   episode_id: string;
   version_no: number;
-  status: 'published';
+  status: Publish['status'];
   manifest: PublishManifest;
   created_by: string;
   created_at: Date;
+}
+
+interface ProjectPublishHistoryRow {
+  publish_id: string;
+  episode_id: string;
+  episode_title: string;
+  episode_no: number;
+  version_no: number;
+  status: Publish['status'];
+  created_at: Date;
+  channel_id: string | null;
+  series_id: string | null;
 }
 
 interface ViewerEventInsertRow {
@@ -175,6 +216,103 @@ interface FeedCursorInput {
   publishId: string;
 }
 
+interface ChannelRow {
+  id: string;
+  project_id: string | null;
+  owner_user_id: string | null;
+  slug: string;
+  display_name: string;
+  handle: string | null;
+  avatar_url: string | null;
+  banner_url: string | null;
+  bio: string | null;
+  is_verified: boolean;
+  is_default: boolean;
+  visibility: string;
+  created_at: Date;
+  updated_at: Date;
+}
+
+interface SeriesRow {
+  id: string;
+  project_id: string;
+  channel_id: string | null;
+  title: string;
+  slug: string;
+  description: string | null;
+  cover_image_url: string | null;
+  status: 'draft' | 'ongoing' | 'completed' | 'paused';
+  sort_order: number;
+  created_at: Date;
+  updated_at: Date;
+}
+
+interface FeedItemProjectionRow {
+  id: string;
+  publish_id: string;
+  project_id: string;
+  channel_id: string | null;
+  series_id: string | null;
+  episode_id: string;
+  metrics_json: import('@promptoon/shared').FeedItemMetrics | null;
+  payload_json: import('@promptoon/shared').FeedItem;
+  published_at: Date;
+  is_experimental: boolean | null;
+}
+
+interface ContentInteractionStateRow {
+  publish_id: string;
+  liked: boolean;
+  bookmarked: boolean;
+  metrics_json: import('@promptoon/shared').FeedItemMetrics | null;
+}
+
+interface ViewerInteractionStateRow extends ContentInteractionStateRow {
+  channel_id: string | null;
+  subscribed_to_channel: boolean;
+}
+
+interface PublishProjectionContextRow {
+  publish_id: string;
+  project_id: string;
+  channel_id: string | null;
+  series_id: string | null;
+  episode_id: string;
+  feed_item_id: string | null;
+}
+
+interface ChannelHomeProjectionRow {
+  profile_json: ChannelHome['profile'];
+  featured_series_json: ChannelHome['featuredSeries'];
+  latest_episodes_json: ChannelHome['latestEpisodes'];
+  latest_shorts_json: ChannelHome['latestShorts'];
+  community_meta_json: ChannelHome['communityMeta'] | null;
+}
+
+interface CommentsMetaRow {
+  publish_id: string | null;
+  comment_count: number;
+  latest_comment_at: Date | null;
+  discussion_url: string | null;
+}
+
+interface RelatedShortRow {
+  id: string;
+  title: string;
+  thumbnail_url: string | null;
+  duration_sec: number;
+  publish_id: string | null;
+  channel_slug: string | null;
+}
+
+interface ProjectMemberRow {
+  project_id: string;
+  user_id: string;
+  login_id: string;
+  role: ProjectRole;
+  created_at: Date;
+}
+
 function toIsoString(value: Date): string {
   return value.toISOString();
 }
@@ -200,6 +338,8 @@ function mapEpisode(row: EpisodeRow): Episode {
     episodeNo: row.episode_no,
     coverImageUrl: row.cover_image_url,
     startCutId: row.start_cut_id,
+    mode: row.mode,
+    exitLoopMetadata: row.exit_loop_metadata,
     status: row.status,
     createdAt: toIsoString(row.created_at),
     updatedAt: toIsoString(row.updated_at)
@@ -232,6 +372,7 @@ function mapCut(row: CutRow): Cut {
     stateVariants: Array.isArray(row.state_variants) ? row.state_variants : [],
     stateRoutes: Array.isArray(row.state_routes) ? row.state_routes : [],
     stateFallbackCutId: row.state_fallback_cut_id,
+    loopMetadata: row.loop_metadata ?? null,
     positionX: row.position_x,
     positionY: row.position_y,
     orderIndex: row.order_index,
@@ -276,6 +417,43 @@ function mapPublish(row: PublishRow): Publish {
   };
 }
 
+function mapChannelProfile(row: ChannelRow, counts?: Partial<ChannelProfile>): ChannelProfile {
+  return {
+    id: row.id,
+    slug: row.slug,
+    displayName: row.display_name,
+    handle: row.handle,
+    avatarUrl: row.avatar_url,
+    bannerUrl: row.banner_url,
+    bio: row.bio,
+    isVerified: row.is_verified,
+    subscriberCount: counts?.subscriberCount ?? 0,
+    likeCount: counts?.likeCount ?? 0,
+    seriesCount: counts?.seriesCount ?? 0,
+    episodeCount: counts?.episodeCount ?? 0,
+    shortCount: counts?.shortCount ?? 0
+  };
+}
+
+function normalizeFeedMetrics(metrics: Partial<FeedItemMetrics> | null | undefined): FeedItemMetrics {
+  return {
+    views: Number(metrics?.views ?? 0),
+    likes: Number(metrics?.likes ?? 0),
+    comments: Number(metrics?.comments ?? 0),
+    shares: Number(metrics?.shares ?? 0)
+  };
+}
+
+function mapProjectMember(row: ProjectMemberRow): ProjectMemberSummary {
+  return {
+    projectId: row.project_id,
+    userId: row.user_id,
+    loginId: row.login_id,
+    role: row.role,
+    createdAt: toIsoString(row.created_at)
+  };
+}
+
 function mapViewerEvent(row: ViewerEventRow): PromptoonBackupViewerEvent {
   return {
     id: row.id,
@@ -296,12 +474,18 @@ export async function listProjects(db: DbExecutor): Promise<Project[]> {
   return result.rows.map(mapProject);
 }
 
-export async function listProjectsWithEpisodes(db: DbExecutor, ownerId?: string): Promise<ProjectWithEpisodes[]> {
+export async function listProjectsWithEpisodes(db: DbExecutor, userId?: string): Promise<ProjectWithEpisodes[]> {
   const values: unknown[] = [];
-  const ownerFilter = ownerId
+  const accessFilter = userId
     ? (() => {
-        values.push(ownerId);
-        return `WHERE project.created_by = $${values.length}`;
+        values.push(userId);
+        return `WHERE project.created_by = $${values.length}
+           OR EXISTS (
+             SELECT 1
+             FROM promptoon_project_member AS member
+             WHERE member.project_id = project.id
+               AND member.user_id = $${values.length}
+           )`;
       })()
     : '';
   const result = await db.query<ProjectWithEpisodesRow>(
@@ -323,6 +507,8 @@ export async function listProjectsWithEpisodes(db: DbExecutor, ownerId?: string)
              'episodeNo', episode.episode_no,
              'coverImageUrl', episode.cover_image_url,
              'startCutId', episode.start_cut_id,
+             'mode', episode.mode,
+             'exitLoopMetadata', episode.exit_loop_metadata,
              'status', episode.status,
              'createdAt', episode.created_at,
              'updatedAt', episode.updated_at
@@ -334,7 +520,7 @@ export async function listProjectsWithEpisodes(db: DbExecutor, ownerId?: string)
      FROM promptoon_project AS project
      LEFT JOIN promptoon_episode AS episode
        ON episode.project_id = project.id
-     ${ownerFilter}
+     ${accessFilter}
      GROUP BY project.id
      ORDER BY project.updated_at DESC`
     ,
@@ -451,9 +637,125 @@ export async function createProject(
   return mapProject(result.rows[0]);
 }
 
+export async function updateProject(
+  db: DbExecutor,
+  projectId: string,
+  patch: { title?: string; description?: string | null; thumbnailUrl?: string | null }
+): Promise<Project | null> {
+  const existing = await getProjectById(db, projectId);
+  if (!existing) {
+    return null;
+  }
+
+  const result = await db.query<ProjectRow>(
+    `UPDATE promptoon_project
+     SET title = $2,
+         description = $3,
+         thumbnail_url = $4,
+         updated_at = now()
+     WHERE id = $1
+     RETURNING *`,
+    [
+      projectId,
+      Object.prototype.hasOwnProperty.call(patch, 'title') ? patch.title : existing.title,
+      Object.prototype.hasOwnProperty.call(patch, 'description') ? patch.description ?? null : existing.description,
+      Object.prototype.hasOwnProperty.call(patch, 'thumbnailUrl') ? patch.thumbnailUrl ?? null : existing.thumbnailUrl
+    ]
+  );
+
+  return result.rows[0] ? mapProject(result.rows[0]) : null;
+}
+
 export async function getProjectById(db: DbExecutor, projectId: string): Promise<Project | null> {
   const result = await db.query<ProjectRow>('SELECT * FROM promptoon_project WHERE id = $1', [projectId]);
   return result.rows[0] ? mapProject(result.rows[0]) : null;
+}
+
+export async function listProjectAssets(db: DbExecutor, projectId: string): Promise<ProjectAssetListResponse> {
+  const result = await db.query<ProjectAssetRow>(
+    `SELECT project.thumbnail_url AS asset_url,
+            'project_thumbnail' AS source,
+            NULL::uuid AS episode_id,
+            NULL::text AS episode_title,
+            NULL::uuid AS cut_id,
+            NULL::text AS cut_title,
+            project.updated_at
+       FROM promptoon_project AS project
+      WHERE project.id = $1
+        AND project.thumbnail_url IS NOT NULL
+     UNION ALL
+     SELECT episode.cover_image_url AS asset_url,
+            'episode_cover' AS source,
+            episode.id AS episode_id,
+            episode.title AS episode_title,
+            NULL::uuid AS cut_id,
+            NULL::text AS cut_title,
+            episode.updated_at
+       FROM promptoon_episode AS episode
+      WHERE episode.project_id = $1
+        AND episode.cover_image_url IS NOT NULL
+     UNION ALL
+     SELECT cut.asset_url AS asset_url,
+            'cut_asset' AS source,
+            episode.id AS episode_id,
+            episode.title AS episode_title,
+            cut.id AS cut_id,
+            cut.title AS cut_title,
+            cut.updated_at
+       FROM promptoon_cut AS cut
+       INNER JOIN promptoon_episode AS episode ON episode.id = cut.episode_id
+      WHERE episode.project_id = $1
+        AND cut.asset_url IS NOT NULL
+      ORDER BY updated_at DESC`,
+    [projectId]
+  );
+
+  return {
+    projectId,
+    assets: result.rows.map((row) => ({
+      assetUrl: row.asset_url,
+      source: row.source,
+      episodeId: row.episode_id,
+      episodeTitle: row.episode_title,
+      cutId: row.cut_id,
+      cutTitle: row.cut_title,
+      updatedAt: toIsoString(row.updated_at)
+    }))
+  };
+}
+
+export async function listProjectPublishHistory(db: DbExecutor, projectId: string): Promise<ProjectPublishHistoryResponse> {
+  const result = await db.query<ProjectPublishHistoryRow>(
+    `SELECT publish.id::text AS publish_id,
+            publish.episode_id::text AS episode_id,
+            episode.title AS episode_title,
+            episode.episode_no,
+            publish.version_no,
+            publish.status,
+            publish.created_at,
+            publish.channel_id::text AS channel_id,
+            publish.series_id::text AS series_id
+       FROM promptoon_publish AS publish
+       INNER JOIN promptoon_episode AS episode ON episode.id = publish.episode_id
+      WHERE publish.project_id = $1
+      ORDER BY publish.created_at DESC, publish.version_no DESC`,
+    [projectId]
+  );
+
+  return {
+    projectId,
+    publishes: result.rows.map((row): ProjectPublishHistoryItem => ({
+      publishId: row.publish_id,
+      episodeId: row.episode_id,
+      episodeTitle: row.episode_title,
+      episodeNo: row.episode_no,
+      versionNo: row.version_no,
+      status: row.status,
+      createdAt: toIsoString(row.created_at),
+      channelId: row.channel_id,
+      seriesId: row.series_id
+    }))
+  };
 }
 
 export async function getProjectOwnerId(db: DbExecutor, projectId: string): Promise<string | null> {
@@ -461,15 +763,87 @@ export async function getProjectOwnerId(db: DbExecutor, projectId: string): Prom
   return result.rows[0]?.created_by ?? null;
 }
 
+export async function getStudioMemberRole(db: DbExecutor, userId: string): Promise<import('@promptoon/shared').StudioRole | null> {
+  const result = await db.query<{ role: import('@promptoon/shared').StudioRole }>(
+    'SELECT role FROM promptoon_studio_member WHERE user_id = $1',
+    [userId]
+  );
+
+  return result.rows[0]?.role ?? null;
+}
+
+export async function getProjectMemberRole(db: DbExecutor, input: { projectId: string; userId: string }): Promise<ProjectRole | null> {
+  const result = await db.query<{ role: ProjectRole }>(
+    'SELECT role FROM promptoon_project_member WHERE project_id = $1 AND user_id = $2',
+    [input.projectId, input.userId]
+  );
+
+  return result.rows[0]?.role ?? null;
+}
+
+export async function listProjectMembers(db: DbExecutor, projectId: string): Promise<ProjectMemberSummary[]> {
+  const result = await db.query<ProjectMemberRow>(
+    `SELECT
+       member.project_id,
+       member.user_id,
+       users.login_id,
+       member.role,
+       member.created_at
+     FROM promptoon_project_member AS member
+     INNER JOIN users ON users.id = member.user_id
+     WHERE member.project_id = $1
+     ORDER BY
+       CASE member.role
+         WHEN 'owner' THEN 0
+         WHEN 'producer' THEN 1
+         WHEN 'writer' THEN 2
+         ELSE 3
+       END,
+       users.login_id ASC`,
+    [projectId]
+  );
+
+  return result.rows.map(mapProjectMember);
+}
+
+export async function getUserIdByLoginId(db: DbExecutor, loginId: string): Promise<string | null> {
+  const result = await db.query<{ id: string }>('SELECT id FROM users WHERE login_id = $1', [loginId]);
+  return result.rows[0]?.id ?? null;
+}
+
+export async function deleteProjectMember(db: DbExecutor, input: { projectId: string; userId: string }): Promise<boolean> {
+  const result = await db.query('DELETE FROM promptoon_project_member WHERE project_id = $1 AND user_id = $2', [
+    input.projectId,
+    input.userId
+  ]);
+
+  return (result.rowCount ?? 0) > 0;
+}
+
 export async function createEpisode(
   db: DbExecutor,
-  input: { projectId: string; title: string; episodeNo: number; coverImageUrl?: string | null }
+  input: {
+    projectId: string;
+    title: string;
+    episodeNo: number;
+    coverImageUrl?: string | null;
+    mode?: PromptoonEpisodeMode;
+    exitLoopMetadata?: ExitLoopEpisodeMetadata | null;
+  }
 ): Promise<Episode> {
   const result = await db.query<EpisodeRow>(
-    `INSERT INTO promptoon_episode (id, project_id, title, episode_no, cover_image_url)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO promptoon_episode (id, project_id, title, episode_no, cover_image_url, mode, exit_loop_metadata)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      RETURNING *`,
-    [randomUUID(), input.projectId, input.title, input.episodeNo, input.coverImageUrl ?? null]
+    [
+      randomUUID(),
+      input.projectId,
+      input.title,
+      input.episodeNo,
+      input.coverImageUrl ?? null,
+      input.mode ?? 'standard',
+      input.exitLoopMetadata ? JSON.stringify(input.exitLoopMetadata) : null
+    ]
   );
 
   return mapEpisode(result.rows[0]);
@@ -486,6 +860,8 @@ export async function updateEpisode(
   patch: Partial<{
     title: string;
     coverImageUrl: string | null;
+    mode: PromptoonEpisodeMode;
+    exitLoopMetadata: ExitLoopEpisodeMetadata | null;
   }>
 ): Promise<Episode | null> {
   const existing = await getEpisodeById(db, episodeId);
@@ -496,14 +872,25 @@ export async function updateEpisode(
   const nextCoverImageUrl = Object.prototype.hasOwnProperty.call(patch, 'coverImageUrl')
     ? patch.coverImageUrl ?? null
     : existing.coverImageUrl;
+  const nextExitLoopMetadata = Object.prototype.hasOwnProperty.call(patch, 'exitLoopMetadata')
+    ? patch.exitLoopMetadata ?? null
+    : existing.exitLoopMetadata;
   const result = await db.query<EpisodeRow>(
     `UPDATE promptoon_episode
      SET title = $1,
          cover_image_url = $2,
+         mode = $3,
+         exit_loop_metadata = $4,
          updated_at = NOW()
-     WHERE id = $3
+     WHERE id = $5
      RETURNING *`,
-    [patch.title ?? existing.title, nextCoverImageUrl, episodeId]
+    [
+      patch.title ?? existing.title,
+      nextCoverImageUrl,
+      patch.mode ?? existing.mode,
+      nextExitLoopMetadata ? JSON.stringify(nextExitLoopMetadata) : null,
+      episodeId
+    ]
   );
 
   return result.rows[0] ? mapEpisode(result.rows[0]) : null;
@@ -519,6 +906,11 @@ export async function getEpisodeOwnerId(db: DbExecutor, episodeId: string): Prom
   );
 
   return result.rows[0]?.created_by ?? null;
+}
+
+export async function getEpisodeProjectId(db: DbExecutor, episodeId: string): Promise<string | null> {
+  const result = await db.query<{ project_id: string }>('SELECT project_id FROM promptoon_episode WHERE id = $1', [episodeId]);
+  return result.rows[0]?.project_id ?? null;
 }
 
 export async function getEpisodeDraft(db: DbExecutor, episodeId: string): Promise<EpisodeDraftResponse | null> {
@@ -567,6 +959,18 @@ export async function getCutOwnerId(db: DbExecutor, cutId: string): Promise<stri
   return result.rows[0]?.created_by ?? null;
 }
 
+export async function getCutProjectId(db: DbExecutor, cutId: string): Promise<string | null> {
+  const result = await db.query<{ project_id: string }>(
+    `SELECT episode.project_id
+     FROM promptoon_cut AS cut
+     INNER JOIN promptoon_episode AS episode ON episode.id = cut.episode_id
+     WHERE cut.id = $1`,
+    [cutId]
+  );
+
+  return result.rows[0]?.project_id ?? null;
+}
+
 export async function getChoiceById(db: DbExecutor, choiceId: string): Promise<Choice | null> {
   const result = await db.query<ChoiceRow>('SELECT * FROM promptoon_choice WHERE id = $1', [choiceId]);
   return result.rows[0] ? mapChoice(result.rows[0]) : null;
@@ -591,6 +995,19 @@ export async function getChoiceOwnerId(db: DbExecutor, choiceId: string): Promis
   return result.rows[0]?.created_by ?? null;
 }
 
+export async function getChoiceProjectId(db: DbExecutor, choiceId: string): Promise<string | null> {
+  const result = await db.query<{ project_id: string }>(
+    `SELECT episode.project_id
+     FROM promptoon_choice AS choice
+     INNER JOIN promptoon_cut AS cut ON cut.id = choice.cut_id
+     INNER JOIN promptoon_episode AS episode ON episode.id = cut.episode_id
+     WHERE choice.id = $1`,
+    [choiceId]
+  );
+
+  return result.rows[0]?.project_id ?? null;
+}
+
 export async function createCut(
   db: DbExecutor,
   input: {
@@ -603,6 +1020,7 @@ export async function createCut(
     stateVariants?: CutStateVariant[];
     stateRoutes?: CutStateRoute[];
     stateFallbackCutId?: string | null;
+    loopMetadata?: Cut['loopMetadata'] | null;
     dialogAnchorX?: Cut['dialogAnchorX'];
     dialogAnchorY?: Cut['dialogAnchorY'];
     dialogOffsetX?: number;
@@ -634,9 +1052,9 @@ export async function createCut(
 
   const result = await db.query<CutRow>(
     `INSERT INTO promptoon_cut (
-      id, episode_id, kind, title, body, content_blocks, content_view_mode, state_variants, state_routes, state_fallback_cut_id, dialog_anchor_x, dialog_anchor_y, dialog_offset_x, dialog_offset_y, dialog_text_align,
+      id, episode_id, kind, title, body, content_blocks, content_view_mode, state_variants, state_routes, state_fallback_cut_id, loop_metadata, dialog_anchor_x, dialog_anchor_y, dialog_offset_x, dialog_offset_y, dialog_text_align,
       start_effect, end_effect, start_effect_duration_ms, end_effect_duration_ms, asset_url, edge_fade, edge_fade_intensity, edge_fade_color, margin_bottom_token, position_x, position_y, order_index, is_start, is_ending
-     ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8::jsonb, $9::jsonb, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
+     ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8::jsonb, $9::jsonb, $10, $11::jsonb, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30)
      RETURNING *`,
     [
       randomUUID(),
@@ -649,6 +1067,7 @@ export async function createCut(
       JSON.stringify(input.stateVariants ?? []),
       JSON.stringify(input.stateRoutes ?? []),
       input.stateFallbackCutId ?? null,
+      input.loopMetadata ? JSON.stringify(input.loopMetadata) : null,
       input.dialogAnchorX ?? 'left',
       input.dialogAnchorY ?? 'bottom',
       input.dialogOffsetX ?? 0,
@@ -695,6 +1114,7 @@ export async function updateCut(
     stateVariants: CutStateVariant[];
     stateRoutes: CutStateRoute[];
     stateFallbackCutId: string | null;
+    loopMetadata: Cut['loopMetadata'] | null;
     dialogAnchorX: Cut['dialogAnchorX'];
     dialogAnchorY: Cut['dialogAnchorY'];
     dialogOffsetX: number;
@@ -725,6 +1145,9 @@ export async function updateCut(
   const nextStateFallbackCutId = Object.prototype.hasOwnProperty.call(patch, 'stateFallbackCutId')
     ? patch.stateFallbackCutId ?? null
     : existing.stateFallbackCutId ?? null;
+  const nextLoopMetadata = Object.prototype.hasOwnProperty.call(patch, 'loopMetadata')
+    ? patch.loopMetadata ?? null
+    : existing.loopMetadata ?? null;
   const nextIsEnding =
     patch.isEnding !== undefined
       ? patch.isEnding
@@ -741,27 +1164,28 @@ export async function updateCut(
          state_variants = $6::jsonb,
          state_routes = $7::jsonb,
          state_fallback_cut_id = $8,
-         dialog_anchor_x = $9,
-         dialog_anchor_y = $10,
-         dialog_offset_x = $11,
-         dialog_offset_y = $12,
-         dialog_text_align = $13,
-         start_effect = $14,
-         end_effect = $15,
-         start_effect_duration_ms = $16,
-         end_effect_duration_ms = $17,
-         asset_url = $18,
-         edge_fade = $19,
-         edge_fade_intensity = $20,
-         edge_fade_color = $21,
-         margin_bottom_token = $22,
-         position_x = $23,
-         position_y = $24,
-         order_index = $25,
-         is_start = $26,
-         is_ending = $27,
+         loop_metadata = $9::jsonb,
+         dialog_anchor_x = $10,
+         dialog_anchor_y = $11,
+         dialog_offset_x = $12,
+         dialog_offset_y = $13,
+         dialog_text_align = $14,
+         start_effect = $15,
+         end_effect = $16,
+         start_effect_duration_ms = $17,
+         end_effect_duration_ms = $18,
+         asset_url = $19,
+         edge_fade = $20,
+         edge_fade_intensity = $21,
+         edge_fade_color = $22,
+         margin_bottom_token = $23,
+         position_x = $24,
+         position_y = $25,
+         order_index = $26,
+         is_start = $27,
+         is_ending = $28,
          updated_at = NOW()
-     WHERE id = $28
+     WHERE id = $29
      RETURNING *`,
     [
       patch.kind ?? existing.kind,
@@ -772,6 +1196,7 @@ export async function updateCut(
       JSON.stringify(patch.stateVariants ?? existing.stateVariants),
       JSON.stringify(patch.stateRoutes ?? existing.stateRoutes),
       nextStateFallbackCutId,
+      nextLoopMetadata ? JSON.stringify(nextLoopMetadata) : null,
       patch.dialogAnchorX ?? existing.dialogAnchorX,
       patch.dialogAnchorY ?? existing.dialogAnchorY,
       patch.dialogOffsetX ?? existing.dialogOffsetX,
@@ -824,6 +1249,114 @@ export async function deleteCut(db: DbExecutor, cutId: string): Promise<boolean>
     [cut.episodeId, cutId]
   );
   return true;
+}
+
+export async function listLoopStateSettingCuts(db: DbExecutor, episodeId: string, groupId: string): Promise<Cut[]> {
+  const result = await db.query<CutRow>(
+    `SELECT *
+     FROM promptoon_cut
+     WHERE episode_id = $1
+       AND loop_metadata->>'kind' = 'exitLoop'
+       AND loop_metadata->>'groupId' = $2
+     ORDER BY order_index ASC, created_at ASC`,
+    [episodeId, groupId]
+  );
+
+  return result.rows.map(mapCut);
+}
+
+export async function deleteChoicesTargetingCuts(
+  db: DbExecutor,
+  input: {
+    episodeId: string;
+    cutIds: string[];
+  }
+): Promise<number> {
+  if (input.cutIds.length === 0) {
+    return 0;
+  }
+
+  const result = await db.query(
+    `DELETE FROM promptoon_choice AS choice
+     USING promptoon_cut AS source_cut
+     WHERE choice.cut_id = source_cut.id
+       AND source_cut.episode_id = $2
+       AND choice.next_cut_id::text = ANY($1::text[])
+       AND choice.cut_id::text <> ALL($1::text[])`,
+    [input.cutIds, input.episodeId]
+  );
+
+  return result.rowCount ?? 0;
+}
+
+export async function removeStateVariantsTargetingCuts(
+  db: DbExecutor,
+  input: {
+    episodeId: string;
+    cutIds: string[];
+  }
+): Promise<void> {
+  if (input.cutIds.length === 0) {
+    return;
+  }
+
+  await db.query(
+    `UPDATE promptoon_cut
+     SET state_variants = COALESCE(
+           (
+             SELECT jsonb_agg(state_variant.value)
+             FROM jsonb_array_elements(COALESCE(state_variants, '[]'::jsonb)) AS state_variant(value)
+             WHERE COALESCE(state_variant.value->>'variantCutId', '') <> ALL($1::text[])
+           ),
+           '[]'::jsonb
+         ),
+         updated_at = NOW()
+     WHERE episode_id = $2`,
+    [input.cutIds, input.episodeId]
+  );
+}
+
+export async function removeStateRoutesTargetingCuts(
+  db: DbExecutor,
+  input: {
+    episodeId: string;
+    cutIds: string[];
+  }
+): Promise<void> {
+  if (input.cutIds.length === 0) {
+    return;
+  }
+
+  await db.query(
+    `UPDATE promptoon_cut
+     SET state_routes = COALESCE(
+           (
+             SELECT jsonb_agg(state_route.value)
+             FROM jsonb_array_elements(COALESCE(state_routes, '[]'::jsonb)) AS state_route(value)
+             WHERE COALESCE(state_route.value->>'nextCutId', '') <> ALL($1::text[])
+           ),
+           '[]'::jsonb
+         ),
+         state_fallback_cut_id = CASE
+           WHEN state_fallback_cut_id::text = ANY($1::text[]) THEN NULL
+           ELSE state_fallback_cut_id
+         END,
+         updated_at = NOW()
+     WHERE episode_id = $2`,
+    [input.cutIds, input.episodeId]
+  );
+}
+
+export async function deleteLoopStateSettingCuts(db: DbExecutor, episodeId: string, groupId: string): Promise<number> {
+  const result = await db.query(
+    `DELETE FROM promptoon_cut
+     WHERE episode_id = $1
+       AND loop_metadata->>'kind' = 'exitLoop'
+       AND loop_metadata->>'groupId' = $2`,
+    [episodeId, groupId]
+  );
+
+  return result.rowCount ?? 0;
 }
 
 export async function reconnectChoicesTargetingCut(
@@ -1061,6 +1594,7 @@ export async function getLatestPublishByEpisodeId(db: DbExecutor, episodeId: str
     `SELECT *
        FROM promptoon_publish
       WHERE episode_id = $1
+        AND status = 'published'
       ORDER BY version_no DESC, created_at DESC
       LIMIT 1`,
     [episodeId]
@@ -1095,6 +1629,7 @@ export async function listLatestPublishesForFeed(
            ORDER BY publish.version_no DESC, publish.created_at DESC, publish.id DESC
          ) AS publish_rank
        FROM promptoon_publish AS publish
+       WHERE publish.status = 'published'
      )
      SELECT
        id,
@@ -1116,6 +1651,775 @@ export async function listLatestPublishesForFeed(
   return result.rows.map(mapPublish);
 }
 
+export async function listLatestPublishesForProjectionRebuild(db: DbExecutor): Promise<Publish[]> {
+  const result = await db.query<PublishRow>(
+    `WITH ranked_publishes AS (
+       SELECT
+         publish.*,
+         ROW_NUMBER() OVER (
+           PARTITION BY publish.episode_id
+           ORDER BY publish.version_no DESC, publish.created_at DESC, publish.id DESC
+         ) AS publish_rank
+       FROM promptoon_publish AS publish
+       WHERE publish.status = 'published'
+     )
+     SELECT
+       id,
+       project_id,
+       episode_id,
+       version_no,
+       status,
+       manifest,
+       created_by,
+       created_at
+     FROM ranked_publishes
+     WHERE publish_rank = 1
+     ORDER BY created_at DESC, id DESC`
+  );
+
+  return result.rows.map(mapPublish);
+}
+
+function slugify(value: string, fallbackId: string): string {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9가-힣]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48);
+
+  return `${normalized || 'channel'}-${fallbackId.slice(0, 8)}`;
+}
+
+interface ChannelOwnerRow {
+  id: string;
+  login_id: string;
+  display_name: string | null;
+}
+
+function getChannelOwnerDisplayName(owner: ChannelOwnerRow): string {
+  return owner.display_name?.trim() || 'Promptoon Creator';
+}
+
+export async function ensureDefaultChannelForProject(db: DbExecutor, project: Project, ownerUserId: string): Promise<ChannelRow> {
+  const channelOwnerId = project.createdBy || ownerUserId;
+  const existing = await db.query<ChannelRow>(
+    `SELECT *
+     FROM promptoon_channel
+     WHERE owner_user_id = $1 AND is_default = TRUE
+     ORDER BY created_at ASC
+     LIMIT 1`,
+    [channelOwnerId]
+  );
+  if (existing.rows[0]) {
+    return existing.rows[0];
+  }
+
+  const ownerResult = await db.query<ChannelOwnerRow>(
+    'SELECT id, login_id, display_name FROM users WHERE id = $1',
+    [channelOwnerId]
+  );
+  const owner = ownerResult.rows[0];
+  const displayName = owner ? getChannelOwnerDisplayName(owner) : project.title;
+  const slug = slugify(displayName, channelOwnerId);
+  const result = await db.query<ChannelRow>(
+    `INSERT INTO promptoon_channel (project_id, owner_user_id, slug, display_name, handle, avatar_url, bio, is_default)
+     VALUES (NULL, $1, $2, $3, $4, $5, NULL, TRUE)
+     ON CONFLICT (slug) DO UPDATE
+       SET project_id = NULL,
+           owner_user_id = EXCLUDED.owner_user_id,
+           display_name = EXCLUDED.display_name,
+           handle = EXCLUDED.handle,
+           avatar_url = COALESCE(promptoon_channel.avatar_url, EXCLUDED.avatar_url),
+           is_default = TRUE,
+           updated_at = NOW()
+     RETURNING *`,
+    [channelOwnerId, slug, displayName, `@${slug}`, null]
+  );
+
+  return result.rows[0];
+}
+
+export async function ensureDefaultSeriesForProject(
+  db: DbExecutor,
+  input: {
+    project: Project;
+    channelId: string;
+  }
+): Promise<SeriesRow> {
+  const existing = await db.query<SeriesRow>('SELECT * FROM promptoon_series WHERE project_id = $1 ORDER BY sort_order, created_at LIMIT 1', [
+    input.project.id
+  ]);
+  if (existing.rows[0]) {
+    if (existing.rows[0].channel_id !== input.channelId) {
+      const updated = await db.query<SeriesRow>(
+        `UPDATE promptoon_series
+         SET channel_id = $2,
+             updated_at = NOW()
+         WHERE id = $1
+         RETURNING *`,
+        [existing.rows[0].id, input.channelId]
+      );
+      return updated.rows[0];
+    }
+
+    return existing.rows[0];
+  }
+
+  const result = await db.query<SeriesRow>(
+    `INSERT INTO promptoon_series (project_id, channel_id, title, slug, description, cover_image_url, status)
+     VALUES ($1, $2, $3, $4, $5, $6, 'ongoing')
+     ON CONFLICT (project_id, slug) DO UPDATE
+       SET updated_at = NOW()
+     RETURNING *`,
+    [
+      input.project.id,
+      input.channelId,
+      input.project.title,
+      slugify(input.project.title, input.project.id),
+      input.project.description,
+      input.project.thumbnailUrl
+    ]
+  );
+
+  return result.rows[0];
+}
+
+export async function upsertProjectMember(
+  db: DbExecutor,
+  input: {
+    projectId: string;
+    userId: string;
+    role: ProjectRole;
+  }
+): Promise<void> {
+  await db.query(
+    `INSERT INTO promptoon_project_member (project_id, user_id, role)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (project_id, user_id) DO UPDATE
+       SET role = EXCLUDED.role`,
+    [input.projectId, input.userId, input.role]
+  );
+}
+
+export async function upsertFeedItemProjection(
+  db: DbExecutor,
+  input: {
+    publish: Publish;
+    feedItem: import('@promptoon/shared').FeedItem;
+    channel: ChannelRow;
+    series: SeriesRow;
+  }
+): Promise<void> {
+  await db.query(
+    `INSERT INTO promptoon_feed_item (
+       publish_id,
+       project_id,
+       channel_id,
+       series_id,
+       episode_id,
+       item_type,
+       title,
+       description,
+       cover_image_url,
+       start_cut_snapshot_json,
+       choice_count,
+       entry_json,
+       payload_json,
+       published_at
+     )
+     VALUES ($1, $2, $3, $4, $5, 'promptoon', $6, $7, $8, $9, $10, $11, $12, $13)
+     ON CONFLICT (episode_id) DO UPDATE
+       SET publish_id = EXCLUDED.publish_id,
+           project_id = EXCLUDED.project_id,
+           channel_id = EXCLUDED.channel_id,
+           series_id = EXCLUDED.series_id,
+           item_type = EXCLUDED.item_type,
+           title = EXCLUDED.title,
+           description = EXCLUDED.description,
+           cover_image_url = EXCLUDED.cover_image_url,
+           start_cut_snapshot_json = EXCLUDED.start_cut_snapshot_json,
+           choice_count = EXCLUDED.choice_count,
+           entry_json = EXCLUDED.entry_json,
+           payload_json = EXCLUDED.payload_json,
+           published_at = EXCLUDED.published_at,
+           updated_at = NOW()`,
+    [
+      input.publish.id,
+      input.publish.projectId,
+      input.channel.id,
+      input.series.id,
+      input.publish.episodeId,
+      input.feedItem.episodeTitle,
+      input.feedItem.projectTitle,
+      input.feedItem.coverImageUrl,
+      JSON.stringify(input.feedItem.startCut),
+      input.feedItem.startChoices.length,
+      JSON.stringify({ kind: 'viewer', href: `/v/${input.publish.id}` }),
+      JSON.stringify(input.feedItem),
+      input.publish.createdAt
+    ]
+  );
+}
+
+export async function deleteFeedItemProjectionForEpisode(db: DbExecutor, episodeId: string): Promise<void> {
+  await db.query('DELETE FROM promptoon_feed_item WHERE episode_id = $1', [episodeId]);
+}
+
+export async function listFeedItemProjections(
+  db: DbExecutor,
+  input: {
+    cursor?: FeedCursorInput;
+    limit: number;
+    userId?: string;
+  }
+): Promise<Array<{ id: string; publishedAt: string; item: import('@promptoon/shared').FeedItem }>> {
+  const values: unknown[] = [];
+  const whereClauses: string[] = [];
+  if (input.cursor) {
+    values.push(input.cursor.createdAt, input.cursor.publishId);
+    whereClauses.push(`(published_at, id) < ($${values.length - 1}::timestamptz, $${values.length}::uuid)`);
+  }
+  const accessUserParam = input.userId ? `$${values.push(input.userId)}` : undefined;
+  whereClauses.push(buildFeedItemAccessPredicate('promptoon_feed_item', accessUserParam));
+  const whereClause = `WHERE ${whereClauses.join(' AND ')}`;
+
+  values.push(input.limit);
+
+  const result = await db.query<FeedItemProjectionRow>(
+    `SELECT id, publish_id, project_id, channel_id, series_id, episode_id, metrics_json, payload_json, published_at,
+       ${buildFeedItemExperimentalPredicate('promptoon_feed_item', accessUserParam)} AS is_experimental
+     FROM promptoon_feed_item
+     ${whereClause}
+     ORDER BY published_at DESC, id DESC
+     LIMIT $${values.length}`,
+    values
+  );
+
+  return result.rows.map((row) => ({
+    id: row.id,
+    publishedAt: toIsoString(row.published_at),
+    item: {
+      ...row.payload_json,
+      metrics: normalizeFeedMetrics(row.metrics_json ?? row.payload_json.metrics),
+      ...(row.is_experimental ? { isExperimental: true } : {})
+    }
+  }));
+}
+
+export async function getPublishProjectionContext(db: DbExecutor, publishId: string): Promise<PublishProjectionContextRow | null> {
+  const result = await db.query<PublishProjectionContextRow>(
+    `SELECT
+       publish.id AS publish_id,
+       publish.project_id,
+       publish.channel_id,
+       publish.series_id,
+       publish.episode_id,
+       item.id AS feed_item_id
+     FROM promptoon_publish AS publish
+     LEFT JOIN promptoon_feed_item AS item ON item.publish_id = publish.id
+     WHERE publish.id = $1`,
+    [publishId]
+  );
+
+  return result.rows[0] ?? null;
+}
+
+export async function listContentInteractionStates(
+  db: DbExecutor,
+  input: {
+    publishIds: string[];
+    userId: string;
+  }
+): Promise<ContentInteractionState[]> {
+  if (input.publishIds.length === 0) {
+    return [];
+  }
+
+  const result = await db.query<ContentInteractionStateRow>(
+    `WITH requested AS (
+       SELECT unnest($1::uuid[]) AS publish_id
+     )
+     SELECT
+       requested.publish_id::text AS publish_id,
+       EXISTS (
+         SELECT 1
+         FROM promptoon_user_like AS user_like
+         WHERE user_like.user_id = $2
+           AND user_like.publish_id = requested.publish_id
+       ) AS liked,
+       EXISTS (
+         SELECT 1
+         FROM promptoon_user_bookmark AS bookmark
+         WHERE bookmark.user_id = $2
+           AND bookmark.publish_id = requested.publish_id
+       ) AS bookmarked,
+       COALESCE(item.metrics_json, item.payload_json->'metrics', '{"views":0,"likes":0,"comments":0,"shares":0}'::jsonb) AS metrics_json
+     FROM requested
+     JOIN promptoon_publish AS publish ON publish.id = requested.publish_id
+     LEFT JOIN promptoon_feed_item AS item ON item.publish_id = requested.publish_id
+     ORDER BY array_position($1::uuid[], requested.publish_id)`,
+    [input.publishIds, input.userId]
+  );
+
+  return result.rows.map((row) => ({
+    publishId: row.publish_id,
+    liked: row.liked,
+    bookmarked: row.bookmarked,
+    metrics: normalizeFeedMetrics(row.metrics_json)
+  }));
+}
+
+export async function getViewerInteractionState(
+  db: DbExecutor,
+  input: {
+    publishId: string;
+    userId: string;
+  }
+): Promise<ViewerInteractionStateResponse | null> {
+  const result = await db.query<ViewerInteractionStateRow>(
+    `SELECT
+       publish.id::text AS publish_id,
+       publish.channel_id::text AS channel_id,
+       EXISTS (
+         SELECT 1
+         FROM promptoon_user_like AS user_like
+         WHERE user_like.user_id = $2
+           AND user_like.publish_id = publish.id
+       ) AS liked,
+       EXISTS (
+         SELECT 1
+         FROM promptoon_user_bookmark AS bookmark
+         WHERE bookmark.user_id = $2
+           AND bookmark.publish_id = publish.id
+       ) AS bookmarked,
+       CASE
+         WHEN publish.channel_id IS NULL THEN FALSE
+         ELSE EXISTS (
+           SELECT 1
+           FROM promptoon_user_subscription AS subscription
+           WHERE subscription.user_id = $2
+             AND subscription.channel_id = publish.channel_id
+         )
+       END AS subscribed_to_channel,
+       COALESCE(item.metrics_json, item.payload_json->'metrics', '{"views":0,"likes":0,"comments":0,"shares":0}'::jsonb) AS metrics_json
+     FROM promptoon_publish AS publish
+     LEFT JOIN promptoon_feed_item AS item ON item.publish_id = publish.id
+     WHERE publish.id = $1`,
+    [input.publishId, input.userId]
+  );
+  const row = result.rows[0];
+  if (!row) {
+    return null;
+  }
+
+  return {
+    publishId: row.publish_id,
+    liked: row.liked,
+    bookmarked: row.bookmarked,
+    metrics: normalizeFeedMetrics(row.metrics_json),
+    channelId: row.channel_id,
+    subscribedToChannel: row.subscribed_to_channel
+  };
+}
+
+export async function getChannelSubscriptionState(
+  db: DbExecutor,
+  input: {
+    channelId: string;
+    userId: string;
+  }
+): Promise<ChannelSubscriptionStateResponse | null> {
+  const result = await db.query<{
+    channel_id: string;
+    subscribed: boolean;
+    subscriber_count: string;
+  }>(
+    `SELECT
+       channel.id::text AS channel_id,
+       EXISTS (
+         SELECT 1
+         FROM promptoon_user_subscription AS subscription
+         WHERE subscription.user_id = $2
+           AND subscription.channel_id = channel.id
+       ) AS subscribed,
+       (SELECT COUNT(*) FROM promptoon_user_subscription WHERE channel_id = channel.id)::text AS subscriber_count
+     FROM promptoon_channel AS channel
+     WHERE channel.id = $1`,
+    [input.channelId, input.userId]
+  );
+  const row = result.rows[0];
+  if (!row) {
+    return null;
+  }
+
+  return {
+    channelId: row.channel_id,
+    subscribed: row.subscribed,
+    subscriberCount: Number(row.subscriber_count)
+  };
+}
+
+export async function upsertUserLike(db: DbExecutor, publishId: string, userId: string): Promise<void> {
+  await db.query(
+    `INSERT INTO promptoon_user_like (user_id, publish_id)
+     VALUES ($1, $2)
+     ON CONFLICT (user_id, publish_id) DO NOTHING`,
+    [userId, publishId]
+  );
+}
+
+export async function deleteUserLike(db: DbExecutor, publishId: string, userId: string): Promise<void> {
+  await db.query('DELETE FROM promptoon_user_like WHERE user_id = $1 AND publish_id = $2', [userId, publishId]);
+}
+
+export async function upsertUserBookmark(db: DbExecutor, publishId: string, userId: string): Promise<void> {
+  await db.query(
+    `INSERT INTO promptoon_user_bookmark (user_id, publish_id)
+     VALUES ($1, $2)
+     ON CONFLICT (user_id, publish_id) DO NOTHING`,
+    [userId, publishId]
+  );
+}
+
+export async function deleteUserBookmark(db: DbExecutor, publishId: string, userId: string): Promise<void> {
+  await db.query('DELETE FROM promptoon_user_bookmark WHERE user_id = $1 AND publish_id = $2', [userId, publishId]);
+}
+
+export async function refreshFeedItemLikeMetrics(db: DbExecutor, publishId: string): Promise<PublishProjectionContextRow | null> {
+  const context = await getPublishProjectionContext(db, publishId);
+  if (!context) {
+    return null;
+  }
+
+  const countResult = await db.query<{ count: string }>(
+    'SELECT COUNT(*)::text AS count FROM promptoon_user_like WHERE publish_id = $1',
+    [publishId]
+  );
+  const likeCount = Number(countResult.rows[0]?.count ?? 0);
+
+  await db.query(
+    `UPDATE promptoon_feed_item
+     SET metrics_json = jsonb_set(
+           COALESCE(metrics_json, '{"views":0,"likes":0,"comments":0,"shares":0}'::jsonb),
+           '{likes}',
+           to_jsonb($2::integer),
+           true
+         ),
+         payload_json = jsonb_set(
+           jsonb_set(
+             payload_json,
+             '{metrics}',
+             COALESCE(payload_json->'metrics', metrics_json, '{"views":0,"likes":0,"comments":0,"shares":0}'::jsonb),
+             true
+           ),
+           '{metrics,likes}',
+           to_jsonb($2::integer),
+           true
+         ),
+         updated_at = NOW()
+     WHERE publish_id = $1`,
+    [publishId, likeCount]
+  );
+
+  return context;
+}
+
+export async function getChannelBySlug(db: DbExecutor, slug: string): Promise<ChannelRow | null> {
+  const result = await db.query<ChannelRow>('SELECT * FROM promptoon_channel WHERE slug = $1 AND visibility = $2', [slug, 'public']);
+  return result.rows[0] ?? null;
+}
+
+export async function getChannelHomeProjection(db: DbExecutor, channelId: string): Promise<ChannelHome | null> {
+  const result = await db.query<ChannelHomeProjectionRow>(
+    `SELECT profile_json, featured_series_json, latest_episodes_json, latest_shorts_json, community_meta_json
+     FROM promptoon_channel_home_projection
+     WHERE channel_id = $1`,
+    [channelId]
+  );
+  const row = result.rows[0];
+  if (!row) {
+    return null;
+  }
+
+  return {
+    profile: row.profile_json,
+    featuredSeries: row.featured_series_json,
+    latestEpisodes: row.latest_episodes_json,
+    latestShorts: row.latest_shorts_json,
+    communityMeta: row.community_meta_json ?? undefined
+  };
+}
+
+export async function buildChannelHomeFromPublicTables(db: DbExecutor, channelId: string): Promise<ChannelHome | null> {
+  const channelResult = await db.query<ChannelRow>('SELECT * FROM promptoon_channel WHERE id = $1', [channelId]);
+  const channel = channelResult.rows[0];
+  if (!channel) {
+    return null;
+  }
+
+  const counts = await db.query<{
+    subscriber_count: string;
+    like_count: string;
+    series_count: string;
+    episode_count: string;
+    short_count: string;
+    comment_count: string;
+    latest_comment_at: Date | null;
+  }>(
+    `SELECT
+       (SELECT COUNT(*) FROM promptoon_user_subscription WHERE channel_id = $1)::text AS subscriber_count,
+       (SELECT COUNT(*) FROM promptoon_user_like AS likes
+          JOIN promptoon_publish AS publish ON publish.id = likes.publish_id
+         WHERE publish.channel_id = $1)::text AS like_count,
+       (SELECT COUNT(*) FROM promptoon_series WHERE channel_id = $1)::text AS series_count,
+       (SELECT COUNT(*) FROM promptoon_feed_item WHERE channel_id = $1)::text AS episode_count,
+       (SELECT COUNT(*) FROM promptoon_short_clip WHERE channel_id = $1 AND status = 'published')::text AS short_count,
+       (SELECT COALESCE(SUM(discussion.comment_count), 0)
+          FROM promptoon_episode_discussion AS discussion
+          JOIN promptoon_publish AS publish ON publish.id = discussion.publish_id
+         WHERE publish.channel_id = $1)::text AS comment_count,
+       (SELECT MAX(discussion.latest_comment_at)
+          FROM promptoon_episode_discussion AS discussion
+          JOIN promptoon_publish AS publish ON publish.id = discussion.publish_id
+         WHERE publish.channel_id = $1) AS latest_comment_at`,
+    [channelId]
+  );
+  const countRow = counts.rows[0];
+
+  const seriesResult = await db.query<SeriesRow>(
+    `SELECT *
+     FROM promptoon_series
+     WHERE channel_id = $1
+     ORDER BY sort_order, created_at
+     LIMIT 8`,
+    [channelId]
+  );
+  const episodesResult = await db.query<{
+    episode_id: string;
+    publish_id: string;
+    title: string;
+    episode_no: number;
+    thumbnail_url: string | null;
+    published_at: Date;
+  }>(
+    `SELECT
+       item.episode_id,
+       item.publish_id,
+       item.title,
+       episode.episode_no,
+       item.cover_image_url AS thumbnail_url,
+       item.published_at
+     FROM promptoon_feed_item AS item
+     JOIN promptoon_episode AS episode ON episode.id = item.episode_id
+     WHERE item.channel_id = $1
+     ORDER BY item.published_at DESC, item.id DESC
+     LIMIT 12`,
+    [channelId]
+  );
+  const shortsResult = await db.query<{
+    id: string;
+    title: string;
+    thumbnail_url: string | null;
+    video_url: string | null;
+    duration_sec: number;
+    publish_id: string | null;
+  }>(
+    `SELECT id, title, thumbnail_url, video_url, duration_sec, publish_id
+     FROM promptoon_short_clip
+     WHERE channel_id = $1 AND status = 'published'
+     ORDER BY published_at DESC NULLS LAST, created_at DESC
+     LIMIT 8`,
+    [channelId]
+  );
+
+  const profile = mapChannelProfile(channel, {
+    subscriberCount: Number(countRow?.subscriber_count ?? 0),
+    likeCount: Number(countRow?.like_count ?? 0),
+    seriesCount: Number(countRow?.series_count ?? 0),
+    episodeCount: Number(countRow?.episode_count ?? 0),
+    shortCount: Number(countRow?.short_count ?? 0)
+  });
+
+  return {
+    profile,
+    featuredSeries: seriesResult.rows.map((series) => ({
+      id: series.id,
+      title: series.title,
+      slug: series.slug,
+      description: series.description,
+      coverImageUrl: series.cover_image_url,
+      episodeCount: Number(countRow?.episode_count ?? 0),
+      status: series.status
+    })),
+    latestEpisodes: episodesResult.rows.map((episode) => ({
+      id: episode.episode_id,
+      publishId: episode.publish_id,
+      title: episode.title,
+      episodeNo: episode.episode_no,
+      thumbnailUrl: episode.thumbnail_url,
+      publishedAt: toIsoString(episode.published_at)
+    })),
+    latestShorts: shortsResult.rows.map((short) => ({
+      id: short.id,
+      title: short.title,
+      thumbnailUrl: short.thumbnail_url,
+      videoUrl: short.video_url,
+      durationSec: short.duration_sec,
+      publishId: short.publish_id
+    })),
+    communityMeta: {
+      commentCount: Number(countRow?.comment_count ?? 0),
+      latestCommentAt: countRow?.latest_comment_at ? toIsoString(countRow.latest_comment_at) : null
+    }
+  };
+}
+
+export async function upsertChannelHomeProjection(db: DbExecutor, channelId: string, home: ChannelHome): Promise<void> {
+  await db.query(
+    `INSERT INTO promptoon_channel_home_projection (
+       channel_id,
+       profile_json,
+       featured_series_json,
+       latest_episodes_json,
+       latest_shorts_json,
+       community_meta_json
+     )
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (channel_id) DO UPDATE
+       SET profile_json = EXCLUDED.profile_json,
+           featured_series_json = EXCLUDED.featured_series_json,
+           latest_episodes_json = EXCLUDED.latest_episodes_json,
+           latest_shorts_json = EXCLUDED.latest_shorts_json,
+           community_meta_json = EXCLUDED.community_meta_json,
+           updated_at = NOW()`,
+    [
+      channelId,
+      JSON.stringify(home.profile),
+      JSON.stringify(home.featuredSeries),
+      JSON.stringify(home.latestEpisodes),
+      JSON.stringify(home.latestShorts),
+      JSON.stringify(home.communityMeta ?? null)
+    ]
+  );
+}
+
+export async function ensureEpisodeDiscussion(
+  db: DbExecutor,
+  input: {
+    episodeId: string;
+    publishId?: string;
+  }
+): Promise<void> {
+  await db.query(
+    `INSERT INTO promptoon_episode_discussion (episode_id, publish_id, discussion_url)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (episode_id) DO UPDATE
+       SET publish_id = COALESCE(EXCLUDED.publish_id, promptoon_episode_discussion.publish_id),
+           updated_at = NOW()`,
+    [input.episodeId, input.publishId ?? null, input.publishId ? `/community/publishes/${input.publishId}` : null]
+  );
+}
+
+export async function getCommentsMetaByPublishId(db: DbExecutor, publishId: string): Promise<CommentsMetaRow | null> {
+  const result = await db.query<CommentsMetaRow>(
+    `SELECT publish_id, comment_count, latest_comment_at, discussion_url
+     FROM promptoon_episode_discussion
+     WHERE publish_id = $1`,
+    [publishId]
+  );
+
+  return result.rows[0] ?? null;
+}
+
+export async function listRelatedShortsForPublish(
+  db: DbExecutor,
+  publishId: string,
+  limit = 8
+): Promise<import('@promptoon/shared').RelatedShort[]> {
+  const result = await db.query<RelatedShortRow>(
+    `WITH target_publish AS (
+       SELECT id, channel_id, series_id
+       FROM promptoon_publish
+       WHERE id = $1
+     )
+     SELECT
+       short.id,
+       short.title,
+       short.thumbnail_url,
+       short.duration_sec,
+       short.publish_id,
+       channel.slug AS channel_slug
+     FROM promptoon_short_clip AS short
+     JOIN target_publish AS target ON
+       short.publish_id = target.id
+       OR (short.channel_id IS NOT NULL AND short.channel_id = target.channel_id)
+       OR (short.series_id IS NOT NULL AND short.series_id = target.series_id)
+     LEFT JOIN promptoon_channel AS channel ON channel.id = short.channel_id
+     WHERE short.status = 'published'
+     ORDER BY
+       CASE WHEN short.publish_id = $1 THEN 0 ELSE 1 END,
+       short.published_at DESC NULLS LAST,
+       short.created_at DESC,
+       short.id DESC
+     LIMIT $2`,
+    [publishId, limit]
+  );
+
+  return result.rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    thumbnailUrl: row.thumbnail_url,
+    durationSec: row.duration_sec,
+    href: row.publish_id ? `/v/${row.publish_id}` : row.channel_slug ? `/c/${row.channel_slug}/shorts` : '/feed'
+  }));
+}
+
+export async function upsertUserSubscription(db: DbExecutor, channelId: string, userId: string): Promise<void> {
+  await db.query(
+    `INSERT INTO promptoon_user_subscription (user_id, channel_id)
+     VALUES ($1, $2)
+     ON CONFLICT (user_id, channel_id) DO NOTHING`,
+    [userId, channelId]
+  );
+}
+
+export async function deleteUserSubscription(db: DbExecutor, channelId: string, userId: string): Promise<void> {
+  await db.query('DELETE FROM promptoon_user_subscription WHERE user_id = $1 AND channel_id = $2', [userId, channelId]);
+}
+
+export async function insertTelemetryEvent(db: DbExecutor, payload: TelemetryEventPayload): Promise<void> {
+  await db.query(
+    `INSERT INTO promptoon_telemetry_event (
+       event_name,
+       anonymous_id,
+       user_id,
+       session_id,
+       project_id,
+       channel_id,
+       series_id,
+       episode_id,
+       publish_id,
+       feed_item_id,
+       payload_json
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+    [
+      payload.eventName,
+      payload.anonymousId ?? null,
+      payload.userId ?? null,
+      payload.sessionId ?? null,
+      payload.projectId ?? null,
+      payload.channelId ?? null,
+      payload.seriesId ?? null,
+      payload.episodeId ?? null,
+      payload.publishId ?? null,
+      payload.feedItemId ?? null,
+      JSON.stringify(payload.payload ?? {})
+    ]
+  );
+}
+
 export async function createViewerEvent(
   db: DbExecutor,
   input: {
@@ -1127,11 +2431,35 @@ export async function createViewerEvent(
     cutId: string;
     choiceId?: string;
     durationMs?: number;
+    surface?: string;
+    position?: number;
+    trackingToken?: string;
+    recommendationRequestId?: string;
+    policyId?: string;
+    modelVersion?: string;
+    experimentId?: string;
   }
 ): Promise<void> {
   await db.query<ViewerEventInsertRow>(
-    `INSERT INTO promptoon_viewer_event (id, publish_id, episode_id, anonymous_id, session_id, event_type, cut_id, choice_id, duration_ms)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    `INSERT INTO promptoon_viewer_event (
+       id,
+       publish_id,
+       episode_id,
+       anonymous_id,
+       session_id,
+       event_type,
+       cut_id,
+       choice_id,
+       duration_ms,
+       surface,
+       position,
+       tracking_token,
+       recommendation_request_id,
+       policy_id,
+       model_version,
+       experiment_id
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
     [
       randomUUID(),
       input.publishId,
@@ -1141,7 +2469,14 @@ export async function createViewerEvent(
       input.eventType,
       input.cutId,
       input.choiceId ?? null,
-      input.durationMs ?? null
+      input.durationMs ?? null,
+      input.surface ?? null,
+      input.position ?? null,
+      input.trackingToken ?? null,
+      input.recommendationRequestId ?? null,
+      input.policyId ?? null,
+      input.modelVersion ?? null,
+      input.experimentId ?? null
     ]
   );
 }
@@ -1406,16 +2741,27 @@ export async function createPublish(
   input: {
     projectId: string;
     episodeId: string;
+    channelId?: string | null;
+    seriesId?: string | null;
     versionNo: number;
     manifest: PublishManifest;
     createdBy: string;
   }
 ): Promise<Publish> {
   const result = await db.query<PublishRow>(
-    `INSERT INTO promptoon_publish (id, project_id, episode_id, version_no, status, manifest, created_by)
-     VALUES ($1, $2, $3, $4, 'published', $5, $6)
+    `INSERT INTO promptoon_publish (id, project_id, episode_id, channel_id, series_id, version_no, status, manifest, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, 'published', $7, $8)
      RETURNING *`,
-    [randomUUID(), input.projectId, input.episodeId, input.versionNo, JSON.stringify(input.manifest), input.createdBy]
+    [
+      randomUUID(),
+      input.projectId,
+      input.episodeId,
+      input.channelId ?? null,
+      input.seriesId ?? null,
+      input.versionNo,
+      JSON.stringify(input.manifest),
+      input.createdBy
+    ]
   );
 
   return mapPublish(result.rows[0]);
@@ -1426,28 +2772,51 @@ export async function updateLatestPublishForEpisode(
   input: {
     projectId: string;
     episodeId: string;
+    channelId?: string | null;
+    seriesId?: string | null;
     manifest: PublishManifest;
     createdBy: string;
   }
 ): Promise<Publish | null> {
   const result = await db.query<PublishRow>(
     `UPDATE promptoon_publish
-     SET manifest = $3,
-         created_by = $4,
+     SET channel_id = $3,
+         series_id = $4,
+         manifest = $5,
+         created_by = $6,
+         status = 'published',
          created_at = NOW()
      WHERE id = (
        SELECT id
        FROM promptoon_publish
        WHERE project_id = $1
          AND episode_id = $2
+         AND status = 'published'
        ORDER BY version_no DESC, created_at DESC, id DESC
        LIMIT 1
      )
      RETURNING *`,
-    [input.projectId, input.episodeId, JSON.stringify(input.manifest), input.createdBy]
+    [input.projectId, input.episodeId, input.channelId ?? null, input.seriesId ?? null, JSON.stringify(input.manifest), input.createdBy]
   );
 
   return result.rows[0] ? mapPublish(result.rows[0]) : null;
+}
+
+export async function updatePublishPublicPlacement(
+  db: DbExecutor,
+  input: {
+    publishId: string;
+    channelId: string;
+    seriesId: string;
+  }
+): Promise<void> {
+  await db.query(
+    `UPDATE promptoon_publish
+     SET channel_id = $2,
+         series_id = $3
+     WHERE id = $1`,
+    [input.publishId, input.channelId, input.seriesId]
+  );
 }
 
 export async function markProjectPublished(db: DbExecutor, projectId: string): Promise<void> {
@@ -1490,6 +2859,19 @@ export async function markEpisodeDraft(db: DbExecutor, episodeId: string): Promi
   );
 }
 
+export async function markPublishesUnpublishedForEpisode(db: DbExecutor, projectId: string, episodeId: string): Promise<number> {
+  const result = await db.query(
+    `UPDATE promptoon_publish
+     SET status = 'unpublished'
+     WHERE project_id = $1
+       AND episode_id = $2
+       AND status = 'published'`,
+    [projectId, episodeId]
+  );
+
+  return result.rowCount ?? 0;
+}
+
 export async function deletePublishesForEpisode(db: DbExecutor, projectId: string, episodeId: string): Promise<number> {
   const result = await db.query(
     `DELETE FROM promptoon_publish
@@ -1507,6 +2889,7 @@ export async function projectHasPublishedEpisodes(db: DbExecutor, projectId: str
        SELECT 1
        FROM promptoon_publish
        WHERE project_id = $1
+         AND status = 'published'
      )::boolean AS exists`,
     [projectId]
   );

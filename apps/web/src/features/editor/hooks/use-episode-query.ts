@@ -3,6 +3,8 @@ import type {
   Choice,
   CreateChoiceRequest,
   CreateCutRequest,
+  CreateLoopStateSettingRequest,
+  CreateLoopStateSettingResponse,
   Cut,
   DeleteCutRequest,
   EpisodeDraftResponse,
@@ -17,8 +19,8 @@ import type {
 } from '@promptoon/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { promptoonService } from '../../../shared/api/promptoon.service';
 import { promptoonKeys } from '../../../shared/api/query-keys';
+import { studioApi } from '../../../shared/api/studio.api';
 
 function mergeCutPatch(cut: Cut, patch: PatchCutRequest): Cut {
   return {
@@ -132,7 +134,7 @@ type UpdateChoiceVariables = {
 export function useEpisodeDraft(episodeId: string) {
   return useQuery({
     queryKey: promptoonKeys.episodeDraft(episodeId),
-    queryFn: () => promptoonService.getEpisodeDraft(episodeId),
+    queryFn: () => studioApi.getEpisodeDraft(episodeId),
     enabled: Boolean(episodeId)
   });
 }
@@ -141,8 +143,44 @@ export function useCreateCut(episodeId: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (payload: CreateCutRequest) => promptoonService.createCut(episodeId, payload),
+    mutationFn: (payload: CreateCutRequest) => studioApi.createCut(episodeId, payload),
     onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: promptoonKeys.episodeDraft(episodeId) });
+    }
+  });
+}
+
+export function useCreateLoopStateSetting(episodeId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation<CreateLoopStateSettingResponse, Error, CreateLoopStateSettingRequest>({
+    mutationFn: (payload) => studioApi.createLoopStateSetting(episodeId, payload),
+    onSuccess: async (response) => {
+      queryClient.setQueryData<EpisodeDraftResponse | undefined>(promptoonKeys.episodeDraft(episodeId), response);
+      await queryClient.invalidateQueries({ queryKey: promptoonKeys.episodeDraft(episodeId) });
+    }
+  });
+}
+
+export function useDeleteLoopStateSetting(episodeId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation<EpisodeDraftResponse, Error, string>({
+    mutationFn: (groupId) => studioApi.deleteLoopStateSetting(episodeId, groupId),
+    onSuccess: async (response) => {
+      queryClient.setQueryData<EpisodeDraftResponse | undefined>(promptoonKeys.episodeDraft(episodeId), response);
+      await queryClient.invalidateQueries({ queryKey: promptoonKeys.episodeDraft(episodeId) });
+    }
+  });
+}
+
+export function useUpdateLoopStateSetting(episodeId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation<CreateLoopStateSettingResponse, Error, { groupId: string; payload: CreateLoopStateSettingRequest }>({
+    mutationFn: ({ groupId, payload }) => studioApi.updateLoopStateSetting(episodeId, groupId, payload),
+    onSuccess: async (response) => {
+      queryClient.setQueryData<EpisodeDraftResponse | undefined>(promptoonKeys.episodeDraft(episodeId), response);
       await queryClient.invalidateQueries({ queryKey: promptoonKeys.episodeDraft(episodeId) });
     }
   });
@@ -152,7 +190,7 @@ export function useDeleteCut(episodeId: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ cutId, payload }: { cutId: string; payload?: DeleteCutRequest }) => promptoonService.deleteCut(cutId, payload),
+    mutationFn: ({ cutId, payload }: { cutId: string; payload?: DeleteCutRequest }) => studioApi.deleteCut(cutId, payload),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: promptoonKeys.episodeDraft(episodeId) });
     }
@@ -164,7 +202,7 @@ export function useUpdateCut(episodeId: string) {
   const queryKey = promptoonKeys.episodeDraft(episodeId);
 
   return useMutation({
-    mutationFn: ({ cutId, payload }: UpdateCutVariables) => promptoonService.patchCut(cutId, payload),
+    mutationFn: ({ cutId, payload }: UpdateCutVariables) => studioApi.patchCut(cutId, payload),
     onMutate: async ({ cutId, payload, previousCut }) => {
       await queryClient.cancelQueries({ queryKey });
       const previousDraft = previousCut ? undefined : queryClient.getQueryData<EpisodeDraftResponse>(queryKey);
@@ -200,7 +238,7 @@ export function useUpdateCut(episodeId: string) {
 
 export function useUploadAsset() {
   return useMutation<AssetUploadResponse, Error, { projectId: string; file: File }>({
-    mutationFn: ({ projectId, file }) => promptoonService.uploadAsset(projectId, file)
+    mutationFn: ({ projectId, file }) => studioApi.uploadAsset(projectId, file)
   });
 }
 
@@ -209,7 +247,7 @@ export function useCreateChoice(episodeId: string) {
 
   return useMutation({
     mutationFn: ({ cutId, payload }: { cutId: string; payload: CreateChoiceRequest }) =>
-      promptoonService.createChoice(cutId, payload),
+      studioApi.createChoice(cutId, payload),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: promptoonKeys.episodeDraft(episodeId) });
     }
@@ -220,7 +258,7 @@ export function useDeleteChoice(episodeId: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (choiceId: string) => promptoonService.deleteChoice(choiceId),
+    mutationFn: (choiceId: string) => studioApi.deleteChoice(choiceId),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: promptoonKeys.episodeDraft(episodeId) });
     }
@@ -232,7 +270,7 @@ export function useUpdateChoice(episodeId: string) {
   const queryKey = promptoonKeys.episodeDraft(episodeId);
 
   return useMutation({
-    mutationFn: ({ choiceId, payload }: UpdateChoiceVariables) => promptoonService.patchChoice(choiceId, payload),
+    mutationFn: ({ choiceId, payload }: UpdateChoiceVariables) => studioApi.patchChoice(choiceId, payload),
     onMutate: async ({ choiceId, payload, previousChoice }) => {
       await queryClient.cancelQueries({ queryKey });
       const previousDraft = previousChoice ? undefined : queryClient.getQueryData<EpisodeDraftResponse>(queryKey);
@@ -273,7 +311,7 @@ export function useReorderCuts(episodeId: string) {
   const queryKey = promptoonKeys.episodeDraft(episodeId);
 
   return useMutation({
-    mutationFn: (payload: ReorderEpisodeCutsRequest) => promptoonService.reorderCuts(episodeId, payload),
+    mutationFn: (payload: ReorderEpisodeCutsRequest) => studioApi.reorderCuts(episodeId, payload),
     onMutate: async (payload) => {
       await queryClient.cancelQueries({ queryKey });
       const previousDraft = queryClient.getQueryData<EpisodeDraftResponse>(queryKey);
@@ -296,7 +334,7 @@ export function useSaveCutLayout(episodeId: string) {
   const queryKey = promptoonKeys.episodeDraft(episodeId);
 
   return useMutation<PatchEpisodeCutLayoutResponse, Error, PatchEpisodeCutLayoutRequest, { previousDraft?: EpisodeDraftResponse }>({
-    mutationFn: (payload) => promptoonService.patchCutLayout(episodeId, payload),
+    mutationFn: (payload) => studioApi.patchCutLayout(episodeId, payload),
     onMutate: async (payload) => {
       await queryClient.cancelQueries({ queryKey });
       const previousDraft = queryClient.getQueryData<EpisodeDraftResponse>(queryKey);
@@ -336,14 +374,14 @@ export function useSaveCutLayout(episodeId: string) {
 
 export function useValidateEpisode() {
   return useMutation<ValidateEpisodeResponse, Error, string>({
-    mutationFn: (episodeId) => promptoonService.validateEpisode(episodeId)
+    mutationFn: (episodeId) => studioApi.validateEpisode(episodeId)
   });
 }
 
 export function useLatestPublishedEpisode(episodeId: string) {
   return useQuery({
     queryKey: promptoonKeys.latestPublishedEpisode(episodeId),
-    queryFn: () => promptoonService.getLatestPublishedEpisode(episodeId),
+    queryFn: () => studioApi.getLatestPublishedEpisode(episodeId),
     enabled: Boolean(episodeId)
   });
 }
@@ -352,7 +390,7 @@ export function usePublishEpisode() {
   const queryClient = useQueryClient();
 
   return useMutation<Publish, Error, { projectId: string; episodeId: string }>({
-    mutationFn: ({ projectId, episodeId }) => promptoonService.publishEpisode(projectId, episodeId),
+    mutationFn: ({ projectId, episodeId }) => studioApi.publishProject(projectId, episodeId),
     onSuccess: async (_publish, variables) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: promptoonKeys.projects() }),
@@ -367,7 +405,7 @@ export function useUpdatePublishedEpisode() {
   const queryClient = useQueryClient();
 
   return useMutation<Publish, Error, { projectId: string; episodeId: string }>({
-    mutationFn: ({ projectId, episodeId }) => promptoonService.updatePublishedEpisode(projectId, episodeId),
+    mutationFn: ({ projectId, episodeId }) => studioApi.updatePublishedProject(projectId, episodeId),
     onSuccess: async (publish, variables) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: promptoonKeys.projects() }),
@@ -384,7 +422,7 @@ export function useUnpublishEpisode() {
   const queryClient = useQueryClient();
 
   return useMutation<void, Error, { projectId: string; episodeId: string }>({
-    mutationFn: ({ projectId, episodeId }) => promptoonService.unpublishEpisode(projectId, episodeId),
+    mutationFn: ({ projectId, episodeId }) => studioApi.unpublishProject(projectId, episodeId),
     onSuccess: async (_result, variables) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: promptoonKeys.projects() }),

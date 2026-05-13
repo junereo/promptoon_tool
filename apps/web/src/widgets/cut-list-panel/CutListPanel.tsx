@@ -9,7 +9,7 @@ import {
   getDeleteCutReconnectCandidates,
   getIncomingChoiceCount
 } from '../../shared/lib/cut-delete';
-import { CutItem } from './CutItem';
+import { CutItem, type CutCardSize } from './CutItem';
 import { DeleteCutConfirmModal } from './DeleteCutConfirmModal';
 import { SortableCutItem } from './SortableCutItem';
 
@@ -39,6 +39,12 @@ interface StoredFoldState {
   branchGroupKeys: Set<string>;
   choiceSectionKeys: Set<string>;
 }
+
+const CUT_CARD_SIZE_OPTIONS: Array<{ label: string; value: CutCardSize }> = [
+  { label: 'Small', value: 'small' },
+  { label: 'Normal', value: 'normal' },
+  { label: 'Large', value: 'large' }
+];
 
 function createEmptyFoldState(): StoredFoldState {
   return {
@@ -92,6 +98,27 @@ function writeStoredFoldState(storageKey: string | null, branchGroupKeys: Set<st
       choiceSectionKeys: [...choiceSectionKeys]
     })
   );
+}
+
+function isCutCardSize(value: unknown): value is CutCardSize {
+  return value === 'small' || value === 'normal' || value === 'large';
+}
+
+function readStoredCutCardSize(storageKey: string | null): CutCardSize {
+  if (!storageKey || typeof window === 'undefined') {
+    return 'normal';
+  }
+
+  const storedSize = window.localStorage.getItem(storageKey);
+  return isCutCardSize(storedSize) ? storedSize : 'normal';
+}
+
+function writeStoredCutCardSize(storageKey: string | null, cardSize: CutCardSize) {
+  if (!storageKey || typeof window === 'undefined') {
+    return;
+  }
+
+  window.localStorage.setItem(storageKey, cardSize);
 }
 
 function getCompressedRank(rank: string): string {
@@ -158,11 +185,29 @@ function buildChoiceSections(group: Pick<CutBranchGroup, 'key' | 'nodes'>): CutC
   return sections;
 }
 
+function getCutItemIndentLevel(node: CutHierarchyNode): number {
+  if (
+    (node.cut.kind === 'loopVariant' || node.cut.kind === 'loopSpacer') &&
+    node.parentCutId &&
+    node.cut.loopMetadata?.kind === 'exitLoop'
+  ) {
+    return 2;
+  }
+
+  return 1;
+}
+
+function canCreateAfterCut(cut: Cut): boolean {
+  return cut.kind !== 'loopVariant' && cut.kind !== 'loopSpacer';
+}
+
 export function CutListPanel({
   choices,
   cuts,
   selectedCutId,
   onCreateCut,
+  onCreateLoopVariant,
+  onOpenLoopStateSetting,
   onDeleteCut,
   onDragEnd,
   onSelectCut
@@ -171,6 +216,8 @@ export function CutListPanel({
   cuts: Cut[];
   selectedCutId: string | null;
   onCreateCut: (anchorCutId?: string) => void;
+  onCreateLoopVariant: (stageCutId: string) => void;
+  onOpenLoopStateSetting: (anchorCutId?: string) => void;
   onDeleteCut: (cutId: string, payload?: DeleteCutRequest) => Promise<void> | void;
   onDragEnd: (payload: CutListDragPayload) => void;
   onSelectCut: (cutId: string) => void;
@@ -183,10 +230,13 @@ export function CutListPanel({
     })
   );
   const foldStorageKey = cuts[0]?.episodeId ? `promptoon:cut-list-fold:${cuts[0].episodeId}` : null;
+  const cardSizeStorageKey = cuts[0]?.episodeId ? `promptoon:cut-list-card-size:${cuts[0].episodeId}` : null;
   const initialFoldState = readStoredFoldState(foldStorageKey);
   const skipNextFoldPersistRef = useRef(false);
+  const skipNextCardSizePersistRef = useRef(false);
   const [pendingDeleteCut, setPendingDeleteCut] = useState<Cut | null>(null);
   const [isDeletePending, setIsDeletePending] = useState(false);
+  const [cutCardSize, setCutCardSize] = useState<CutCardSize>(() => readStoredCutCardSize(cardSizeStorageKey));
   const [collapsedBranchGroupKeys, setCollapsedBranchGroupKeys] = useState<Set<string>>(() => initialFoldState.branchGroupKeys);
   const [collapsedChoiceSectionKeys, setCollapsedChoiceSectionKeys] = useState<Set<string>>(() => initialFoldState.choiceSectionKeys);
   const [reconnectToCutId, setReconnectToCutId] = useState<string | null>(null);
@@ -226,6 +276,20 @@ export function CutListPanel({
 
     writeStoredFoldState(foldStorageKey, collapsedBranchGroupKeys, collapsedChoiceSectionKeys);
   }, [collapsedBranchGroupKeys, collapsedChoiceSectionKeys, foldStorageKey]);
+
+  useEffect(() => {
+    skipNextCardSizePersistRef.current = true;
+    setCutCardSize(readStoredCutCardSize(cardSizeStorageKey));
+  }, [cardSizeStorageKey]);
+
+  useEffect(() => {
+    if (skipNextCardSizePersistRef.current) {
+      skipNextCardSizePersistRef.current = false;
+      return;
+    }
+
+    writeStoredCutCardSize(cardSizeStorageKey, cutCardSize);
+  }, [cardSizeStorageKey, cutCardSize]);
 
   function handleDragEnd(event: DragEndEvent) {
     if (!event.over || event.active.id === event.over.id) {
@@ -287,17 +351,44 @@ export function CutListPanel({
             <p className="font-display text-lg font-semibold text-zinc-50">Cut List</p>
             <p className="text-xs text-zinc-400">Drag to reorder. Select, delete, and build the episode flow.</p>
           </div>
-          <button
-            className="rounded-full bg-editor-accent px-3 py-1.5 text-sm font-medium text-white transition hover:bg-editor-accentSoft"
-            onClick={() => onCreateCut()}
-            type="button"
-          >
-            + Cut
-          </button>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button
+              className="rounded-full border border-lime-500/35 bg-lime-500/10 px-3 py-1.5 text-sm font-medium text-lime-100 transition hover:border-lime-400/60 hover:bg-lime-500/15"
+              onClick={() => onOpenLoopStateSetting(selectedCutId ?? undefined)}
+              type="button"
+            >
+              LoopStateSetting
+            </button>
+            <button
+              className="rounded-full bg-editor-accent px-3 py-1.5 text-sm font-medium text-white transition hover:bg-editor-accentSoft"
+              onClick={() => onCreateCut()}
+              type="button"
+            >
+              + Cut
+            </button>
+          </div>
         </div>
 
-        <div className="mt-2 rounded-xl border border-editor-border bg-black/10 px-3 py-1.5 text-xs uppercase tracking-[0.2em] text-zinc-500">
-          {cuts.length} cut{cuts.length === 1 ? '' : 's'}
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-editor-border bg-black/10 px-3 py-1.5">
+          <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+            {cuts.length} cut{cuts.length === 1 ? '' : 's'}
+          </span>
+          <div className="inline-flex rounded-full border border-editor-border bg-black/20 p-0.5" aria-label="Cut card size">
+            {CUT_CARD_SIZE_OPTIONS.map((option) => (
+              <button
+                aria-pressed={cutCardSize === option.value}
+                className={[
+                  'rounded-full px-2.5 py-1 text-[11px] font-medium transition',
+                  cutCardSize === option.value ? 'bg-zinc-100 text-zinc-950' : 'text-zinc-400 hover:text-zinc-100'
+                ].join(' ')}
+                key={option.value}
+                onClick={() => setCutCardSize(option.value)}
+                type="button"
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="mt-2 min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1" data-testid="cut-list-scroll">
@@ -359,9 +450,16 @@ export function CutListPanel({
                                   {group.key}
                                 </div>
                                 <CutItem
+                                  cardSize={cutCardSize}
                                   cut={group.contextNode.cut}
+                                  createAfterDisabled={!canCreateAfterCut(group.contextNode.cut)}
                                   dragDisabled
                                   onCreateAfter={() => onCreateCut(group.contextNode!.cut.id)}
+                                  onCreateLoopVariant={
+                                    group.contextNode.cut.loopMetadata?.role === 'stageBase'
+                                      ? () => onCreateLoopVariant(group.contextNode!.cut.id)
+                                      : undefined
+                                  }
                                   onDelete={() => openDeleteModal(group.contextNode!.cut)}
                                   onSelect={() => onSelectCut(group.contextNode!.cut.id)}
                                   rank={getCompressedRank(group.contextNode.rank)}
@@ -407,10 +505,16 @@ export function CutListPanel({
                                     <div className="space-y-2">
                                       {section.nodes.map((node) => (
                                         <SortableCutItem
+                                          cardSize={cutCardSize}
                                           key={node.cut.id}
                                           cut={node.cut}
-                                          indentLevel={1}
+                                          createAfterDisabled={!canCreateAfterCut(node.cut)}
+                                          dragDisabled={!canCreateAfterCut(node.cut)}
+                                          indentLevel={getCutItemIndentLevel(node)}
                                           onCreateAfter={() => onCreateCut(node.cut.id)}
+                                          onCreateLoopVariant={
+                                            node.cut.loopMetadata?.role === 'stageBase' ? () => onCreateLoopVariant(node.cut.id) : undefined
+                                          }
                                           onDelete={() => openDeleteModal(node.cut)}
                                           onSelect={() => onSelectCut(node.cut.id)}
                                           rank={getCompressedRank(node.rank)}

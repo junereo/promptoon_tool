@@ -1,6 +1,7 @@
 import type { Choice, Cut } from '@promptoon/shared';
 import { DEFAULT_CUT_EFFECT_DURATION_MS } from '@promptoon/shared';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act } from 'react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { CutListPanel } from '../src/widgets/cut-list-panel/CutListPanel';
@@ -8,6 +9,7 @@ import { CutListPanel } from '../src/widgets/cut-list-panel/CutListPanel';
 afterEach(() => {
   cleanup();
   window.localStorage.clear();
+  vi.useRealTimers();
 });
 
 function buildCut(id: string, overrides?: Partial<Cut>): Cut {
@@ -65,6 +67,7 @@ describe('CutListPanel', () => {
         choices={[]}
         cuts={cuts}
         onCreateCut={onCreateCut}
+        onOpenLoopStateSetting={vi.fn()}
         onDeleteCut={onDeleteCut}
         onDragEnd={onDragEnd}
         onSelectCut={onSelectCut}
@@ -91,6 +94,88 @@ describe('CutListPanel', () => {
     expect(onDragEnd).not.toHaveBeenCalled();
   });
 
+  it('shows full cut details after hovering a card for one second', () => {
+    vi.useFakeTimers();
+    const cut = buildCut('cut-detail', {
+      title: 'Long visible title should stay readable',
+      body: 'Full body copy should be available in the delayed detail panel.',
+      kind: 'loopVariant',
+      loopMetadata: {
+        kind: 'exitLoop',
+        groupId: 'group-1',
+        groupLabel: 'Hotel Loop',
+        role: 'stageVariant',
+        stageIndex: 2,
+        truth: 'real_anomaly'
+      }
+    });
+
+    render(
+      <CutListPanel
+        choices={[]}
+        cuts={[cut]}
+        onCreateCut={vi.fn()}
+        onOpenLoopStateSetting={vi.fn()}
+        onDeleteCut={vi.fn()}
+        onDragEnd={vi.fn()}
+        onSelectCut={vi.fn()}
+        selectedCutId={null}
+      />
+    );
+
+    const card = document.querySelector('[data-cut-id="cut-detail"]') as HTMLElement;
+    fireEvent.mouseEnter(card);
+
+    act(() => {
+      vi.advanceTimersByTime(999);
+    });
+    expect(screen.queryByTestId('cut-detail-popover')).toBeNull();
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+
+    const popover = screen.getByTestId('cut-detail-popover');
+    expect(within(popover).getByText('Long visible title should stay readable')).toBeTruthy();
+    expect(within(popover).getByText('Full body copy should be available in the delayed detail panel.')).toBeTruthy();
+    expect(within(popover).getByText(/Hotel Loop .* stageVariant .* Stage 2 .* real_anomaly/)).toBeTruthy();
+
+    fireEvent.mouseLeave(card);
+    expect(screen.queryByTestId('cut-detail-popover')).toBeNull();
+  });
+
+  it('switches Cut List card frame size and persists it per episode', () => {
+    const cut = buildCut('cut-size', { title: 'Resizable card' });
+    const props = {
+      choices: [],
+      cuts: [cut],
+      onCreateCut: vi.fn(),
+      onDeleteCut: vi.fn(),
+      onDragEnd: vi.fn(),
+      onOpenLoopStateSetting: vi.fn(),
+      onSelectCut: vi.fn(),
+      selectedCutId: null
+    };
+
+    const { unmount } = render(<CutListPanel {...props} />);
+    const card = document.querySelector('[data-cut-id="cut-size"]') as HTMLElement;
+    expect(card.className).toContain('h-[112px]');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Small' }));
+    expect(card.className).toContain('h-[76px]');
+    expect(window.localStorage.getItem('promptoon:cut-list-card-size:episode-1')).toBe('small');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Large' }));
+    expect(card.className).toContain('h-[160px]');
+    expect(window.localStorage.getItem('promptoon:cut-list-card-size:episode-1')).toBe('large');
+
+    unmount();
+    render(<CutListPanel {...props} />);
+    const persistedCard = document.querySelector('[data-cut-id="cut-size"]') as HTMLElement;
+    expect(persistedCard.className).toContain('h-[160px]');
+    expect(screen.getByRole('button', { name: 'Large' }).getAttribute('aria-pressed')).toBe('true');
+  });
+
   it('does not delete when the confirm modal is cancelled', () => {
     const onDeleteCut = vi.fn();
 
@@ -99,6 +184,7 @@ describe('CutListPanel', () => {
         choices={[]}
         cuts={[buildCut('cut-1', { title: 'Intro' })]}
         onCreateCut={vi.fn()}
+        onOpenLoopStateSetting={vi.fn()}
         onDeleteCut={onDeleteCut}
         onDragEnd={vi.fn()}
         onSelectCut={vi.fn()}
@@ -127,6 +213,7 @@ describe('CutListPanel', () => {
         choices={[]}
         cuts={cuts}
         onCreateCut={vi.fn()}
+        onOpenLoopStateSetting={vi.fn()}
         onDeleteCut={vi.fn()}
         onDragEnd={vi.fn()}
         onSelectCut={vi.fn()}
@@ -139,6 +226,7 @@ describe('CutListPanel', () => {
         choices={[]}
         cuts={cuts}
         onCreateCut={vi.fn()}
+        onOpenLoopStateSetting={vi.fn()}
         onDeleteCut={vi.fn()}
         onDragEnd={vi.fn()}
         onSelectCut={vi.fn()}
@@ -168,6 +256,7 @@ describe('CutListPanel', () => {
         choices={choices}
         cuts={[start, child, grandchild]}
         onCreateCut={vi.fn()}
+        onOpenLoopStateSetting={vi.fn()}
         onDeleteCut={vi.fn()}
         onDragEnd={vi.fn()}
         onSelectCut={vi.fn()}
@@ -178,7 +267,9 @@ describe('CutListPanel', () => {
     expect(screen.getAllByText('1').length).toBeGreaterThanOrEqual(3);
     expect(screen.queryByText('1.1')).toBeNull();
     expect(screen.queryByText('1.1.1')).toBeNull();
-    expect((document.querySelector('[data-cut-id="cut-grandchild"]') as HTMLElement | null)?.style.marginLeft).toBe('6px');
+    const grandchildElement = document.querySelector('[data-cut-id="cut-grandchild"]') as HTMLElement | null;
+    expect(grandchildElement?.style.marginLeft).toBe('');
+    expect(grandchildElement?.style.paddingLeft).toBe('20px');
 
     fireEvent.click(screen.getByRole('button', { name: 'Collapse group 1' }));
 
@@ -202,6 +293,7 @@ describe('CutListPanel', () => {
         choices={choices}
         cuts={[start, inserted, child]}
         onCreateCut={vi.fn()}
+        onOpenLoopStateSetting={vi.fn()}
         onDeleteCut={vi.fn()}
         onDragEnd={vi.fn()}
         onSelectCut={vi.fn()}
@@ -235,6 +327,7 @@ describe('CutListPanel', () => {
         choices={choices}
         cuts={[start, mainA, mainB, mainC, branchA, branchB]}
         onCreateCut={vi.fn()}
+        onOpenLoopStateSetting={vi.fn()}
         onDeleteCut={vi.fn()}
         onDragEnd={vi.fn()}
         onSelectCut={onSelectCut}
@@ -266,6 +359,7 @@ describe('CutListPanel', () => {
         choices={choices}
         cuts={[intro, decision, aftermath]}
         onCreateCut={vi.fn()}
+        onOpenLoopStateSetting={vi.fn()}
         onDeleteCut={vi.fn()}
         onDragEnd={vi.fn()}
         onSelectCut={vi.fn()}
@@ -294,6 +388,7 @@ describe('CutListPanel', () => {
       onCreateCut: vi.fn(),
       onDeleteCut: vi.fn(),
       onDragEnd: vi.fn(),
+      onOpenLoopStateSetting: vi.fn(),
       onSelectCut: vi.fn(),
       selectedCutId: null
     };
@@ -323,6 +418,7 @@ describe('CutListPanel', () => {
       onCreateCut: vi.fn(),
       onDeleteCut: vi.fn(),
       onDragEnd: vi.fn(),
+      onOpenLoopStateSetting: vi.fn(),
       onSelectCut: vi.fn(),
       selectedCutId: null
     };
@@ -354,6 +450,7 @@ describe('CutListPanel', () => {
         choices={choices}
         cuts={[start, middle, ending]}
         onCreateCut={vi.fn()}
+        onOpenLoopStateSetting={vi.fn()}
         onDeleteCut={onDeleteCut}
         onDragEnd={vi.fn()}
         onSelectCut={vi.fn()}
