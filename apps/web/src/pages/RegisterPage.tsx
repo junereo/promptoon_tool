@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate } from 'react-router-dom';
 
 import { useRegister } from '../features/auth/hooks/use-auth-query';
 import { useAuthStore } from '../features/auth/store/use-auth-store';
+import { isLocalCredentialAuthEnabled } from '../shared/api/auth.service';
 import { ApiError } from '../shared/api/client';
 
 const POST_REGISTER_REDIRECT_PATH = '/';
@@ -29,6 +30,10 @@ export function RegisterPage() {
   const [loginId, setLoginId] = useState('');
   const [password, setPassword] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  if (!isLocalCredentialAuthEnabled) {
+    return <Navigate replace to="/login" />;
+  }
 
   if (!hasHydrated) {
     return (

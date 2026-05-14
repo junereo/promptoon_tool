@@ -13,6 +13,7 @@ import {
   ConsumerLibraryPage,
   ConsumerMyPage,
   FeedHomePage,
+  LegalDocumentPage,
   LoginPage,
   MovingtoonShortViewerPage,
   PromptoonViewerPage,
@@ -151,6 +152,8 @@ export function AppRouter() {
         <Route path="/experimental" element={<ConsumerExperimentalPage />} />
         <Route path="/library" element={<ConsumerLibraryPage />} />
         <Route path="/my" element={<ConsumerMyPage />} />
+        <Route path="/privacy" element={<LegalDocumentPage />} />
+        <Route path="/terms" element={<LegalDocumentPage />} />
         <Route path="/feed" element={<Navigate replace to="/discovery" />} />
         <Route path="/shorts/:publishId" element={<MovingtoonShortViewerPage />} />
         <Route path="/channel/:channelId" element={<ChannelPage />} />

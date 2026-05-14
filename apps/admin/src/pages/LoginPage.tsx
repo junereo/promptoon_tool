@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ShieldCheck } from 'react-coolicons';
-import { Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 
 import { useAdminAuthStore } from '../features/auth/use-admin-auth-store';
 import { adminApi } from '../shared/api/admin.api';
@@ -8,8 +8,8 @@ import { authApi } from '../shared/api/auth.api';
 import { ApiError } from '../shared/api/client';
 
 function getValidationError(loginId: string, password: string): string | null {
-  if (loginId.trim().length < 8) {
-    return '아이디는 최소 8자 이상이어야 합니다.';
+  if (!loginId.trim()) {
+    return '아이디를 입력해 주세요.';
   }
 
   if (password.trim().length < 8) {
@@ -22,7 +22,6 @@ function getValidationError(loginId: string, password: string): string | null {
 export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const [searchParams] = useSearchParams();
   const login = useAdminAuthStore((state) => state.login);
   const confirmAdminSession = useAdminAuthStore((state) => state.confirmAdminSession);
   const logout = useAdminAuthStore((state) => state.logout);
@@ -34,41 +33,6 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  useEffect(() => {
-    if (!hasHydrated || searchParams.get('oauth') !== '1') {
-      return;
-    }
-
-    let isMounted = true;
-    setIsSubmitting(true);
-    setErrorMessage(null);
-
-    void authApi
-      .refresh()
-      .then(async (authResponse) => {
-        login(authResponse);
-        const adminResponse = await adminApi.me();
-        confirmAdminSession(adminResponse);
-        navigate('/', { replace: true });
-      })
-      .catch((error) => {
-        if (!isMounted) {
-          return;
-        }
-        logout();
-        setErrorMessage(error instanceof ApiError ? error.message : 'Google 로그인 세션을 확인할 수 없습니다.');
-      })
-      .finally(() => {
-        if (isMounted) {
-          setIsSubmitting(false);
-        }
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [confirmAdminSession, hasHydrated, login, logout, navigate, searchParams]);
 
   if (!hasHydrated) {
     return (
@@ -114,16 +78,6 @@ export function LoginPage() {
     }
   }
 
-  async function handleGoogleLogin() {
-    try {
-      setErrorMessage(null);
-      const authorizationUrl = await authApi.getGoogleAuthorizationUrl();
-      window.location.assign(authorizationUrl);
-    } catch (error) {
-      setErrorMessage(error instanceof ApiError ? error.message : 'Google 로그인을 시작할 수 없습니다.');
-    }
-  }
-
   return (
     <main className="grid min-h-screen place-items-center px-6 py-10">
       <div className="grid w-full max-w-5xl overflow-hidden rounded-[36px] border border-admin-border bg-white shadow-admin-card lg:grid-cols-[1.05fr_0.95fr]">
@@ -151,7 +105,7 @@ export function LoginPage() {
                 className="w-full rounded-2xl border border-admin-border bg-white px-4 py-3 text-sm outline-none transition focus:border-admin-blue"
                 id="admin-login-id"
                 onChange={(event) => setLoginId(event.target.value)}
-                placeholder="minimum 8 characters"
+                placeholder="admin"
                 type="text"
                 value={loginId}
               />
@@ -181,15 +135,6 @@ export function LoginPage() {
               {isSubmitting ? '확인 중...' : '관리자 로그인'}
             </button>
           </form>
-
-          <button
-            className="mt-4 w-full rounded-2xl bg-white px-5 py-3 text-sm font-black text-zinc-950 ring-1 ring-admin-border transition hover:bg-zinc-50"
-            disabled={isSubmitting}
-            onClick={handleGoogleLogin}
-            type="button"
-          >
-            Google로 관리자 로그인
-          </button>
         </section>
       </div>
     </main>

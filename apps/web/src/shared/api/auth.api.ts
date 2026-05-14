@@ -8,14 +8,27 @@ import type {
 } from '@promptoon/shared';
 
 import { publicRootApiClient, rootApiClient } from './client';
+import { ApiError } from './client';
+
+export const isLocalCredentialAuthEnabled =
+  import.meta.env.VITE_LOCAL_CREDENTIAL_AUTH_ENABLED === 'true' ||
+  (import.meta.env.VITE_LOCAL_CREDENTIAL_AUTH_ENABLED === undefined && import.meta.env.DEV);
 
 export const authApi = {
   async login(payload: LoginRequest): Promise<AuthResponse> {
+    if (!isLocalCredentialAuthEnabled) {
+      throw new ApiError('Local credential authentication is disabled.', 404);
+    }
+
     const { data } = await publicRootApiClient.post('/auth/login', payload);
     return data;
   },
 
   async register(payload: RegisterRequest): Promise<AuthResponse> {
+    if (!isLocalCredentialAuthEnabled) {
+      throw new ApiError('Local credential authentication is disabled.', 404);
+    }
+
     const { data } = await publicRootApiClient.post('/auth/register', payload);
     return data;
   },

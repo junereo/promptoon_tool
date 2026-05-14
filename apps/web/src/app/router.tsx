@@ -13,6 +13,7 @@ import {
   ConsumerLibraryPage,
   ConsumerMyPage,
   FeedHomePage,
+  LegalDocumentPage,
   LoginPage,
   MovingtoonShortViewerPage,
   PromptoonViewerPage,
@@ -151,6 +152,14 @@ export const router: AppRouter = createBrowserRouter([
   {
     path: '/my',
     element: withRouteSuspense(<ConsumerMyPage />)
+  },
+  {
+    path: '/privacy',
+    element: withRouteSuspense(<LegalDocumentPage />)
+  },
+  {
+    path: '/terms',
+    element: withRouteSuspense(<LegalDocumentPage />)
   },
   {
     path: '/feed',

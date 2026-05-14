@@ -37,6 +37,27 @@ function getOptionalEnv(...names: string[]): string | null {
   return null;
 }
 
+function getBooleanEnv(name: string, fallback: boolean): boolean {
+  const value = getOptionalEnv(name);
+  if (!value) {
+    return fallback;
+  }
+
+  return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
+}
+
+function getCsvEnv(name: string): string[] {
+  const value = getOptionalEnv(name);
+  if (!value) {
+    return [];
+  }
+
+  return value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
 const discourseApiKey = getOptionalEnv('DISCOURSE_API_KEY', 'VITE_DISCOURSE_API_KEY');
 const discourseBaseUrl =
   getOptionalEnv('DISCOURSE_BASE_URL', 'VITE_DISCOURSE_BASE_URL', 'VITE_DISCOURSE_URL') ??
@@ -45,6 +66,7 @@ const isDevelopment = (process.env.NODE_ENV ?? 'development') !== 'production';
 const discourseCategoryId =
   getOptionalEnv('DISCOURSE_CATEGORY_ID', 'VITE_DISCOURSE_CATEGORY_ID') ??
   (isDevelopment && discourseBaseUrl && /localhost|127\.0\.0\.1/.test(discourseBaseUrl) ? '7' : null);
+const localCredentialAuthEnabled = getBooleanEnv('LOCAL_CREDENTIAL_AUTH_ENABLED', true);
 
 export const env = {
   databaseUrl: getRequiredEnv('DATABASE_URL', 'postgresql://promptoon_user:promptoon_password@localhost:5432/promptoon_db'),
@@ -61,6 +83,12 @@ export const env = {
     clientId: getOptionalEnv('GOOGLE_CLIENT_ID'),
     clientSecret: getOptionalEnv('GOOGLE_CLIENT_SECRET'),
     redirectUri: getOptionalEnv('GOOGLE_REDIRECT_URI')
+  },
+  auth: {
+    localCredentialAuthEnabled,
+    localCredentialLoginEnabled: getBooleanEnv('LOCAL_CREDENTIAL_LOGIN_ENABLED', localCredentialAuthEnabled),
+    localCredentialRegisterEnabled: getBooleanEnv('LOCAL_CREDENTIAL_REGISTER_ENABLED', localCredentialAuthEnabled),
+    localCredentialLoginAllowedOrigins: getCsvEnv('LOCAL_CREDENTIAL_LOGIN_ALLOWED_ORIGINS')
   },
   discourse: {
     baseUrl: discourseBaseUrl,

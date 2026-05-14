@@ -4,7 +4,7 @@ import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react
 
 import { useLogin } from '../features/auth/hooks/use-auth-query';
 import { useAuthStore } from '../features/auth/store/use-auth-store';
-import { authService } from '../shared/api/auth.service';
+import { authService, isLocalCredentialAuthEnabled } from '../shared/api/auth.service';
 import { ApiError } from '../shared/api/client';
 
 const POST_LOGIN_REDIRECT_PATH = '/';
@@ -162,60 +162,66 @@ export function LoginPage() {
             <p className="mt-5 text-base font-medium tracking-normal text-white">새로운 선택지가 필요할 때, 프롬툰</p>
           </div>
 
-          <form className="space-y-4" onSubmit={handleSubmit}>
-            <div>
-              <label className="mb-2 block text-sm font-medium text-white/78" htmlFor="login-id">
-                아이디
-              </label>
-              <input
-                className="h-12 w-full rounded-md border border-white/12 bg-white px-4 text-sm font-semibold text-zinc-950 outline-none transition placeholder:text-zinc-400 focus:border-[#1fffe6] focus:ring-2 focus:ring-[#1fffe6]/40"
-                id="login-id"
-                onChange={(event) => setLoginId(event.target.value)}
-                placeholder="minimum 8 characters"
-                type="text"
-                value={loginId}
-              />
-            </div>
+          {isLocalCredentialAuthEnabled ? (
+            <form className="space-y-4" onSubmit={handleSubmit}>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-white/78" htmlFor="login-id">
+                  아이디
+                </label>
+                <input
+                  className="h-12 w-full rounded-md border border-white/12 bg-white px-4 text-sm font-semibold text-zinc-950 outline-none transition placeholder:text-zinc-400 focus:border-[#1fffe6] focus:ring-2 focus:ring-[#1fffe6]/40"
+                  id="login-id"
+                  onChange={(event) => setLoginId(event.target.value)}
+                  placeholder="minimum 8 characters"
+                  type="text"
+                  value={loginId}
+                />
+              </div>
 
-            <div>
-              <label className="mb-2 block text-sm font-medium text-white/78" htmlFor="login-password">
-                비밀번호
-              </label>
-              <input
-                className="h-12 w-full rounded-md border border-white/12 bg-white px-4 text-sm font-semibold text-zinc-950 outline-none transition placeholder:text-zinc-400 focus:border-[#1fffe6] focus:ring-2 focus:ring-[#1fffe6]/40"
-                id="login-password"
-                onChange={(event) => setPassword(event.target.value)}
-                placeholder="minimum 8 characters"
-                type="password"
-                value={password}
-              />
-            </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-white/78" htmlFor="login-password">
+                  비밀번호
+                </label>
+                <input
+                  className="h-12 w-full rounded-md border border-white/12 bg-white px-4 text-sm font-semibold text-zinc-950 outline-none transition placeholder:text-zinc-400 focus:border-[#1fffe6] focus:ring-2 focus:ring-[#1fffe6]/40"
+                  id="login-password"
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="minimum 8 characters"
+                  type="password"
+                  value={password}
+                />
+              </div>
 
-            {errorMessage ? <p className="text-sm text-rose-200">{errorMessage}</p> : null}
+              {errorMessage ? <p className="text-sm text-rose-200">{errorMessage}</p> : null}
 
-            <button
-              className="h-14 w-full rounded-xl bg-[#146bff] px-5 text-base font-bold text-white transition hover:bg-[#0e5be2] disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={loginMutation.isPending}
-              type="submit"
-            >
-              {loginMutation.isPending ? 'Signing In...' : 'Sign In'}
-            </button>
-          </form>
+              <button
+                className="h-14 w-full rounded-xl bg-[#146bff] px-5 text-base font-bold text-white transition hover:bg-[#0e5be2] disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={loginMutation.isPending}
+                type="submit"
+              >
+                {loginMutation.isPending ? 'Signing In...' : 'Sign In'}
+              </button>
+            </form>
+          ) : null}
+
+          {!isLocalCredentialAuthEnabled && errorMessage ? <p className="text-sm text-rose-200">{errorMessage}</p> : null}
 
           <button
-            className="mt-4 h-14 w-full rounded-xl bg-white px-5 text-base font-bold text-zinc-950 transition hover:bg-zinc-100"
+            className={`${isLocalCredentialAuthEnabled ? 'mt-4' : ''} h-14 w-full rounded-xl bg-white px-5 text-base font-bold text-zinc-950 transition hover:bg-zinc-100`}
             onClick={handleGoogleLogin}
             type="button"
           >
             Google로 로그인
           </button>
 
-          <p className="mt-7 text-center text-sm leading-6 text-white/48">
-            계정이 없다면{' '}
-            <Link className="font-semibold text-white/82 underline underline-offset-4 transition hover:text-white" to="/register">
-              회원가입
-            </Link>
-          </p>
+          {isLocalCredentialAuthEnabled ? (
+            <p className="mt-7 text-center text-sm leading-6 text-white/48">
+              계정이 없다면{' '}
+              <Link className="font-semibold text-white/82 underline underline-offset-4 transition hover:text-white" to="/register">
+                회원가입
+              </Link>
+            </p>
+          ) : null}
           <p className="mt-5 text-center text-xs leading-5 text-white/36">
             시작하면 서비스 이용약관에 동의하게 됩니다.
           </p>

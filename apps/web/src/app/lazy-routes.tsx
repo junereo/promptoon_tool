@@ -19,6 +19,7 @@ export const preloadConsumerHomePage = () => import('../domains/consumer/pages/C
 export const preloadConsumerExperimentalPage = () => import('../domains/consumer/pages/ConsumerExperimentalPage');
 export const preloadConsumerLibraryPage = () => import('../domains/consumer/pages/ConsumerLibraryPage');
 export const preloadConsumerMyPage = () => import('../domains/consumer/pages/ConsumerMyPage');
+export const preloadLegalDocumentPage = () => import('../domains/consumer/pages/LegalDocumentPage');
 export const preloadDiscoveryPage = () => import('../domains/feed/pages/FeedHomePage');
 export const preloadMovingtoonShortViewerPage = () => import('../domains/feed/pages/MovingtoonShortViewerPage');
 export const preloadLoginPage = () => import('../pages/LoginPage');
@@ -42,6 +43,7 @@ export const ConsumerHomePage = lazyNamedPage(preloadConsumerHomePage, 'Consumer
 export const ConsumerExperimentalPage = lazyNamedPage(preloadConsumerExperimentalPage, 'ConsumerExperimentalPage');
 export const ConsumerLibraryPage = lazyNamedPage(preloadConsumerLibraryPage, 'ConsumerLibraryPage');
 export const ConsumerMyPage = lazyNamedPage(preloadConsumerMyPage, 'ConsumerMyPage');
+export const LegalDocumentPage = lazyNamedPage(preloadLegalDocumentPage, 'LegalDocumentPage');
 export const FeedHomePage = lazyNamedPage(preloadDiscoveryPage, 'FeedHomePage');
 export const MovingtoonShortViewerPage = lazyNamedPage(preloadMovingtoonShortViewerPage, 'MovingtoonShortViewerPage');
 export const LoginPage = lazyNamedPage(preloadLoginPage, 'LoginPage');
@@ -90,6 +92,10 @@ export function preloadAppRoute(to: string, options: { publishId?: string; itemT
 
   if (routePath === '/my') {
     return preloadConsumerMyPage();
+  }
+
+  if (routePath === '/privacy' || routePath === '/terms') {
+    return preloadLegalDocumentPage();
   }
 
   if (routePath.startsWith('/v/')) {

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { ExternalLink } from 'react-coolicons';
+import { Link } from 'react-router-dom';
 
 import { cn } from '../../../shared/lib/cn';
 import { ConsumerBottomNav } from './ConsumerBottomNav';
@@ -18,7 +19,14 @@ const STORE_BADGES = [
   }
 ];
 
-const FOOTER_LABELS = ['서비스 이용약관', '개인정보 처리방침', '자주 묻는 질문', '문의하기', '청소년 보호 정책', '공지사항'];
+const FOOTER_LINKS = [
+  { label: '서비스 이용약관', to: '/terms' },
+  { label: '개인정보 처리방침', to: '/privacy' },
+  { label: '자주 묻는 질문' },
+  { label: '문의하기' },
+  { label: '청소년 보호 정책' },
+  { label: '공지사항' }
+];
 export const CONSUMER_FRAME_CLASS =
   'mx-auto min-h-dvh w-full max-w-[480px] overflow-x-hidden lg:relative lg:left-[50vw] lg:mx-0 lg:grid lg:h-dvh lg:min-h-0 lg:w-[960px] lg:min-w-[960px] lg:max-w-[960px] lg:-translate-x-1/2 lg:grid-cols-[480px_480px] lg:gap-0 lg:overflow-hidden';
 export const CONSUMER_RIGHT_FRAME_CLASS =
@@ -73,9 +81,15 @@ function LandingFooterContent() {
   return (
     <footer className="text-left text-sm text-white/48">
       <div className="flex flex-wrap gap-x-4 gap-y-2 text-white/58">
-        {FOOTER_LABELS.map((label) => (
-          <span key={label}>{label}</span>
-        ))}
+        {FOOTER_LINKS.map((item) =>
+          item.to ? (
+            <Link className="transition hover:text-white focus:outline-none focus:ring-2 focus:ring-white/40" key={item.label} to={item.to}>
+              {item.label}
+            </Link>
+          ) : (
+            <span key={item.label}>{item.label}</span>
+          )
+        )}
       </div>
 
       <a

@@ -1,10 +1,11 @@
 import { Router } from 'express';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import type { AuthResponse } from '@promptoon/shared';
 import { z } from 'zod';
 
 import { asyncHandler } from '../../lib/async-handler';
 import { getRequiredAuthUser, requireAuth } from '../../lib/auth';
+import { env } from '../../lib/env';
 import { HttpError } from '../../lib/http-error';
 import { loginSchema, registerSchema, updateProfileSchema } from './auth.schemas';
 import * as service from './auth.service';
@@ -49,10 +50,32 @@ function clearAuthCookies(response: Response): void {
   response.clearCookie(service.authCookieNames.sessionHint, sessionHintOptions);
 }
 
+function ensureLocalCredentialLoginEnabled(request: Request): void {
+  if (!env.auth.localCredentialLoginEnabled) {
+    throw new HttpError(404, 'Local credential authentication is disabled.');
+  }
+
+  if (env.auth.localCredentialLoginAllowedOrigins.length === 0) {
+    return;
+  }
+
+  const origin = request.get('origin');
+  if (!origin || !env.auth.localCredentialLoginAllowedOrigins.includes(origin)) {
+    throw new HttpError(404, 'Local credential authentication is disabled.');
+  }
+}
+
+function ensureLocalCredentialRegisterEnabled(): void {
+  if (!env.auth.localCredentialRegisterEnabled) {
+    throw new HttpError(404, 'Local credential authentication is disabled.');
+  }
+}
+
 export function createAuthRouter(): Router {
   const router = Router();
 
   router.post('/register', asyncHandler(async (request, response) => {
+    ensureLocalCredentialRegisterEnabled();
     const body = registerSchema.parse(request.body);
     const payload = await service.register(body);
     setAuthCookies(response, payload);
@@ -60,6 +83,7 @@ export function createAuthRouter(): Router {
   }));
 
   router.post('/login', asyncHandler(async (request, response) => {
+    ensureLocalCredentialLoginEnabled(request);
     const body = loginSchema.parse(request.body);
     const payload = await service.login(body);
     setAuthCookies(response, payload);

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 const credentialSchema = z.string().trim().min(8);
+const loginIdSchema = z.string().trim().min(1);
 
 export const registerSchema = z.object({
   loginId: credentialSchema,
@@ -8,7 +9,7 @@ export const registerSchema = z.object({
 });
 
 export const loginSchema = z.object({
-  loginId: credentialSchema,
+  loginId: loginIdSchema,
   password: credentialSchema
 });
 

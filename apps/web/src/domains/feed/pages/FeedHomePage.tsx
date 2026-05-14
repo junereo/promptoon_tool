@@ -503,8 +503,8 @@ export function FeedHomePage() {
     );
 
   return (
-    <main className="min-h-dvh bg-[#050506] text-white">
-      <div className={`${CONSUMER_FRAME_CLASS} ${isCommentsPanelOpen && commentsPanelItem ? 'feed-comments-open' : ''}`}>
+    <main className={`min-h-dvh bg-[#050506] text-white ${isCommentsPanelOpen && commentsPanelItem ? 'feed-comments-open' : ''}`}>
+      <div className={CONSUMER_FRAME_CLASS}>
         <ConsumerDesktopLandingPanel />
         <section className={`${CONSUMER_RIGHT_FRAME_CLASS} feed-page relative overflow-hidden !bg-black shadow-[0_0_80px_rgba(0,0,0,0.42)]`}>
       <header className="pointer-events-none fixed inset-x-0 top-0 z-40 hidden h-14 items-center bg-black/92 px-4 text-white shadow-[0_1px_0_rgba(255,255,255,0.08)]">
@@ -614,22 +614,6 @@ export function FeedHomePage() {
         {content}
       </div>
 
-      {isCommentsPanelOpen && commentsPanelItem ? (
-        commentsPanelItem.type === 'short_drama' ? (
-          <FeedCommentsPanel
-            item={commentsPanelItem}
-            onClose={() => setIsCommentsPanelOpen(false)}
-            onCommentCreated={handleCommentCreated}
-          />
-        ) : (
-          <FeedDiscourseCommentsPanel
-            item={commentsPanelItem}
-            onClose={() => setIsCommentsPanelOpen(false)}
-            onCommentCreated={handleCommentCreated}
-          />
-        )
-      ) : null}
-
       {isFeedMenuOpen ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center">
           <button
@@ -672,6 +656,21 @@ export function FeedHomePage() {
       ) : null}
         </section>
       </div>
+      {isCommentsPanelOpen && commentsPanelItem ? (
+        commentsPanelItem.type === 'short_drama' ? (
+          <FeedCommentsPanel
+            item={commentsPanelItem}
+            onClose={() => setIsCommentsPanelOpen(false)}
+            onCommentCreated={handleCommentCreated}
+          />
+        ) : (
+          <FeedDiscourseCommentsPanel
+            item={commentsPanelItem}
+            onClose={() => setIsCommentsPanelOpen(false)}
+            onCommentCreated={handleCommentCreated}
+          />
+        )
+      ) : null}
       <ConsumerBottomNav className={CONSUMER_RIGHT_NAV_CLASS} />
     </main>
   );

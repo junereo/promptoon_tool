@@ -2,6 +2,8 @@ import type { AuthResponse, LoginRequest, RegisterRequest, UpdateProfileRequest,
 
 import { authApi } from './auth.api';
 
+export { isLocalCredentialAuthEnabled } from './auth.api';
+
 export const authService = {
   async login(payload: LoginRequest): Promise<AuthResponse> {
     return authApi.login(payload);
