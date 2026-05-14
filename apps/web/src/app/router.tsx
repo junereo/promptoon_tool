@@ -5,6 +5,7 @@ import { ProtectedRoute } from '../features/auth/components/ProtectedRoute';
 import { clearAuthSession } from '../features/auth/lib/auth-session';
 import { useAuthStore } from '../features/auth/store/use-auth-store';
 import {
+  AboutPage,
   ChannelHomePage,
   ChannelPage,
   CommunityDiscussionPage,
@@ -136,6 +137,10 @@ export const router: AppRouter = createBrowserRouter([
   {
     path: '/',
     element: withRouteSuspense(<ConsumerHomePage />)
+  },
+  {
+    path: '/about',
+    element: withRouteSuspense(<AboutPage />)
   },
   {
     path: '/discovery',

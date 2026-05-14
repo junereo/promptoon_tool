@@ -15,6 +15,7 @@ function lazyNamedPage<TModule extends Record<string, ComponentType>, TExport ex
 export const preloadChannelHomePage = () => import('../domains/channel/pages/ChannelHomePage');
 export const preloadChannelPage = () => import('../domains/channel/pages/ChannelPage');
 export const preloadCommunityDiscussionPage = () => import('../domains/community/pages/CommunityDiscussionPage');
+export const preloadAboutPage = () => import('../domains/consumer/pages/AboutPage');
 export const preloadConsumerHomePage = () => import('../domains/consumer/pages/ConsumerHomePage');
 export const preloadConsumerExperimentalPage = () => import('../domains/consumer/pages/ConsumerExperimentalPage');
 export const preloadConsumerLibraryPage = () => import('../domains/consumer/pages/ConsumerLibraryPage');
@@ -39,6 +40,7 @@ export const preloadStudioSeriesPage = () => import('../domains/studio/pages/Stu
 export const ChannelHomePage = lazyNamedPage(preloadChannelHomePage, 'ChannelHomePage');
 export const ChannelPage = lazyNamedPage(preloadChannelPage, 'ChannelPage');
 export const CommunityDiscussionPage = lazyNamedPage(preloadCommunityDiscussionPage, 'CommunityDiscussionPage');
+export const AboutPage = lazyNamedPage(preloadAboutPage, 'AboutPage');
 export const ConsumerHomePage = lazyNamedPage(preloadConsumerHomePage, 'ConsumerHomePage');
 export const ConsumerExperimentalPage = lazyNamedPage(preloadConsumerExperimentalPage, 'ConsumerExperimentalPage');
 export const ConsumerLibraryPage = lazyNamedPage(preloadConsumerLibraryPage, 'ConsumerLibraryPage');
@@ -76,6 +78,10 @@ export function preloadAppRoute(to: string, options: { publishId?: string; itemT
 
   if (routePath === '/') {
     return preloadConsumerHomePage();
+  }
+
+  if (routePath === '/about') {
+    return preloadAboutPage();
   }
 
   if (routePath === '/discovery' || routePath === '/feed' || routePath === '/overview') {

@@ -5,6 +5,7 @@ import { ProtectedRoute } from '../features/auth/components/ProtectedRoute';
 import { clearAuthSession } from '../features/auth/lib/auth-session';
 import { useAuthStore } from '../features/auth/store/use-auth-store';
 import {
+  AboutPage,
   ChannelHomePage,
   ChannelPage,
   CommunityDiscussionPage,
@@ -148,6 +149,7 @@ export function AppRouter() {
     <Suspense fallback={<RouteLoadingScreen />}>
       <Routes>
         <Route path="/" element={<ConsumerHomePage />} />
+        <Route path="/about" element={<AboutPage />} />
         <Route path="/discovery" element={<FeedHomePage />} />
         <Route path="/experimental" element={<ConsumerExperimentalPage />} />
         <Route path="/library" element={<ConsumerLibraryPage />} />

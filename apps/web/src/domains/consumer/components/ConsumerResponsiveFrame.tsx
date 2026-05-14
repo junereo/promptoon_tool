@@ -20,6 +20,7 @@ const STORE_BADGES = [
 ];
 
 const FOOTER_LINKS = [
+  { label: 'About', to: '/about' },
   { label: '서비스 이용약관', to: '/terms' },
   { label: '개인정보 처리방침', to: '/privacy' },
   { label: '자주 묻는 질문' },
