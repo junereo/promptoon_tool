@@ -9,6 +9,14 @@ import type {
   ExperimentalInviteCodeWithPlainText
 } from './experimental';
 import type { AuthUser } from './legacy';
+import type {
+  AdminPlatformAccessCodeListResponse,
+  AdminPlatformAccessGrantListResponse,
+  CreateAdminPlatformAccessCodeRequest,
+  CreateAdminPlatformAccessCodeResponse,
+  CreateAdminPlatformAccessGrantRequest,
+  PatchAdminPlatformAccessGrantRequest
+} from './platform-access';
 import type { ProjectRole, StudioRole } from './studio';
 
 export type PlatformRole = 'platform_admin';
@@ -179,3 +187,12 @@ export interface CreateAdminExperimentalInviteCodeRequest {
 export interface CreateAdminExperimentalInviteCodeResponse {
   codes: ExperimentalInviteCodeWithPlainText[];
 }
+
+export type {
+  AdminPlatformAccessCodeListResponse,
+  AdminPlatformAccessGrantListResponse,
+  CreateAdminPlatformAccessCodeRequest,
+  CreateAdminPlatformAccessCodeResponse,
+  CreateAdminPlatformAccessGrantRequest,
+  PatchAdminPlatformAccessGrantRequest
+};

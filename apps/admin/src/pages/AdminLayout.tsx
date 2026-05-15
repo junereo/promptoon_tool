@@ -2,9 +2,11 @@ import {
   ChartBarVertical01 as BarChart3,
   FileDocument as FileText,
   House01 as Home,
+  Image01 as Image,
   LogOut,
   Chat as MessageSquare,
   PaperPlane as Rocket,
+  Lock as Key,
   ShieldCheck,
   Users
 } from 'react-coolicons';
@@ -21,6 +23,8 @@ const navItems = [
   { to: '/projects', label: 'Projects', icon: FileText },
   { to: '/publishes', label: 'Publishes', icon: Rocket },
   { to: '/experimental', label: 'Experimental', icon: ShieldCheck },
+  { to: '/platform-access', label: 'Platform Access', icon: Key },
+  { to: '/landing', label: '대문 관리', icon: Image },
   { to: '/community', label: 'Community', icon: MessageSquare },
   { to: '/telemetry', label: 'Telemetry', icon: BarChart3 }
 ];

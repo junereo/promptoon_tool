@@ -12,10 +12,10 @@ interface ConsumerNavItem {
 }
 
 const CONSUMER_NAV_ITEMS: ConsumerNavItem[] = [
-  { icon: Home, label: '홈', to: '/' },
-  { icon: Compass, label: '탐색', to: '/discovery' },
-  { icon: BookOpen, label: '보관함', to: '/library' },
-  { icon: User, label: '마이', to: '/my' }
+  { icon: Home, label: '홈', to: '/platform' },
+  { icon: Compass, label: '탐색', to: '/platform/discovery' },
+  { icon: BookOpen, label: '보관함', to: '/platform/library' },
+  { icon: User, label: '마이', to: '/platform/my' }
 ];
 
 interface ConsumerBottomNavProps {

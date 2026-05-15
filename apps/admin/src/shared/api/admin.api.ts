@@ -3,7 +3,10 @@ import type {
   AdminExperimentalGrantListResponse,
   AdminExperimentalInviteCodeListResponse,
   AdminExperimentalTargetListResponse,
+  AdminLandingResponse,
   AdminMeResponse,
+  AdminPlatformAccessCodeListResponse,
+  AdminPlatformAccessGrantListResponse,
   AdminProjectListResponse,
   AdminPublishListResponse,
   AdminTelemetrySummaryResponse,
@@ -14,13 +17,23 @@ import type {
   CreateAdminExperimentalInviteCodeRequest,
   CreateAdminExperimentalInviteCodeResponse,
   CreateAdminExperimentalTargetRequest,
+  CreateAdminLandingItemRequest,
+  CreateAdminPlatformAccessCodeRequest,
+  CreateAdminPlatformAccessCodeResponse,
+  CreateAdminPlatformAccessGrantRequest,
   ExperimentalAccessGrant,
   ExperimentalAccessTarget,
   ExperimentalInviteCode,
+  PatchAdminPlatformAccessGrantRequest,
   PatchAdminExperimentalGrantRequest,
   PatchAdminExperimentalTargetRequest,
+  PatchAdminLandingConfigRequest,
+  PatchAdminLandingItemRequest,
   PatchPlatformRoleRequest,
-  PatchStudioRoleRequest
+  PlatformAccessCode,
+  PlatformAccessGrant,
+  PatchStudioRoleRequest,
+  UpdateAdminLandingItemOrderRequest
 } from '@promptoon/shared';
 
 import { rootApiClient } from './client';
@@ -64,6 +77,35 @@ export const adminApi = {
   async getTelemetrySummary(): Promise<AdminTelemetrySummaryResponse> {
     const { data } = await rootApiClient.get('/admin/telemetry/summary');
     return data;
+  },
+
+  async getLanding(): Promise<AdminLandingResponse> {
+    const { data } = await rootApiClient.get('/admin/landing');
+    return data;
+  },
+
+  async updateLandingConfig(payload: PatchAdminLandingConfigRequest): Promise<AdminLandingResponse> {
+    const { data } = await rootApiClient.patch('/admin/landing', payload);
+    return data;
+  },
+
+  async createLandingItem(payload: CreateAdminLandingItemRequest): Promise<AdminLandingResponse['items'][number]> {
+    const { data } = await rootApiClient.post('/admin/landing/items', payload);
+    return data;
+  },
+
+  async updateLandingItem(itemId: string, payload: PatchAdminLandingItemRequest): Promise<AdminLandingResponse['items'][number]> {
+    const { data } = await rootApiClient.patch(`/admin/landing/items/${itemId}`, payload);
+    return data;
+  },
+
+  async updateLandingItemOrder(payload: UpdateAdminLandingItemOrderRequest): Promise<AdminLandingResponse> {
+    const { data } = await rootApiClient.put('/admin/landing/items/order', payload);
+    return data;
+  },
+
+  async deleteLandingItem(itemId: string): Promise<void> {
+    await rootApiClient.delete(`/admin/landing/items/${itemId}`);
   },
 
   async listExperimentalTargets(): Promise<AdminExperimentalTargetListResponse> {
@@ -118,6 +160,41 @@ export const adminApi = {
 
   async revokeExperimentalInviteCode(codeId: string): Promise<ExperimentalInviteCode> {
     const { data } = await rootApiClient.patch(`/admin/experimental/invite-codes/${codeId}`, { status: 'revoked' });
+    return data;
+  },
+
+  async listPlatformAccessGrants(): Promise<AdminPlatformAccessGrantListResponse> {
+    const { data } = await rootApiClient.get('/admin/platform-access/grants');
+    return data;
+  },
+
+  async createPlatformAccessGrant(payload: CreateAdminPlatformAccessGrantRequest): Promise<PlatformAccessGrant> {
+    const { data } = await rootApiClient.post('/admin/platform-access/grants', payload);
+    return data;
+  },
+
+  async updatePlatformAccessGrant(grantId: string, payload: PatchAdminPlatformAccessGrantRequest): Promise<PlatformAccessGrant> {
+    const { data } = await rootApiClient.patch(`/admin/platform-access/grants/${grantId}`, payload);
+    return data;
+  },
+
+  async listPlatformAccessCodes(
+    params: {
+      historyLimit?: number;
+      historyOffset?: number;
+    } = {}
+  ): Promise<AdminPlatformAccessCodeListResponse> {
+    const { data } = await rootApiClient.get('/admin/platform-access/codes', { params });
+    return data;
+  },
+
+  async createPlatformAccessCodes(payload: CreateAdminPlatformAccessCodeRequest): Promise<CreateAdminPlatformAccessCodeResponse> {
+    const { data } = await rootApiClient.post('/admin/platform-access/codes', payload);
+    return data;
+  },
+
+  async revokePlatformAccessCode(codeId: string): Promise<PlatformAccessCode> {
+    const { data } = await rootApiClient.patch(`/admin/platform-access/codes/${codeId}`, { status: 'revoked' });
     return data;
   }
 };

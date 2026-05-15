@@ -2,7 +2,7 @@ import { Navigate, createBrowserRouter } from 'react-router-dom';
 
 import { AdminRouteGuard } from '../features/auth/AdminRouteGuard';
 import { AdminLayout } from '../pages/AdminLayout';
-import { CommunityPage, DashboardPage, ExperimentalPage, ProjectsPage, PublishesPage, TelemetryPage, UsersPage } from '../pages/AdminPages';
+import { CommunityPage, DashboardPage, ExperimentalPage, LandingPage, PlatformAccessPage, ProjectsPage, PublishesPage, TelemetryPage, UsersPage } from '../pages/AdminPages';
 import { LoginPage } from '../pages/LoginPage';
 
 type AdminRouter = ReturnType<typeof createBrowserRouter>;
@@ -39,6 +39,14 @@ export const router: AdminRouter = createBrowserRouter([
       {
         path: 'experimental',
         element: <ExperimentalPage />
+      },
+      {
+        path: 'platform-access',
+        element: <PlatformAccessPage />
+      },
+      {
+        path: 'landing',
+        element: <LandingPage />
       },
       {
         path: 'community',

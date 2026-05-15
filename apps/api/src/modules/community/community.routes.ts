@@ -68,6 +68,11 @@ export function createCommunityRouter(): Router {
     );
   }));
 
+  router.post('/publishes/:publishId/anonymous-comments', asyncHandler(async (request, response) => {
+    const body = commentBodySchema.parse(request.body);
+    response.status(201).json(await service.createAnonymousComment(getParam(request.params.publishId, 'publishId'), body.body));
+  }));
+
   router.patch('/comments/:commentId', requireAuth, asyncHandler(async (request, response) => {
     const body = commentBodySchema.parse(request.body);
     response.json(await service.updateComment(getParam(request.params.commentId, 'commentId'), body.body, getRequiredAuthUser(request).sub));

@@ -357,6 +357,38 @@ export async function createComment(publishId: string, body: string, userId: str
   return comment;
 }
 
+export async function createAnonymousComment(publishId: string, body: string): Promise<CommunityComment> {
+  const promptoonPublish = await getPromptoonPublishWithAccess(publishId, null);
+  const movingtoonPublish = promptoonPublish ? null : await repository.getMovingtoonPublishProjectionContext(db, publishId);
+  const projectId = assertExists(promptoonPublish?.projectId ?? movingtoonPublish?.project_id ?? null, 'Published content not found.');
+  const episodeId = promptoonPublish?.episodeId ?? movingtoonPublish?.episode_id;
+
+  if (promptoonPublish) {
+    await repository.ensureEpisodeDiscussion(db, {
+      episodeId: promptoonPublish.episodeId,
+      publishId: promptoonPublish.id
+    });
+  }
+
+  const comment = await repository.createCommunityComment(db, {
+    publishId,
+    userId: null,
+    body
+  });
+  await refreshCommentProjections(publishId);
+  await repository.insertTelemetryEvent(db, {
+    eventName: 'community_anonymous_comment_created',
+    projectId,
+    episodeId,
+    publishId,
+    payload: {
+      commentId: comment.id
+    }
+  });
+
+  return comment;
+}
+
 export async function updateComment(commentId: string, body: string, userId: string): Promise<CommunityComment> {
   const existing = assertExists(await repository.getCommunityCommentById(db, commentId), 'Comment not found.');
   await ensureCommentWritableByUser(existing, userId);

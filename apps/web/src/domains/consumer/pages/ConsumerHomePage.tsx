@@ -72,7 +72,7 @@ function HomeSection({ section }: { section: HomeCollection }) {
     <section className="min-w-0 max-w-full py-4" id={section.key}>
       <div className="mb-3 flex items-end justify-between gap-4 px-5">
         <h2 className="text-xl font-bold text-white">{section.title}</h2>
-        <Link className="shrink-0 text-xs font-semibold text-white/58" to="/discovery">
+        <Link className="shrink-0 text-xs font-semibold text-white/58" to="/platform/discovery">
           더보기
         </Link>
       </div>
@@ -134,7 +134,7 @@ function HomeContent({
       <MobileAppOpenBanner />
       <header className="sticky top-0 z-20 min-w-0 max-w-full border-b border-white/10 bg-[#09090b]/92 pt-[max(env(safe-area-inset-top),1rem)] backdrop-blur-xl">
         <div className="flex items-center gap-2 px-5 pb-4">
-          <Link className="flex items-center gap-2" to="/">
+          <Link className="flex items-center gap-2" to="/platform">
             <img alt="" className="h-8 w-8 rounded-md bg-white object-cover" src="/promptoon-icon.webp" />
             <span className="font-display text-lg font-semibold tracking-normal text-white">Promptoon</span>
           </Link>

@@ -18,7 +18,6 @@ import { useAuthStore } from '../../../features/auth/store/use-auth-store';
 import { useFeedQuery, type FeedSource } from '../../../features/feed/hooks/use-feed-query';
 import { useFeedTelemetry } from '../../../features/feed/hooks/use-feed-telemetry';
 import { preloadViewerForPublish } from '../../../features/viewer/lib/preload-viewer';
-import { communityApi } from '../../../shared/api/community.api';
 import { feedApi } from '../../../shared/api/feed.api';
 import { promptoonKeys } from '../../../shared/api/query-keys';
 import {
@@ -30,7 +29,6 @@ import {
 } from '../../consumer/components/ConsumerResponsiveFrame';
 import { ConsumerBottomNav } from '../../consumer/components/ConsumerBottomNav';
 import { FeedCommentsPanel } from '../components/FeedCommentsPanel';
-import { FeedDiscourseCommentsPanel } from '../components/FeedDiscourseCommentsPanel';
 import { FeedSlide } from '../components/FeedSlide';
 
 type FeedTabKey = 'recommended' | 'following' | 'latest';
@@ -100,32 +98,9 @@ export function FeedHomePage() {
   const userInitial = useMemo(() => getUserInitial(user?.loginId), [user?.loginId]);
   const deferredActiveIndex = useDeferredValue(activeIndex);
   const activeItem = feedItems[deferredActiveIndex] ?? null;
-  const activePublishId = activeItem?.publishId ?? null;
-  const activeItemUsesDiscourse = activeItem?.type !== 'short_drama';
   const commentsPanelItem = feedItems[activeIndex] ?? activeItem;
   const hasCommentsPanelItem = Boolean(commentsPanelItem);
-  const discourseInteractionViewerKey = isAuthenticated ? user?.id ?? user?.loginId ?? 'authenticated' : 'public';
   const { fetchNextPage, hasNextPage, isFetchingNextPage } = feedQuery;
-  const discourseInteractionQuery = useQuery({
-    enabled: Boolean(activePublishId) && activeItemUsesDiscourse,
-    queryKey: activePublishId
-      ? promptoonKeys.communityDiscourseInteraction(activePublishId, discourseInteractionViewerKey)
-      : promptoonKeys.communityDiscourseInteraction('__idle__', discourseInteractionViewerKey),
-    queryFn: () => communityApi.getDiscourseInteraction(activePublishId ?? '')
-  });
-  const discourseLikeMutation = useMutation({
-    mutationFn: (input: { publishId: string; liked: boolean }) =>
-      input.liked ? communityApi.unlikeDiscoursePublish(input.publishId) : communityApi.likeDiscoursePublish(input.publishId),
-    onSuccess: async (data, variables) => {
-      queryClient.setQueryData(
-        promptoonKeys.communityDiscourseInteraction(variables.publishId, discourseInteractionViewerKey),
-        data
-      );
-      await queryClient.invalidateQueries({
-        queryKey: promptoonKeys.communityDiscourseInteractionRoot(variables.publishId)
-      });
-    }
-  });
   const bookmarkMutation = useMutation({
     mutationFn: (input: { item: FeedItem; bookmarked: boolean }) =>
       input.bookmarked
@@ -325,21 +300,10 @@ export function FeedHomePage() {
       return;
     }
 
-    if (item.type === 'short_drama') {
-      const interactionState = interactionByPublishId.get(item.publishId);
-      void feedLikeMutation.mutateAsync({
-        item,
-        liked: interactionState?.liked ?? false
-      }).catch(() => undefined);
-      return;
-    }
-
-    const discourseInteraction = queryClient.getQueryData<Awaited<ReturnType<typeof communityApi.getDiscourseInteraction>>>(
-      promptoonKeys.communityDiscourseInteraction(item.publishId, discourseInteractionViewerKey)
-    );
-    void discourseLikeMutation.mutateAsync({
-      publishId: item.publishId,
-      liked: discourseInteraction?.liked ?? false
+    const interactionState = interactionByPublishId.get(item.publishId);
+    void feedLikeMutation.mutateAsync({
+      item,
+      liked: interactionState?.liked ?? false
     }).catch(() => undefined);
   }
 
@@ -365,7 +329,7 @@ export function FeedHomePage() {
       queryClient.invalidateQueries({ queryKey: promptoonKeys.feedInteractionState(publishIdsKey) }),
       queryClient.invalidateQueries({ queryKey: promptoonKeys.feed() }),
       commentsPanelItem
-        ? queryClient.invalidateQueries({ queryKey: promptoonKeys.communityDiscourseInteractionRoot(commentsPanelItem.publishId) })
+        ? queryClient.invalidateQueries({ queryKey: promptoonKeys.communityCommentsMeta(commentsPanelItem.publishId) })
         : Promise.resolve()
     ]).catch(() => undefined);
   }
@@ -394,7 +358,7 @@ export function FeedHomePage() {
     event.preventDefault();
     const query = searchQuery.trim();
 
-    navigate(query ? `/discovery?q=${encodeURIComponent(query)}` : '/discovery');
+    navigate(query ? `/platform/discovery?q=${encodeURIComponent(query)}` : '/platform/discovery');
   }
 
   function clearSidePanelRevealTimer() {
@@ -457,7 +421,6 @@ export function FeedHomePage() {
           <FeedSlide
             interactionState={interactionByPublishId.get(item.publishId)}
             isInteractionPending={
-              (discourseLikeMutation.isPending && discourseLikeMutation.variables?.publishId === item.publishId) ||
               (feedLikeMutation.isPending && feedLikeMutation.variables?.item.publishId === item.publishId) ||
               (bookmarkMutation.isPending && bookmarkMutation.variables?.item.publishId === item.publishId)
             }
@@ -465,21 +428,6 @@ export function FeedHomePage() {
             isSidePanelVisible={visibleSidePanelIndex === index}
             item={item}
             key={item.publishId}
-            likedOverride={
-              item.type === 'short_drama'
-                ? undefined
-                : discourseInteractionQuery.data?.publishId === item.publishId
-                  ? discourseInteractionQuery.data.liked
-                  : undefined
-            }
-            metricsOverride={
-              item.type !== 'short_drama' && discourseInteractionQuery.data?.publishId === item.publishId
-                ? {
-                    comments: discourseInteractionQuery.data.metrics.comments,
-                    likes: discourseInteractionQuery.data.metrics.likes
-                  }
-                : undefined
-            }
             onBookmark={() => handleBookmarkFeedItem(item)}
             onComment={handleCommentFeedItem}
             onLike={() => handleLikeFeedItem(item)}
@@ -520,7 +468,7 @@ export function FeedHomePage() {
           <button
             aria-label="Promptoon feed"
             className="flex min-w-0 items-center gap-2 rounded-full pr-3 text-white transition hover:text-white/86 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
-            onClick={() => navigate('/discovery')}
+            onClick={() => navigate('/platform/discovery')}
             type="button"
           >
             <span className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-lg bg-white">
@@ -590,7 +538,7 @@ export function FeedHomePage() {
             <button
               aria-label="검색"
               className="inline-flex h-10 w-10 items-center justify-center rounded-full text-white/82 transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
-              onClick={() => navigate('/overview')}
+              onClick={() => navigate('/platform/discovery')}
               title="검색"
               type="button"
             >
@@ -657,19 +605,11 @@ export function FeedHomePage() {
         </section>
       </div>
       {isCommentsPanelOpen && commentsPanelItem ? (
-        commentsPanelItem.type === 'short_drama' ? (
-          <FeedCommentsPanel
-            item={commentsPanelItem}
-            onClose={() => setIsCommentsPanelOpen(false)}
-            onCommentCreated={handleCommentCreated}
-          />
-        ) : (
-          <FeedDiscourseCommentsPanel
-            item={commentsPanelItem}
-            onClose={() => setIsCommentsPanelOpen(false)}
-            onCommentCreated={handleCommentCreated}
-          />
-        )
+        <FeedCommentsPanel
+          item={commentsPanelItem}
+          onClose={() => setIsCommentsPanelOpen(false)}
+          onCommentCreated={handleCommentCreated}
+        />
       ) : null}
       <ConsumerBottomNav className={CONSUMER_RIGHT_NAV_CLASS} />
     </main>

@@ -1,8 +1,11 @@
 import type {
+  AdminLandingItem,
   AdminUserRoleFilter,
   ExperimentalAccessTarget,
   ExperimentalAccessTargetType,
   ExperimentalInviteCodeWithPlainText,
+  LandingTargetType,
+  PlatformAccessCodeWithPlainText,
   PlatformRole,
   StudioRole
 } from '@promptoon/shared';
@@ -333,7 +336,9 @@ export function PublishesPage() {
   );
 }
 
-function downloadExperimentalCodes(codes: ExperimentalInviteCodeWithPlainText[]) {
+type GeneratedAccessCode = ExperimentalInviteCodeWithPlainText | PlatformAccessCodeWithPlainText;
+
+function downloadAccessCodes(codes: GeneratedAccessCode[], filenamePrefix: string) {
   const rows = ['code,maskedCode,maxRedemptions,expiresAt', ...codes.map((code) => [
     code.code,
     code.maskedCode,
@@ -342,11 +347,11 @@ function downloadExperimentalCodes(codes: ExperimentalInviteCodeWithPlainText[])
   ].join(','))];
   const anchor = document.createElement('a');
   anchor.href = `data:text/csv;charset=utf-8,${encodeURIComponent(rows.join('\n'))}`;
-  anchor.download = `experimental-invite-codes-${Date.now()}.csv`;
+  anchor.download = `${filenamePrefix}-${Date.now()}.csv`;
   anchor.click();
 }
 
-function copyExperimentalCodes(codes: ExperimentalInviteCodeWithPlainText[]) {
+function copyAccessCodes(codes: GeneratedAccessCode[]) {
   void navigator.clipboard?.writeText(codes.map((code) => code.code).join('\n'));
 }
 
@@ -668,10 +673,10 @@ export function ExperimentalPage() {
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-sm font-black text-admin-ink">방금 생성된 코드</p>
                   <div className="flex items-center gap-3">
-                    <button className="text-xs font-black text-admin-blue" onClick={() => copyExperimentalCodes(createdCodes)} type="button">
+                    <button className="text-xs font-black text-admin-blue" onClick={() => copyAccessCodes(createdCodes)} type="button">
                       복사
                     </button>
-                    <button className="text-xs font-black text-admin-blue" onClick={() => downloadExperimentalCodes(createdCodes)} type="button">
+                    <button className="text-xs font-black text-admin-blue" onClick={() => downloadAccessCodes(createdCodes, 'experimental-invite-codes')} type="button">
                       CSV 다운로드
                     </button>
                   </div>
@@ -747,6 +752,512 @@ export function ExperimentalPage() {
           </Card>
         </section>
       ) : null}
+    </div>
+  );
+}
+
+export function PlatformAccessPage() {
+  const queryClient = useQueryClient();
+  const [grantLoginId, setGrantLoginId] = useState('');
+  const [inviteMode, setInviteMode] = useState<'single_use_batch' | 'multi_use'>('single_use_batch');
+  const [inviteCount, setInviteCount] = useState(10);
+  const [maxRedemptions, setMaxRedemptions] = useState(50);
+  const [createdCodes, setCreatedCodes] = useState<PlatformAccessCodeWithPlainText[]>([]);
+  const [historyPage, setHistoryPage] = useState(0);
+  const historyOffset = historyPage * EXPERIMENTAL_INVITE_HISTORY_PAGE_SIZE;
+  const grants = useQuery({
+    queryKey: ['admin', 'platform-access', 'grants'],
+    queryFn: () => adminApi.listPlatformAccessGrants()
+  });
+  const codes = useQuery({
+    queryKey: ['admin', 'platform-access', 'codes', historyPage],
+    queryFn: () =>
+      adminApi.listPlatformAccessCodes({
+        historyLimit: EXPERIMENTAL_INVITE_HISTORY_PAGE_SIZE,
+        historyOffset
+      })
+  });
+  const historyTotal = codes.data?.historyTotal ?? 0;
+  const historyPageCount = Math.max(Math.ceil(historyTotal / EXPERIMENTAL_INVITE_HISTORY_PAGE_SIZE), 1);
+  const grantMutation = useMutation({
+    mutationFn: () => adminApi.createPlatformAccessGrant({ loginId: grantLoginId.trim() }),
+    onSuccess: async () => {
+      setGrantLoginId('');
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'platform-access', 'grants'] });
+    }
+  });
+  const grantStatusMutation = useMutation({
+    mutationFn: ({ grantId, status }: { grantId: string; status: 'active' | 'revoked' }) =>
+      adminApi.updatePlatformAccessGrant(grantId, { status }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'platform-access', 'grants'] });
+    }
+  });
+  const inviteMutation = useMutation({
+    mutationFn: () =>
+      adminApi.createPlatformAccessCodes({
+        count: inviteMode === 'single_use_batch' ? inviteCount : undefined,
+        maxRedemptions: inviteMode === 'multi_use' ? maxRedemptions : undefined,
+        mode: inviteMode
+      }),
+    onSuccess: async (response) => {
+      setCreatedCodes(response.codes);
+      setHistoryPage(0);
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'platform-access', 'codes'] });
+    }
+  });
+  const revokeCodeMutation = useMutation({
+    mutationFn: (codeId: string) => adminApi.revokePlatformAccessCode(codeId),
+    onSuccess: async () => {
+      setHistoryPage(0);
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'platform-access', 'codes'] });
+    }
+  });
+
+  return (
+    <div>
+      <PageHeader
+        description="공개 데모 대문에서 플랫폼 홈으로 진입할 수 있는 사용자 권한과 특별 코드를 관리합니다. 생성된 원문 코드는 이 화면에서만 표시됩니다."
+        title="Platform Access"
+      />
+
+      <section className="grid gap-4 xl:grid-cols-2">
+        <Card>
+          <h3 className="text-xl font-black text-admin-ink">사용자 권한</h3>
+          <div className="mt-4 flex gap-2">
+            <input
+              className="min-w-0 flex-1 rounded-2xl border border-admin-border px-4 py-3 text-sm outline-none focus:border-admin-blue"
+              onChange={(event) => setGrantLoginId(event.target.value)}
+              placeholder="login id"
+              value={grantLoginId}
+            />
+            <button
+              className="rounded-2xl bg-admin-blue px-4 py-3 text-sm font-black text-white disabled:opacity-60"
+              disabled={grantMutation.isPending || !grantLoginId.trim()}
+              onClick={() => grantMutation.mutate()}
+              type="button"
+            >
+              부여
+            </button>
+          </div>
+
+          <div className="mt-4 grid gap-2">
+            {(grants.data?.grants ?? []).map((grant) => (
+              <div className="flex items-center justify-between gap-3 rounded-2xl border border-admin-border px-4 py-3" key={grant.id}>
+                <div>
+                  <p className="font-black text-admin-ink">{grant.loginId}</p>
+                  <p className="mt-1 text-xs text-admin-muted">
+                    {grant.source} · {grant.status} · {formatDate(grant.grantedAt)}
+                  </p>
+                </div>
+                <button
+                  className="rounded-xl border border-admin-border px-3 py-2 text-xs font-bold text-admin-muted"
+                  disabled={grantStatusMutation.isPending}
+                  onClick={() => grantStatusMutation.mutate({ grantId: grant.id, status: grant.status === 'active' ? 'revoked' : 'active' })}
+                  type="button"
+                >
+                  {grant.status === 'active' ? '회수' : '복구'}
+                </button>
+              </div>
+            ))}
+            {grants.data?.grants.length === 0 ? <EmptyState message="플랫폼 접근 권한이 없습니다." /> : null}
+          </div>
+        </Card>
+
+        <Card>
+          <h3 className="text-xl font-black text-admin-ink">특별 코드</h3>
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <select
+              className="rounded-2xl border border-admin-border bg-white px-4 py-3 text-sm font-bold outline-none focus:border-admin-blue"
+              onChange={(event) => setInviteMode(event.target.value as 'single_use_batch' | 'multi_use')}
+              value={inviteMode}
+            >
+              <option value="single_use_batch">1회용 묶음</option>
+              <option value="multi_use">다회용</option>
+            </select>
+            {inviteMode === 'single_use_batch' ? (
+              <input
+                className="rounded-2xl border border-admin-border px-4 py-3 text-sm outline-none focus:border-admin-blue"
+                min={1}
+                max={500}
+                onChange={(event) => setInviteCount(Number(event.target.value))}
+                type="number"
+                value={inviteCount}
+              />
+            ) : (
+              <input
+                className="rounded-2xl border border-admin-border px-4 py-3 text-sm outline-none focus:border-admin-blue"
+                min={1}
+                max={10000}
+                onChange={(event) => setMaxRedemptions(Number(event.target.value))}
+                type="number"
+                value={maxRedemptions}
+              />
+            )}
+            <button
+              className="rounded-2xl bg-admin-blue px-4 py-3 text-sm font-black text-white disabled:opacity-60"
+              disabled={inviteMutation.isPending}
+              onClick={() => inviteMutation.mutate()}
+              type="button"
+            >
+              생성
+            </button>
+          </div>
+
+          {createdCodes.length > 0 ? (
+            <div className="mt-4 rounded-2xl border border-admin-border bg-blue-50 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-black text-admin-ink">방금 생성된 코드</p>
+                <div className="flex items-center gap-3">
+                  <button className="text-xs font-black text-admin-blue" onClick={() => copyAccessCodes(createdCodes)} type="button">
+                    복사
+                  </button>
+                  <button className="text-xs font-black text-admin-blue" onClick={() => downloadAccessCodes(createdCodes, 'platform-access-codes')} type="button">
+                    CSV 다운로드
+                  </button>
+                </div>
+              </div>
+              <textarea
+                className="mt-3 h-28 w-full rounded-2xl border border-admin-border bg-white p-3 font-mono text-xs outline-none"
+                readOnly
+                value={createdCodes.map((code) => code.code).join('\n')}
+              />
+            </div>
+          ) : null}
+
+          <div className="mt-4 grid gap-2">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-black text-admin-ink">활성 코드</p>
+              <span className="text-xs font-bold text-admin-muted">{codes.data?.codes.length ?? 0}개</span>
+            </div>
+            {(codes.data?.codes ?? []).map((code) => (
+              <div className="flex items-center justify-between gap-3 rounded-2xl border border-admin-border px-4 py-3" key={code.id}>
+                <div>
+                  <p className="font-mono text-sm font-black text-admin-ink">{code.maskedCode}</p>
+                  <p className="mt-1 text-xs text-admin-muted">
+                    {code.status} · {code.redeemedCount}/{code.maxRedemptions} · {formatDate(code.expiresAt)}
+                  </p>
+                </div>
+                <button
+                  className="rounded-xl border border-admin-border px-3 py-2 text-xs font-bold text-admin-muted"
+                  disabled={revokeCodeMutation.isPending}
+                  onClick={() => revokeCodeMutation.mutate(code.id)}
+                  type="button"
+                >
+                  폐기
+                </button>
+              </div>
+            ))}
+            {codes.data?.codes.length === 0 ? <EmptyState message="활성 특별 코드가 없습니다." /> : null}
+          </div>
+
+          <div className="mt-6 grid gap-2">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-black text-admin-ink">이력</p>
+              <span className="text-xs font-bold text-admin-muted">{historyTotal}개</span>
+            </div>
+            {(codes.data?.history ?? []).map((code) => (
+              <div className="rounded-2xl border border-admin-border bg-slate-50 px-4 py-3" key={code.id}>
+                <p className="font-mono text-sm font-black text-admin-muted">{code.maskedCode}</p>
+                <p className="mt-1 text-xs text-admin-muted">
+                  {code.status} · {code.redeemedCount}/{code.maxRedemptions} · {formatDate(code.updatedAt)}
+                </p>
+              </div>
+            ))}
+            {codes.data?.history.length === 0 ? <EmptyState message="특별 코드 이력이 없습니다." /> : null}
+            {historyTotal > EXPERIMENTAL_INVITE_HISTORY_PAGE_SIZE ? (
+              <div className="mt-2 flex items-center justify-between gap-3">
+                <button
+                  className="rounded-xl border border-admin-border px-3 py-2 text-xs font-bold text-admin-muted disabled:opacity-40"
+                  disabled={historyPage === 0}
+                  onClick={() => setHistoryPage((page) => Math.max(page - 1, 0))}
+                  type="button"
+                >
+                  이전
+                </button>
+                <span className="text-xs font-bold text-admin-muted">
+                  {historyPage + 1} / {historyPageCount}
+                </span>
+                <button
+                  className="rounded-xl border border-admin-border px-3 py-2 text-xs font-bold text-admin-muted disabled:opacity-40"
+                  disabled={historyPage + 1 >= historyPageCount}
+                  onClick={() => setHistoryPage((page) => Math.min(page + 1, historyPageCount - 1))}
+                  type="button"
+                >
+                  다음
+                </button>
+              </div>
+            ) : null}
+          </div>
+        </Card>
+      </section>
+    </div>
+  );
+}
+
+function getLandingItemTitle(item: AdminLandingItem): string {
+  return item.title ?? item.previewItems[0]?.episodeTitle ?? item.targetId;
+}
+
+function getLandingItemSubtitle(item: AdminLandingItem): string {
+  if (item.subtitle) {
+    return item.subtitle;
+  }
+
+  if (item.targetType === 'project') {
+    return `${item.visibleItemCount}개 공개 콘텐츠`;
+  }
+
+  return item.previewItems[0]?.projectTitle ?? '공개 콘텐츠';
+}
+
+export function LandingPage() {
+  const queryClient = useQueryClient();
+  const [targetType, setTargetType] = useState<LandingTargetType>('publish');
+  const [targetId, setTargetId] = useState('');
+  const landing = useQuery({
+    queryKey: ['admin', 'landing'],
+    queryFn: () => adminApi.getLanding()
+  });
+  const projects = useQuery({ queryKey: ['admin', 'projects', 'landing'], queryFn: () => adminApi.listProjects() });
+  const publishes = useQuery({ queryKey: ['admin', 'publishes', 'landing'], queryFn: () => adminApi.listPublishes() });
+  const selectedPublish = publishes.data?.publishes.find((publish) => publish.publishId === targetId);
+  const selectedProject = projects.data?.projects.find((project) => project.projectId === targetId);
+  const invalidateLanding = async () => {
+    await queryClient.invalidateQueries({ queryKey: ['admin', 'landing'] });
+  };
+  const configMutation = useMutation({
+    mutationFn: (enabled: boolean) => adminApi.updateLandingConfig({ enabled }),
+    onSuccess: invalidateLanding
+  });
+  const createItemMutation = useMutation({
+    mutationFn: () =>
+      adminApi.createLandingItem({
+        targetId: targetId.trim(),
+        targetType
+      }),
+    onSuccess: async () => {
+      setTargetId('');
+      await invalidateLanding();
+    }
+  });
+  const statusMutation = useMutation({
+    mutationFn: ({ itemId, status }: { itemId: string; status: 'active' | 'disabled' }) =>
+      adminApi.updateLandingItem(itemId, { status }),
+    onSuccess: invalidateLanding
+  });
+  const deleteMutation = useMutation({
+    mutationFn: (itemId: string) => adminApi.deleteLandingItem(itemId),
+    onSuccess: invalidateLanding
+  });
+  const orderMutation = useMutation({
+    mutationFn: (itemIds: string[]) => adminApi.updateLandingItemOrder({ itemIds }),
+    onSuccess: invalidateLanding
+  });
+
+  function handleMoveItem(itemId: string, direction: -1 | 1) {
+    const items = landing.data?.items ?? [];
+    const currentIndex = items.findIndex((item) => item.id === itemId);
+    const nextIndex = currentIndex + direction;
+
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= items.length) {
+      return;
+    }
+
+    const nextIds = items.map((item) => item.id);
+    const currentId = nextIds[currentIndex];
+    nextIds[currentIndex] = nextIds[nextIndex];
+    nextIds[nextIndex] = currentId;
+    orderMutation.mutate(nextIds);
+  }
+
+  const isMutationPending =
+    configMutation.isPending ||
+    createItemMutation.isPending ||
+    statusMutation.isPending ||
+    deleteMutation.isPending ||
+    orderMutation.isPending;
+
+  return (
+    <div>
+      <PageHeader
+        description="/ 첫 화면의 포스터 대문을 운영자가 직접 관리합니다. 등록된 publish 또는 project 대상만 공개 대문에 노출되고, 대문을 끄면 /platform으로 이동합니다."
+        title="대문 관리"
+      />
+
+      <section className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+        <div className="grid gap-4">
+          <Card>
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <h3 className="text-xl font-black text-admin-ink">대문 상태</h3>
+                <p className="mt-1 text-sm text-admin-muted">
+                  현재 {landing.data?.enabled ?? true ? 'ON' : 'OFF'} · 마지막 수정 {formatDate(landing.data?.updatedAt)}
+                </p>
+              </div>
+              <button
+                className={[
+                  'rounded-2xl px-5 py-3 text-sm font-black text-white transition disabled:opacity-60',
+                  landing.data?.enabled ?? true ? 'bg-admin-blue' : 'bg-slate-500'
+                ].join(' ')}
+                disabled={configMutation.isPending || landing.isLoading}
+                onClick={() => configMutation.mutate(!(landing.data?.enabled ?? true))}
+                type="button"
+              >
+                {landing.data?.enabled ?? true ? 'OFF로 변경' : 'ON으로 변경'}
+              </button>
+            </div>
+          </Card>
+
+          <Card>
+            <h3 className="text-xl font-black text-admin-ink">대상 추가</h3>
+            <div className="mt-4 grid gap-3">
+              <select
+                className="rounded-2xl border border-admin-border bg-white px-4 py-3 text-sm font-bold outline-none focus:border-admin-blue"
+                onChange={(event) => {
+                  setTargetType(event.target.value as LandingTargetType);
+                  setTargetId('');
+                }}
+                value={targetType}
+              >
+                <option value="publish">Publish ID</option>
+                <option value="project">Project ID</option>
+              </select>
+
+              <select
+                className="rounded-2xl border border-admin-border bg-white px-4 py-3 text-sm font-bold outline-none focus:border-admin-blue"
+                onChange={(event) => setTargetId(event.target.value)}
+                value={targetId}
+              >
+                <option value="">목록에서 선택</option>
+                {targetType === 'publish'
+                  ? (publishes.data?.publishes ?? []).map((publish) => (
+                      <option key={publish.publishId} value={publish.publishId}>
+                        {publish.projectTitle} · {publish.episodeTitle}
+                      </option>
+                    ))
+                  : (projects.data?.projects ?? []).map((project) => (
+                      <option key={project.projectId} value={project.projectId}>
+                        {project.title}
+                      </option>
+                    ))}
+              </select>
+
+              <input
+                className="rounded-2xl border border-admin-border px-4 py-3 font-mono text-sm outline-none focus:border-admin-blue"
+                onChange={(event) => setTargetId(event.target.value)}
+                placeholder={targetType === 'publish' ? 'publish UUID 직접 입력' : 'project UUID 직접 입력'}
+                value={targetId}
+              />
+
+              <button
+                className="rounded-2xl bg-admin-blue px-4 py-3 text-sm font-black text-white disabled:opacity-60"
+                disabled={createItemMutation.isPending || !targetId.trim()}
+                onClick={() => createItemMutation.mutate()}
+                type="button"
+              >
+                대문에 추가
+              </button>
+
+              {selectedPublish ? (
+                <p className="text-xs font-bold text-admin-muted">
+                  선택됨: {selectedPublish.projectTitle} · {selectedPublish.episodeTitle}
+                </p>
+              ) : null}
+              {selectedProject ? (
+                <p className="text-xs font-bold text-admin-muted">선택됨: {selectedProject.title}</p>
+              ) : null}
+              {createItemMutation.isError ? (
+                <p className="text-xs font-bold text-rose-600">대상을 추가할 수 없습니다. ID와 공개 발행 상태를 확인해 주세요.</p>
+              ) : null}
+            </div>
+          </Card>
+        </div>
+
+        <Card>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-xl font-black text-admin-ink">노출 대상</h3>
+              <p className="mt-1 text-sm text-admin-muted">위에서부터 순서대로 최대 10개 콘텐츠가 / 대문에 표시됩니다.</p>
+            </div>
+            <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-black text-admin-blue">
+              {landing.data?.items.length ?? 0}개
+            </span>
+          </div>
+
+          <div className="mt-5 grid gap-3">
+            {(landing.data?.items ?? []).map((item, index, items) => (
+              <div className="rounded-2xl border border-admin-border px-4 py-4" key={item.id}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                      <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-black text-admin-blue">{item.targetType}</span>
+                      <span className={['rounded-full px-3 py-1 text-xs font-black', item.status === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'].join(' ')}>
+                        {item.status}
+                      </span>
+                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-admin-muted">
+                        {item.visibleItemCount}개 표시 가능
+                      </span>
+                    </div>
+                    <p className="truncate text-base font-black text-admin-ink">{getLandingItemTitle(item)}</p>
+                    <p className="mt-1 truncate text-xs font-bold text-admin-muted">{getLandingItemSubtitle(item)}</p>
+                    <p className="mt-2 break-all font-mono text-[11px] text-admin-muted">{item.targetId}</p>
+                  </div>
+
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <button
+                      className="rounded-xl border border-admin-border px-3 py-2 text-xs font-bold text-admin-muted disabled:opacity-40"
+                      disabled={index === 0 || isMutationPending}
+                      onClick={() => handleMoveItem(item.id, -1)}
+                      type="button"
+                    >
+                      위
+                    </button>
+                    <button
+                      className="rounded-xl border border-admin-border px-3 py-2 text-xs font-bold text-admin-muted disabled:opacity-40"
+                      disabled={index + 1 >= items.length || isMutationPending}
+                      onClick={() => handleMoveItem(item.id, 1)}
+                      type="button"
+                    >
+                      아래
+                    </button>
+                    <button
+                      className="rounded-xl border border-admin-border px-3 py-2 text-xs font-bold text-admin-muted disabled:opacity-40"
+                      disabled={statusMutation.isPending}
+                      onClick={() => statusMutation.mutate({ itemId: item.id, status: item.status === 'active' ? 'disabled' : 'active' })}
+                      type="button"
+                    >
+                      {item.status === 'active' ? '비활성' : '활성'}
+                    </button>
+                    <button
+                      className="rounded-xl border border-admin-border px-3 py-2 text-xs font-bold text-rose-600 disabled:opacity-40"
+                      disabled={deleteMutation.isPending}
+                      onClick={() => deleteMutation.mutate(item.id)}
+                      type="button"
+                    >
+                      삭제
+                    </button>
+                  </div>
+                </div>
+
+                {item.previewItems.length > 0 ? (
+                  <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                    {item.previewItems.map((preview) => (
+                      <div className="min-w-0 rounded-2xl bg-slate-50 px-3 py-2" key={preview.publishId}>
+                        <p className="truncate text-xs font-black text-admin-ink">{preview.episodeTitle}</p>
+                        <p className="mt-1 truncate text-[11px] text-admin-muted">{preview.projectTitle}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-3 text-xs font-bold text-rose-600">현재 공개 대문에 표시 가능한 콘텐츠가 없습니다.</p>
+                )}
+              </div>
+            ))}
+            {landing.data?.items.length === 0 ? <EmptyState message="등록된 대문 대상이 없습니다." /> : null}
+          </div>
+        </Card>
+      </section>
     </div>
   );
 }

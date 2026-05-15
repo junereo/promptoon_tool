@@ -10,6 +10,8 @@ import { createChannelRouter, createMeChannelRouter } from '../modules/channel/c
 import { createCommunityRouter } from '../modules/community/community.routes';
 import { createExperimentalRouter } from '../modules/experimental/experimental.routes';
 import { createFeedRouter } from '../modules/feed/feed.routes';
+import { createLandingRouter } from '../modules/landing/landing.routes';
+import { createPlatformAccessRouter } from '../modules/platform-access/platform-access.routes';
 import { createLegacyPromptoonRouter } from '../modules/promptoon-authoring/promptoon.routes';
 import { createStudioRouter } from '../modules/studio/studio.routes';
 import { createTelemetryRouter } from '../modules/telemetry/telemetry.routes';
@@ -37,6 +39,8 @@ export function createApp(): Express {
   app.use('/api/admin', createAdminRouter());
   app.use('/api/experimental', createExperimentalRouter());
   app.use('/api/feed', createFeedRouter());
+  app.use('/api/landing', createLandingRouter());
+  app.use('/api/platform-access', createPlatformAccessRouter());
   app.use('/api/me/channel', createMeChannelRouter());
   app.use('/api/channels', createChannelRouter());
   app.use('/api/viewer', createViewerRouter());

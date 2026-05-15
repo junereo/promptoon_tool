@@ -33,6 +33,11 @@ export const communityApi = {
     return data;
   },
 
+  async createAnonymousComment(publishId: string, body: string): Promise<CommunityComment> {
+    const { data } = await publicRootApiClient.post(`/community/publishes/${publishId}/anonymous-comments`, { body });
+    return data;
+  },
+
   async createDiscourseThread(publishId: string): Promise<unknown> {
     const { data } = await rootApiClient.post(`/community/publishes/${publishId}/discourse-topic`);
     return data;

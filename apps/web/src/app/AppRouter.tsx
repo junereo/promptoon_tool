@@ -2,6 +2,7 @@ import { Suspense, useState } from 'react';
 import { Link, Navigate, Outlet, Route, Routes, useNavigate } from 'react-router-dom';
 
 import { ProtectedRoute } from '../features/auth/components/ProtectedRoute';
+import { PlatformAccessRoute } from '../features/auth/components/PlatformAccessRoute';
 import { clearAuthSession } from '../features/auth/lib/auth-session';
 import { useAuthStore } from '../features/auth/store/use-auth-store';
 import {
@@ -13,6 +14,7 @@ import {
   ConsumerExperimentalPage,
   ConsumerLibraryPage,
   ConsumerMyPage,
+  DemoEntryPage,
   FeedHomePage,
   LegalDocumentPage,
   LoginPage,
@@ -148,18 +150,22 @@ export function AppRouter() {
   return (
     <Suspense fallback={<RouteLoadingScreen />}>
       <Routes>
-        <Route path="/" element={<ConsumerHomePage />} />
+        <Route path="/" element={<DemoEntryPage />} />
         <Route path="/about" element={<AboutPage />} />
-        <Route path="/discovery" element={<FeedHomePage />} />
+        <Route path="/platform" element={<PlatformAccessRoute><ConsumerHomePage /></PlatformAccessRoute>} />
+        <Route path="/platform/discovery" element={<PlatformAccessRoute><FeedHomePage /></PlatformAccessRoute>} />
+        <Route path="/platform/library" element={<PlatformAccessRoute><ConsumerLibraryPage /></PlatformAccessRoute>} />
+        <Route path="/platform/my" element={<PlatformAccessRoute><ConsumerMyPage /></PlatformAccessRoute>} />
+        <Route path="/discovery" element={<Navigate replace to="/platform/discovery" />} />
         <Route path="/experimental" element={<ConsumerExperimentalPage />} />
-        <Route path="/library" element={<ConsumerLibraryPage />} />
-        <Route path="/my" element={<ConsumerMyPage />} />
+        <Route path="/library" element={<Navigate replace to="/platform/library" />} />
+        <Route path="/my" element={<Navigate replace to="/platform/my" />} />
         <Route path="/privacy" element={<LegalDocumentPage />} />
         <Route path="/terms" element={<LegalDocumentPage />} />
-        <Route path="/feed" element={<Navigate replace to="/discovery" />} />
+        <Route path="/feed" element={<Navigate replace to="/platform/discovery" />} />
         <Route path="/shorts/:publishId" element={<MovingtoonShortViewerPage />} />
         <Route path="/channel/:channelId" element={<ChannelPage />} />
-        <Route path="/overview" element={<Navigate replace to="/discovery" />} />
+        <Route path="/overview" element={<Navigate replace to="/platform/discovery" />} />
         <Route path="/v/:publishId" element={<ViewerRoute />} />
         <Route path="/v/:publishId/:episodeNo" element={<ViewerRoute />} />
         <Route path="/promptoon/projects/:projectId/episodes/:episodeId/test-viewer" element={<StudioTestViewerRoute />} />

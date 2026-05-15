@@ -77,7 +77,7 @@ export function FeedActionRail({
       countLabel: '링크',
       onClick: onShare
     }
-  ];
+  ].filter((action) => Boolean(action.onClick));
 
   return (
     <aside className="flex flex-col items-center gap-4">

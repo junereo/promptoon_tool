@@ -821,6 +821,68 @@ export async function listFeedItemProjectionsByPublishIds(
   }));
 }
 
+export async function listFeedItemProjectionsByProjectId(
+  db: DbExecutor,
+  input: {
+    limit: number;
+    projectId: string;
+    userId?: string;
+  }
+): Promise<Array<{ publishId: string; id: string; publishedAt: string; item: FeedItem }>> {
+  const values: unknown[] = [input.projectId];
+  const accessUserParam = input.userId ? `$${values.push(input.userId)}` : undefined;
+  values.push(input.limit);
+
+  const result = await db.query<ResolvedFeedItemProjectionRow>(
+    `SELECT
+       id,
+       publish_id,
+       movingtoon_publish_id,
+       COALESCE(publish_id, movingtoon_publish_id) AS resolved_publish_id,
+       project_id,
+       channel_id,
+       series_id,
+       episode_id,
+       metrics_json,
+       payload_json,
+       published_at,
+       ${buildFeedItemExperimentalPredicate('promptoon_feed_item', accessUserParam)} AS is_experimental
+     FROM promptoon_feed_item
+     WHERE project_id = $1
+       AND COALESCE(publish_id, movingtoon_publish_id) IS NOT NULL
+       AND ${buildFeedItemAccessPredicate('promptoon_feed_item', accessUserParam)}
+     ORDER BY published_at DESC, id DESC
+     LIMIT $${values.length}`,
+    values
+  );
+
+  return result.rows.map((row) => ({
+    publishId: row.resolved_publish_id,
+    ...mapFeedItemProjectionRow(row)
+  }));
+}
+
+export async function countFeedItemProjectionsByProjectId(
+  db: DbExecutor,
+  input: {
+    projectId: string;
+    userId?: string;
+  }
+): Promise<number> {
+  const values: unknown[] = [input.projectId];
+  const accessUserParam = input.userId ? `$${values.push(input.userId)}` : undefined;
+  const result = await db.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count
+     FROM promptoon_feed_item
+     WHERE project_id = $1
+       AND COALESCE(publish_id, movingtoon_publish_id) IS NOT NULL
+       AND ${buildFeedItemAccessPredicate('promptoon_feed_item', accessUserParam)}`,
+    values
+  );
+
+  return Number(result.rows[0]?.count ?? 0);
+}
+
 function mapFeedItemProjectionRow(row: FeedItemProjectionRow): { id: string; publishedAt: string; item: FeedItem } {
   const isExperimental = Boolean(row.is_experimental ?? row.payload_json.isExperimental);
 
@@ -1540,7 +1602,7 @@ export async function createCommunityComment(
   db: DbExecutor,
   input: {
     publishId: string;
-    userId: string;
+    userId: string | null;
     body: string;
   }
 ): Promise<CommunityComment> {

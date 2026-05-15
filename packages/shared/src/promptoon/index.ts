@@ -9,3 +9,5 @@ export * from './analytics';
 export * from './auth';
 export * from './admin';
 export * from './experimental';
+export * from './landing';
+export * from './platform-access';

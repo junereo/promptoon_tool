@@ -2,6 +2,7 @@ import { Suspense, useState, type ReactNode } from 'react';
 import { Link, Navigate, Outlet, createBrowserRouter, useNavigate } from 'react-router-dom';
 
 import { ProtectedRoute } from '../features/auth/components/ProtectedRoute';
+import { PlatformAccessRoute } from '../features/auth/components/PlatformAccessRoute';
 import { clearAuthSession } from '../features/auth/lib/auth-session';
 import { useAuthStore } from '../features/auth/store/use-auth-store';
 import {
@@ -13,6 +14,7 @@ import {
   ConsumerExperimentalPage,
   ConsumerLibraryPage,
   ConsumerMyPage,
+  DemoEntryPage,
   FeedHomePage,
   LegalDocumentPage,
   LoginPage,
@@ -136,7 +138,23 @@ export const router: AppRouter = createBrowserRouter([
   },
   {
     path: '/',
-    element: withRouteSuspense(<ConsumerHomePage />)
+    element: withRouteSuspense(<DemoEntryPage />)
+  },
+  {
+    path: '/platform',
+    element: withRouteSuspense(<PlatformAccessRoute><ConsumerHomePage /></PlatformAccessRoute>)
+  },
+  {
+    path: '/platform/discovery',
+    element: withRouteSuspense(<PlatformAccessRoute><FeedHomePage /></PlatformAccessRoute>)
+  },
+  {
+    path: '/platform/library',
+    element: withRouteSuspense(<PlatformAccessRoute><ConsumerLibraryPage /></PlatformAccessRoute>)
+  },
+  {
+    path: '/platform/my',
+    element: withRouteSuspense(<PlatformAccessRoute><ConsumerMyPage /></PlatformAccessRoute>)
   },
   {
     path: '/about',
@@ -144,7 +162,7 @@ export const router: AppRouter = createBrowserRouter([
   },
   {
     path: '/discovery',
-    element: withRouteSuspense(<FeedHomePage />)
+    element: <Navigate replace to="/platform/discovery" />
   },
   {
     path: '/experimental',
@@ -152,11 +170,11 @@ export const router: AppRouter = createBrowserRouter([
   },
   {
     path: '/library',
-    element: withRouteSuspense(<ConsumerLibraryPage />)
+    element: <Navigate replace to="/platform/library" />
   },
   {
     path: '/my',
-    element: withRouteSuspense(<ConsumerMyPage />)
+    element: <Navigate replace to="/platform/my" />
   },
   {
     path: '/privacy',
@@ -168,7 +186,7 @@ export const router: AppRouter = createBrowserRouter([
   },
   {
     path: '/feed',
-    element: <Navigate replace to="/discovery" />
+    element: <Navigate replace to="/platform/discovery" />
   },
   {
     path: '/shorts/:publishId',
@@ -180,7 +198,7 @@ export const router: AppRouter = createBrowserRouter([
   },
   {
     path: '/overview',
-    element: <Navigate replace to="/discovery" />
+    element: <Navigate replace to="/platform/discovery" />
   },
   {
     path: '/c/:channelSlug',

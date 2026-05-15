@@ -180,6 +180,15 @@ export function FeedSlide({
         ) : (
           <div className="absolute inset-0 bg-[linear-gradient(135deg,#131316,#202327_52%,#050506)]" />
         )}
+        <button
+          aria-label={`${item.episodeTitle} 보기`}
+          className="absolute inset-0 z-10 cursor-pointer bg-transparent"
+          disabled={isOpening}
+          onClick={onOpen}
+          onFocus={onPreloadIntent}
+          onPointerEnter={onPreloadIntent}
+          type="button"
+        />
       </div>
 
       <div

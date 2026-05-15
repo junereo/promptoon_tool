@@ -21,6 +21,7 @@ export const preloadConsumerExperimentalPage = () => import('../domains/consumer
 export const preloadConsumerLibraryPage = () => import('../domains/consumer/pages/ConsumerLibraryPage');
 export const preloadConsumerMyPage = () => import('../domains/consumer/pages/ConsumerMyPage');
 export const preloadLegalDocumentPage = () => import('../domains/consumer/pages/LegalDocumentPage');
+export const preloadDemoEntryPage = () => import('../domains/feed/pages/DemoEntryPage');
 export const preloadDiscoveryPage = () => import('../domains/feed/pages/FeedHomePage');
 export const preloadMovingtoonShortViewerPage = () => import('../domains/feed/pages/MovingtoonShortViewerPage');
 export const preloadLoginPage = () => import('../pages/LoginPage');
@@ -46,6 +47,7 @@ export const ConsumerExperimentalPage = lazyNamedPage(preloadConsumerExperimenta
 export const ConsumerLibraryPage = lazyNamedPage(preloadConsumerLibraryPage, 'ConsumerLibraryPage');
 export const ConsumerMyPage = lazyNamedPage(preloadConsumerMyPage, 'ConsumerMyPage');
 export const LegalDocumentPage = lazyNamedPage(preloadLegalDocumentPage, 'LegalDocumentPage');
+export const DemoEntryPage = lazyNamedPage(preloadDemoEntryPage, 'DemoEntryPage');
 export const FeedHomePage = lazyNamedPage(preloadDiscoveryPage, 'FeedHomePage');
 export const MovingtoonShortViewerPage = lazyNamedPage(preloadMovingtoonShortViewerPage, 'MovingtoonShortViewerPage');
 export const LoginPage = lazyNamedPage(preloadLoginPage, 'LoginPage');
@@ -77,6 +79,10 @@ export function preloadAppRoute(to: string, options: { publishId?: string; itemT
   const routePath = getRoutePath(to);
 
   if (routePath === '/') {
+    return preloadDemoEntryPage();
+  }
+
+  if (routePath === '/platform') {
     return preloadConsumerHomePage();
   }
 
@@ -84,11 +90,11 @@ export function preloadAppRoute(to: string, options: { publishId?: string; itemT
     return preloadAboutPage();
   }
 
-  if (routePath === '/discovery' || routePath === '/feed' || routePath === '/overview') {
+  if (routePath === '/platform/discovery' || routePath === '/discovery' || routePath === '/feed' || routePath === '/overview') {
     return preloadDiscoveryPage();
   }
 
-  if (routePath === '/library') {
+  if (routePath === '/platform/library' || routePath === '/library') {
     return preloadConsumerLibraryPage();
   }
 
@@ -96,7 +102,7 @@ export function preloadAppRoute(to: string, options: { publishId?: string; itemT
     return preloadConsumerExperimentalPage();
   }
 
-  if (routePath === '/my') {
+  if (routePath === '/platform/my' || routePath === '/my') {
     return preloadConsumerMyPage();
   }
 

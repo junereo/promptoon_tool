@@ -5,6 +5,8 @@ import { asyncHandler } from '../../lib/async-handler';
 import { getRequiredAuthUser, requireAuth } from '../../lib/auth';
 import { HttpError } from '../../lib/http-error';
 import * as experimentalService from '../experimental/experimental.service';
+import * as landingService from '../landing/landing.service';
+import * as platformAccessService from '../platform-access/platform-access.service';
 import * as service from './admin.service';
 
 const userListQuerySchema = z.object({
@@ -47,6 +49,38 @@ const patchExperimentalInviteCodeSchema = z.object({
 const experimentalInviteCodeListQuerySchema = z.object({
   historyLimit: z.coerce.number().int().min(1).max(100).default(10),
   historyOffset: z.coerce.number().int().min(0).default(0)
+});
+const createPlatformAccessGrantSchema = z.object({
+  loginId: z.string().trim().min(1).max(128)
+});
+const patchPlatformAccessGrantSchema = z.object({
+  status: z.enum(['active', 'revoked'])
+});
+const createPlatformAccessCodeSchema = z.object({
+  mode: z.enum(['single_use_batch', 'multi_use']),
+  count: z.number().int().min(1).max(500).optional(),
+  maxRedemptions: z.number().int().min(1).max(10000).optional(),
+  expiresAt: z.string().datetime().optional()
+});
+const patchPlatformAccessCodeSchema = z.object({
+  status: z.literal('revoked')
+});
+const platformAccessCodeListQuerySchema = z.object({
+  historyLimit: z.coerce.number().int().min(1).max(100).default(10),
+  historyOffset: z.coerce.number().int().min(0).default(0)
+});
+const patchLandingConfigSchema = z.object({
+  enabled: z.boolean()
+});
+const createLandingItemSchema = z.object({
+  targetType: z.enum(['publish', 'project']),
+  targetId: z.string().uuid()
+});
+const patchLandingItemSchema = z.object({
+  status: z.enum(['active', 'disabled'])
+});
+const updateLandingItemOrderSchema = z.object({
+  itemIds: z.array(z.string().uuid()).min(0).max(200)
 });
 
 function getParam(value: string | string[] | undefined, name: string): string {
@@ -104,6 +138,39 @@ export function createAdminRouter(): Router {
     response.json(await service.getTelemetrySummary());
   }));
 
+  router.get('/landing', asyncHandler(async (_request, response) => {
+    response.json(await landingService.getAdminLanding());
+  }));
+
+  router.patch('/landing', asyncHandler(async (request, response) => {
+    const body = patchLandingConfigSchema.parse(request.body);
+    const actor = getRequiredAuthUser(request);
+    response.json(await landingService.updateLandingConfig(body.enabled, actor.sub));
+  }));
+
+  router.post('/landing/items', asyncHandler(async (request, response) => {
+    const body = createLandingItemSchema.parse(request.body);
+    const actor = getRequiredAuthUser(request);
+    response.status(201).json(await landingService.createLandingItem(body, actor.sub));
+  }));
+
+  router.patch('/landing/items/:itemId', asyncHandler(async (request, response) => {
+    const body = patchLandingItemSchema.parse(request.body);
+    const actor = getRequiredAuthUser(request);
+    response.json(await landingService.updateLandingItemStatus(getParam(request.params.itemId, 'itemId'), body.status, actor.sub));
+  }));
+
+  router.put('/landing/items/order', asyncHandler(async (request, response) => {
+    const body = updateLandingItemOrderSchema.parse(request.body);
+    const actor = getRequiredAuthUser(request);
+    response.json(await landingService.updateLandingItemOrder(body.itemIds, actor.sub));
+  }));
+
+  router.delete('/landing/items/:itemId', asyncHandler(async (request, response) => {
+    await landingService.deleteLandingItem(getParam(request.params.itemId, 'itemId'));
+    response.status(204).send();
+  }));
+
   router.get('/experimental/targets', asyncHandler(async (_request, response) => {
     response.json(await experimentalService.listTargets());
   }));
@@ -157,6 +224,37 @@ export function createAdminRouter(): Router {
   router.patch('/experimental/invite-codes/:codeId', asyncHandler(async (request, response) => {
     patchExperimentalInviteCodeSchema.parse(request.body);
     response.json(await experimentalService.revokeInviteCode(getParam(request.params.codeId, 'codeId')));
+  }));
+
+  router.get('/platform-access/grants', asyncHandler(async (_request, response) => {
+    response.json(await platformAccessService.listGrants());
+  }));
+
+  router.post('/platform-access/grants', asyncHandler(async (request, response) => {
+    const body = createPlatformAccessGrantSchema.parse(request.body);
+    const actor = getRequiredAuthUser(request);
+    response.status(201).json(await platformAccessService.grantAccess(body.loginId, actor.sub));
+  }));
+
+  router.patch('/platform-access/grants/:grantId', asyncHandler(async (request, response) => {
+    const body = patchPlatformAccessGrantSchema.parse(request.body);
+    response.json(await platformAccessService.updateGrantStatus(getParam(request.params.grantId, 'grantId'), body.status));
+  }));
+
+  router.get('/platform-access/codes', asyncHandler(async (request, response) => {
+    const query = platformAccessCodeListQuerySchema.parse(request.query);
+    response.json(await platformAccessService.listCodes(query));
+  }));
+
+  router.post('/platform-access/codes', asyncHandler(async (request, response) => {
+    const body = createPlatformAccessCodeSchema.parse(request.body);
+    const actor = getRequiredAuthUser(request);
+    response.status(201).json(await platformAccessService.createCodes(body, actor.sub));
+  }));
+
+  router.patch('/platform-access/codes/:codeId', asyncHandler(async (request, response) => {
+    patchPlatformAccessCodeSchema.parse(request.body);
+    response.json(await platformAccessService.revokeCode(getParam(request.params.codeId, 'codeId')));
   }));
 
   return router;
