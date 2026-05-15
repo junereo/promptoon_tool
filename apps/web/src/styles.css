@@ -336,3 +336,31 @@ select option:disabled {
     display: none;
   }
 }
+@media (max-width: 1023px) {
+  .demo-entry-page {
+    --feed-header-height: 0px;
+    --feed-bottom-nav-height: 0px;
+    --feed-shell-width: 100vw;
+    --feed-available-height: 100dvh;
+    --feed-frame-height: 100dvh;
+    --feed-frame-width: 100vw;
+  }
+
+  .demo-entry-page .feed-snap-scroller {
+    height: 100dvh;
+    margin-top: 0;
+    width: 100%;
+  }
+
+  .demo-entry-page .feed-snap-slide {
+    height: 100dvh;
+    width: 100%;
+  }
+
+  .demo-entry-page .feed-viewport-frame {
+    aspect-ratio: auto;
+    height: 100dvh;
+    max-width: none;
+    width: 100%;
+  }
+}

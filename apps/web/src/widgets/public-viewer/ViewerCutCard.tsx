@@ -331,8 +331,31 @@ export function ViewerCutCard({
         className="relative flex min-h-full shrink-0 flex-col justify-center bg-[#050506] px-5 py-8 sm:px-8"
         data-viewer-layout={compact ? 'compact' : 'fullscreen'}
       >
+        {hasOverlayContent ? (
+          <div className={getDialogPlacementClasses(cut)}>
+            <ViewerContentPanel
+              cut={cut}
+              frameClassName={getContentPanelClassName(cut)}
+              frameStyle={getDialogPlacementStyle(cut)}
+              onUserNameChange={onUserNameChange}
+              placement="overlay"
+              userName={userName}
+            />
+          </div>
+        ) : null}
         <div className="mx-auto flex w-full max-w-[30rem] flex-col items-center">
           <ResultCard assetUrl={cut.assetUrl} block={resultCardBlock} />
+          {hasFlowContent ? (
+            <div className="mt-6 w-full" style={{ minHeight: flowContentMinHeight }}>
+              <ViewerContentPanel
+                cut={cut}
+                frameClassName={`${getContentPanelClassName(cut)} w-full`}
+                onUserNameChange={onUserNameChange}
+                placement="flow"
+                userName={userName}
+              />
+            </div>
+          ) : null}
           {showEndingActions ? (
             <div className="mt-6 grid w-full gap-3 sm:grid-cols-2">
               <button

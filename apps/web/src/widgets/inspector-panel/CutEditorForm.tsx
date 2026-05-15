@@ -15,7 +15,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { CONTENT_SPACING_OPTIONS, deriveContentBlocksBody, normalizeCutContentBlocks } from '../../shared/lib/cut-content';
-import { RESULT_CARD_THEME_OPTIONS, createResultCardBlock, getResultCardBlock, upsertResultCardBlock } from '../../shared/lib/result-card';
+import { RESULT_CARD_THEME_OPTIONS, createResultCardBlock, getResultCardBlock } from '../../shared/lib/result-card';
 import { useDebounce } from '../../shared/lib/use-debounce';
 import {
   CUT_EFFECT_OPTIONS,
@@ -114,7 +114,8 @@ function getInitialContentBlocks(cut: Cut): CutContentBlock[] {
   }
 
   const resultCardBlock = getResultCardBlock(cut) ?? createResultCardBlock('blue', { resultName: cut.title });
-  return [resultCardBlock];
+  const regularBlocks = (cut.contentBlocks ?? []).filter((block) => block.type !== 'resultCard');
+  return [resultCardBlock, ...regularBlocks];
 }
 
 function toFormState(cut: Cut): CutFormState {
@@ -478,6 +479,9 @@ export function CutEditorForm({
       title: formState.title,
       contentBlocks: formState.contentBlocks
     }) ?? createResultCardBlock('blue', { resultName: formState.title });
+  const editableContentBlocks = isResultCard
+    ? formState.contentBlocks.filter((block) => block.type !== 'resultCard')
+    : formState.contentBlocks;
 
   function updateResultCardBlock(updater: (block: PromptoonResultCardContentBlock) => PromptoonResultCardContentBlock) {
     setFormState((current) => {
@@ -488,14 +492,14 @@ export function CutEditorForm({
           title: current.title,
           contentBlocks: current.contentBlocks
         }) ?? createResultCardBlock('blue', { resultName: current.title });
+      const regularBlocks = current.contentBlocks.filter((block) => block.type !== 'resultCard');
 
       return {
         ...current,
-        contentBlocks: upsertResultCardBlock(current.contentBlocks, updater(currentBlock))
+        contentBlocks: [updater(currentBlock), ...regularBlocks]
       };
     });
   }
-
   useEffect(() => {
     if (debouncedDraft.cutId !== cut.id) {
       return;
@@ -672,8 +676,27 @@ export function CutEditorForm({
   );
   const contentBlocksEditor = (
     <CutContentBlocksEditor
-      blocks={formState.contentBlocks}
-      onChange={(contentBlocks) => setFormState((current) => ({ ...current, contentBlocks }))}
+      blocks={editableContentBlocks}
+      onChange={(contentBlocks) =>
+        setFormState((current) => {
+          if (current.kind !== 'resultCard') {
+            return { ...current, contentBlocks };
+          }
+
+          const currentResultCardBlock =
+            getResultCardBlock({
+              id: cut.id,
+              kind: 'resultCard',
+              title: current.title,
+              contentBlocks: current.contentBlocks
+            }) ?? createResultCardBlock('blue', { resultName: current.title });
+
+          return {
+            ...current,
+            contentBlocks: [currentResultCardBlock, ...contentBlocks.filter((block) => block.type !== 'resultCard')]
+          };
+        })
+      }
       onUploadAsset={onUploadAsset}
       onViewModeChange={(contentViewMode) => setFormState((current) => ({ ...current, contentViewMode }))}
       viewMode={formState.contentViewMode}
@@ -1268,9 +1291,9 @@ export function CutEditorForm({
             </div>
           ) : null}
 
-          {!isStateRouter && !isResultCard && !contentBlocksPortalEnabled ? contentBlocksEditor : null}
+          {!isStateRouter && !contentBlocksPortalEnabled ? contentBlocksEditor : null}
 
-          {!isStateRouter && !isResultCard && !dialoguePositionPortalTarget ? dialoguePositionEditor : null}
+          {!isStateRouter && !dialoguePositionPortalTarget ? dialoguePositionEditor : null}
 
           <div className="inspector-form-grid grid gap-3">
             <div className="inspector-field-grid grid gap-3">
@@ -1533,8 +1556,8 @@ export function CutEditorForm({
           </div>
         </div>
       </section>
-      {!isStateRouter && !isResultCard && contentBlocksPortalEnabled && contentBlocksPortalTarget ? createPortal(contentBlocksEditor, contentBlocksPortalTarget) : null}
-      {!isStateRouter && !isResultCard && dialoguePositionPortalTarget ? createPortal(dialoguePositionEditor, dialoguePositionPortalTarget) : null}
+      {!isStateRouter && contentBlocksPortalEnabled && contentBlocksPortalTarget ? createPortal(contentBlocksEditor, contentBlocksPortalTarget) : null}
+      {!isStateRouter && dialoguePositionPortalTarget ? createPortal(dialoguePositionEditor, dialoguePositionPortalTarget) : null}
     </>
   );
 }

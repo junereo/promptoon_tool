@@ -377,7 +377,7 @@ export function DemoEntryPage() {
     <main className={`min-h-dvh bg-[#050506] text-white ${isCommentsPanelOpen && commentsPanelItem ? 'feed-comments-open' : ''}`}>
       <div className={CONSUMER_FRAME_CLASS}>
         <ConsumerDesktopLandingPanel />
-        <section className={`${CONSUMER_RIGHT_FRAME_CLASS} feed-page relative overflow-hidden !bg-black shadow-[0_0_80px_rgba(0,0,0,0.42)]`}>
+        <section className={`${CONSUMER_RIGHT_FRAME_CLASS} demo-entry-page feed-page relative overflow-hidden !bg-black shadow-[0_0_80px_rgba(0,0,0,0.42)]`}>
           <div className="feed-snap-scroller overflow-y-auto snap-y snap-mandatory scrollbar-hidden" ref={containerRef}>
             {content}
           </div>

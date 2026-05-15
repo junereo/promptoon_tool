@@ -163,8 +163,8 @@ export function PreviewPlayer({
   const showEndingButton = Boolean(cut && isPromptoonEndingCut(cut) && cut.kind !== 'resultCard');
   const hasPreviewFooterContent = showChoices || Boolean(reactionText) || showEndingButton;
   const activeSelectedChoiceId = pendingChoiceId ?? selectedChoiceId;
-  const hasOverlayContent = cut && !isResultCardPreview ? getCutContentBlocksByPlacement(cut, 'overlay').length > 0 : false;
-  const hasFlowContent = cut && !isResultCardPreview ? getCutContentBlocksByPlacement(cut, 'flow').length > 0 : false;
+  const hasOverlayContent = cut ? getCutContentBlocksByPlacement(cut, 'overlay').length > 0 : false;
+  const hasFlowContent = cut ? getCutContentBlocksByPlacement(cut, 'flow').length > 0 : false;
   const flowContentMinHeight = cut ? getContentSpacingMinHeight(cut.marginBottomToken) : undefined;
   const previewImageBottomSpacingHeight = cut?.assetUrl && !imageFailed && !hasFlowContent ? getContentSpacingMinHeight(cut.marginBottomToken) : undefined;
   const previewBottomContentHeight = hasFlowContent ? flowContentMinHeight : previewImageBottomSpacingHeight;

@@ -273,7 +273,7 @@ export function getContentBlockPlacement(block: CutContentBlock): PromptoonConte
 }
 
 export function getCutContentBlocksByPlacement(cut: ContentRenderableCut, placement: PromptoonContentPlacement): CutContentBlock[] {
-  return normalizeCutContentBlocks(cut).filter((block) => getContentBlockPlacement(block) === placement);
+  return normalizeCutContentBlocks(cut).filter((block) => block.type !== 'resultCard' && getContentBlockPlacement(block) === placement);
 }
 
 export function deriveContentBlocksBody(contentBlocks: CutContentBlock[], fallback = ''): string {

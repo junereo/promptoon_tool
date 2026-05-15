@@ -1,4 +1,4 @@
-import type { Choice, Cut, PromptoonResultCardContentBlock } from '@promptoon/shared';
+import type { Choice, Cut, PromptoonNarrationContentBlock, PromptoonResultCardContentBlock } from '@promptoon/shared';
 import { DEFAULT_CUT_EFFECT_DURATION_MS } from '@promptoon/shared';
 import { act } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -113,6 +113,106 @@ describe('InspectorPanel', () => {
     await waitFor(() => {
       expect(onDeleteCut).toHaveBeenCalledWith(middle.id, { reconnectToCutId: ending.id });
     });
+  });
+
+  it('adds regular content blocks and dialogue positioning to result card cuts', () => {
+    vi.useFakeTimers();
+
+    try {
+      const resultCardBlock: PromptoonResultCardContentBlock = {
+        id: 'result-card-1',
+        type: 'resultCard',
+        templateId: 'the-replace-final',
+        theme: 'blue',
+        badge: 'TYPE 01',
+        resultName: '합리적인 가해자',
+        tagline: '알면서도 손을 들었다',
+        lines: ['당신은 명확히 보았다.', '그리고 판단했다.'],
+        inflowLabel: 'CHECK IN',
+        inflowUrl: 'promtoon.ai',
+        inflowBrand: 'PROMTOON',
+        inflowTagline: '반응형 웹툰'
+      };
+      const regularBlock: PromptoonNarrationContentBlock = {
+        id: 'result-regular-block',
+        type: 'narration',
+        text: '초기 서술',
+        textAlign: 'left',
+        fontToken: 'sans-kr',
+        fontSizeToken: 'xl',
+        lineHeightToken: 'normal',
+        marginTopToken: 'none',
+        marginBottomToken: 'none',
+        placement: 'flow'
+      };
+      const resultCut = buildCut('cut-result', {
+        kind: 'resultCard',
+        isEnding: true,
+        body: '합리적인 가해자',
+        contentBlocks: [resultCardBlock, regularBlock]
+      });
+      const onUpdateCut = vi.fn();
+
+      render(
+        <InspectorPanel
+          choices={[]}
+          cuts={[resultCut]}
+          onCreateChoice={vi.fn()}
+          onCommitCut={vi.fn().mockResolvedValue(undefined)}
+          onDeleteChoice={vi.fn()}
+          onDeleteCut={vi.fn()}
+          onUploadAsset={vi.fn()}
+          onSelectChoice={vi.fn()}
+          onUpdateChoice={vi.fn()}
+          onUpdateCut={onUpdateCut}
+          pendingAutosaveCount={0}
+          selectedChoice={null}
+          selectedCut={resultCut}
+        />
+      );
+
+      expect(screen.getByText('콘텐츠 블록')).toBeTruthy();
+      expect(screen.getByText('대사 위치')).toBeTruthy();
+      expect(screen.getAllByText('결과 카드').length).toBeGreaterThan(1);
+      expect(screen.getByDisplayValue('초기 서술')).toBeTruthy();
+
+      fireEvent.change(screen.getByLabelText('Block Text'), {
+        target: {
+          value: '나는 지목이 뭘 의미하는지 알고 있었다.'
+        }
+      });
+      fireEvent.change(screen.getByLabelText('Block Placement'), { target: { value: 'overlay' } });
+      fireEvent.change(screen.getByRole('combobox', { name: 'Horizontal' }), { target: { value: 'center' } });
+      fireEvent.change(screen.getByRole('combobox', { name: 'Vertical' }), { target: { value: 'lower' } });
+
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+
+      expect(onUpdateCut).toHaveBeenCalledWith(
+        resultCut.id,
+        expect.objectContaining({
+          body: expect.stringContaining('나는 지목이 뭘 의미하는지 알고 있었다.'),
+          dialogAnchorX: 'center',
+          dialogAnchorY: 'lower',
+          contentBlocks: [
+            expect.objectContaining({
+              id: resultCardBlock.id,
+              type: 'resultCard',
+              resultName: '합리적인 가해자'
+            }),
+            expect.objectContaining({
+              id: regularBlock.id,
+              type: 'narration',
+              text: '나는 지목이 뭘 의미하는지 알고 있었다.',
+              placement: 'overlay'
+            })
+          ]
+        })
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('renders the choice editor section only when the active cut kind is choice', async () => {
